@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Pixel RPG</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="game-container">
+    <div id="ui-bar">
+      <div id="stats">
+        <span class="stat-badge">❤️ HP: <span id="hp-val">100</span>/100</span>
+        <span class="stat-badge">🪙 Gold: <span id="gold-val">0</span></span>
+      </div>
+      <div id="zone-title">Whispering Woods</div>
+    </div>
+
+    <canvas id="gameCanvas" width="480" height="320"></canvas>
+
+    <!-- Dialog Box overlay -->
+    <div id="dialog-box" class="hidden">
+      <div id="dialog-speaker">Elder Rowan</div>
+      <div id="dialog-text">Greetings, traveler! Explore the woods and beware of deep waters.</div>
+      <div id="dialog-prompt">Tap or press Space to continue...</div>
+    </div>
+
+    <!-- On-Screen Touch Controls for Mobile Playtesting -->
+    <div id="touch-controls">
+      <div class="dpad">
+        <button id="btn-up" class="touch-btn dpad-btn">▲</button>
+        <div class="dpad-middle">
+          <button id="btn-left" class="touch-btn dpad-btn">◀</button>
+          <div class="dpad-center"></div>
+          <button id="btn-right" class="touch-btn dpad-btn">▶</button>
+        </div>
+        <button id="btn-down" class="touch-btn dpad-btn">▼</button>
+      </div>
+
+      <div class="action-buttons">
+        <button id="btn-action" class="touch-btn action-btn">A</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="instructions">
+    <p><strong>Desktop Controls:</strong> WASD or Arrow Keys to Move | <strong>Space / Enter:</strong> Interact</p>
+    <p><strong>Mobile Controls:</strong> Use the on-screen D-Pad and [A] button</p>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
