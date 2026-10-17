@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>Pixel RPG</title>
     <style>
         * {
@@ -201,40 +204,131 @@
             justify-content: space-between;
         }
 
+        /* Primary Action Controls Bar */
+        #action-bar {
+            width: 100%;
+            max-width: 360px;
+            display: flex;
+            gap: 6px;
+            margin-top: 6px;
+        }
+
+        .action-btn {
+            flex: 1;
+            background: #141521;
+            border: 1px solid #36394f;
+            border-radius: 6px;
+            color: #f0f0ff;
+            font-family: inherit;
+            font-size: 11px;
+            font-weight: bold;
+            padding: 8px 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            cursor: pointer;
+            touch-action: manipulation;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+            transition: background 0.1s, border-color 0.1s, transform 0.05s;
+        }
+
+        .action-btn:hover {
+            background: #1e2030;
+            border-color: #64d8cb;
+        }
+
+        .action-btn:active {
+            background: #25283d;
+            border-color: #ffcc00;
+            transform: scale(0.97);
+        }
+
+        .action-btn-highlight {
+            border-color: #ffcc00;
+            background: #1a1a26;
+        }
+
         /* Visual Paperdoll Slots */
         .paperdoll-slot {
             flex: 1;
             background: #0c0d13;
-            border: 1px solid #2b2e40;
-            border-radius: 5px;
-            padding: 4px;
+            border: 1px dashed #262938;
+            border-radius: 6px;
+            padding: 5px 4px;
             text-align: center;
             min-width: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .paperdoll-slot.equipped {
+            background: #111520;
+            border: 1px solid #3c546b;
+            box-shadow: 0 0 8px rgba(100, 216, 203, 0.1);
+        }
+
+        .paperdoll-slot .slot-label {
+            font-size: 9px;
+            color: #888ea6;
+            text-transform: uppercase;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+        }
+
+        .paperdoll-slot .slot-icon {
+            font-size: 19px;
+            margin: 2px 0;
+        }
+
+        .paperdoll-slot .slot-name {
+            font-size: 10px;
+            color: #64d8cb;
+            font-weight: bold;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 100%;
+        }
+
+        .paperdoll-slot .slot-stat {
+            font-size: 9px;
+            color: #ffcc00;
+            min-height: 12px;
         }
 
         /* 15 Backpack Grid */
         #backpack-grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
-            gap: 4px;
-            max-height: 120px;
+            gap: 5px;
+            max-height: 125px;
             overflow-y: auto;
             background: #090a0f;
             padding: 6px;
             border: 1px solid #202230;
-            border-radius: 4px;
+            border-radius: 6px;
         }
 
         .backpack-slot {
-            background: #111219;
-            border: 1px dashed #262938;
-            border-radius: 3px;
-            padding: 4px;
+            background: #101118;
+            border: 1px dashed #232635;
+            border-radius: 4px;
+            padding: 5px 4px;
             font-size: 10px;
             text-align: center;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            color: #888;
+        }
+
+        .backpack-slot.equipped {
+            background: #141724;
+            border: 1px solid #3b425e;
+            color: #f0f0ff;
         }
 
         .modal-btn {
@@ -253,29 +347,43 @@
 </head>
 <body>
 
-    <!-- Minimal Header: Seed + Zoom + Floor + Character Button -->
+    <!-- Minimal Header: Seed + Floor/Stats -->
     <div id="header-bar">
         <div class="header-chip" title="Active Playthrough Seed">
             🌱 <span id="seed-display" style="color: #7ec8ff; letter-spacing: 1px;">XXXX-XXXX</span>
             <button id="btn-reroll" class="btn-icon" title="New Random Run">🎲</button>
         </div>
 
-        <div class="header-chip" id="btn-zoom" title="Toggle Map Zoom">
-            🔍 <span id="hud-zoom" style="color: #64d8cb;">1x</span>
-        </div>
-
-        <div class="header-chip" id="btn-sheet-open" title="View Character Sheet & Equipment">
+        <div class="header-chip" id="btn-sheet-open" title="Character HP & AC (Tap to open Paperdoll)">
             <span id="hud-floor" style="color: #ffcc00; margin-right: 2px;">F1</span>
             <span style="color: #ff5577;">❤️ <span id="hud-hp">28</span>/<span id="hud-max-hp">28</span></span>
             <span style="color: #555;">|</span>
             <span style="color: #64d8cb;">AC <span id="hud-ac">12</span></span>
-            <span style="font-size: 11px; color: #ffcc00;">👤</span>
+            <span style="color: #ffcc00; margin-left: 2px;">👤</span>
         </div>
     </div>
 
     <!-- Main Map Viewport (Tap/Click to move | Long-press to inspect) -->
     <div id="map-container">
         <canvas id="stage" width="352" height="352"></canvas>
+    </div>
+
+    <!-- Primary Action Controls Bar (Prominent on Mobile & Desktop) -->
+    <div id="action-bar">
+        <button id="btn-zoom-main" class="action-btn" title="Toggle Map Zoom: 1x, 1.5x, 2.5x (Hotkey: Z)">
+            <span style="font-size: 14px;">🔍</span>
+            <span>Zoom: <strong id="action-zoom-label" style="color: #64d8cb;">1x</strong></span>
+        </button>
+
+        <button id="btn-sheet-main" class="action-btn action-btn-highlight" title="Open Character Paperdoll (10 Body + 15 Bag Slots) (Hotkey: C)">
+            <span style="font-size: 14px;">👤</span>
+            <span style="color: #ffcc00;">Paperdoll (25)</span>
+        </button>
+
+        <button id="btn-wait-main" class="action-btn" title="Pass 1 turn / Rest & Heal (Hotkey: Space)">
+            <span style="font-size: 14px;">⏳</span>
+            <span>Wait Turn</span>
+        </button>
     </div>
 
     <!-- Single-Line Message Ticker -->
@@ -285,7 +393,10 @@
     <div id="sheet-modal" class="modal-overlay" onclick="closeSheetModal(event)">
         <div class="modal-card" onclick="event.stopPropagation()">
             <div class="modal-header">
-                <span class="modal-title">🛡️ HUMAN WARRIOR</span>
+                <div>
+                    <span class="modal-title">🛡️ CHARACTER & PAPERDOLL</span>
+                    <div style="font-size: 10px; color: #888;">25 Inventory Slots: 10 Body + 15 Backpack</div>
+                </div>
                 <button class="close-btn" onclick="closeSheetModal()">✕</button>
             </div>
             <div class="stat-grid">
@@ -298,25 +409,31 @@
             </div>
             <div class="stat-grid" style="margin-top: 2px;">
                 <div class="stat-box" style="border-color: #ffcc00;"><span id="sheet-per">PER: 10 (+0)</span> <strong>Rad: 3</strong></div>
-                <div class="stat-box" style="border-color: #64d8cb;"><span>AC:</span> <strong id="sheet-ac">12</strong></div>
+                <div class="stat-box" style="border-color: #64d8cb;"><span>Armor Class:</span> <strong id="sheet-ac">12</strong></div>
             </div>
             <div class="stat-box" style="border-color: #ff5577; width: 100%;">
-                <span>Hit Points:</span> <strong id="sheet-hp">28 / 28</strong>
+                <span>Hit Points:</span> <strong id="sheet-hp" style="color: #ff7799;">28 / 28</strong>
             </div>
 
             <!-- Visual Paperdoll Body Layout -->
-            <div style="font-size: 11px; color: #ffcc00; margin-top: 4px; font-weight: bold;">👤 EQUIPPED (10 Slots):</div>
+            <div style="font-size: 11px; color: #ffcc00; margin-top: 4px; font-weight: bold; display: flex; justify-content: space-between;">
+                <span>👤 EQUIPPED ON BODY (10 SLOTS):</span>
+                <span style="font-size: 10px; color: #888ea6;">Head, Hands, Chest, Rings...</span>
+            </div>
             <div id="paperdoll-body" style="background: #090a0f; border: 1px solid #232535; border-radius: 6px; padding: 6px;">
                 <!-- Generated dynamically -->
             </div>
 
             <!-- 15 Backpack Slots -->
-            <div style="font-size: 11px; color: #888; margin-top: 2px;">🎒 BACKPACK (15 Slots):</div>
+            <div style="font-size: 11px; color: #888; margin-top: 2px; display: flex; justify-content: space-between;">
+                <span>🎒 BACKPACK INVENTORY (15 SLOTS):</span>
+                <span style="font-size: 10px; color: #666;">Loot storage</span>
+            </div>
             <div id="backpack-grid">
                 <!-- Generated dynamically -->
             </div>
 
-            <button class="modal-btn" onclick="closeSheetModal()">Close Sheet</button>
+            <button class="modal-btn" onclick="closeSheetModal()">Close Character Sheet</button>
         </div>
     </div>
 
@@ -355,10 +472,10 @@
         </div>
     </div>
 
-    <!-- Core Modular Engine Script -->
+    <!-- Core Modular Engine Script with Cache-Busting Version Query -->
     <script type="module">
-        import { startPlaythrough, restartSameSeed, populateSheet, cycleZoom } from './src/main.js';
-        import { PRNG } from './src/core/RNG.js';
+        import { startPlaythrough, restartSameSeed, populateSheet, cycleZoom, waitTurn } from './src/main.js?v=4.0';
+        import { PRNG } from './src/core/RNG.js?v=4.0';
 
         window.openSheetModal = function() {
             populateSheet();
@@ -373,8 +490,13 @@
             document.getElementById('inspect-modal').classList.remove('active');
         };
 
+        // Connect both Header button and Action Bar button to Paperdoll
         document.getElementById('btn-sheet-open').addEventListener('click', window.openSheetModal);
-        document.getElementById('btn-zoom').addEventListener('click', cycleZoom);
+        document.getElementById('btn-sheet-main').addEventListener('click', window.openSheetModal);
+
+        // Connect Zoom and Wait buttons
+        document.getElementById('btn-zoom-main').addEventListener('click', cycleZoom);
+        document.getElementById('btn-wait-main').addEventListener('click', waitTurn);
 
         document.getElementById('btn-reroll').addEventListener('click', () => {
             const newSeed = PRNG.generateRandomSeed();

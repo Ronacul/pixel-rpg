@@ -99,7 +99,11 @@ export function cycleZoom() {
     canvas.width = VIEW_COLS * TILE_SIZE;
     canvas.height = VIEW_ROWS * TILE_SIZE;
 
-    document.getElementById('hud-zoom').innerText = z.label;
+    const azl = document.getElementById('action-zoom-label');
+    if (azl) azl.innerText = z.label;
+    const hz = document.getElementById('hud-zoom');
+    if (hz) hz.innerText = z.label;
+    postMessage(`🔍 Map Zoom set to ${z.label} (${VIEW_COLS}x${VIEW_ROWS} tiles view)`, 'msg-info');
     draw();
 }
 
@@ -706,17 +710,52 @@ canvas.addEventListener('contextmenu', (e) => {
     inspectTileAt(world.x, world.y);
 });
 
+export function waitTurn() {
+    if (!player || !player.alive) return;
+    endTurn();
+    postMessage('⏳ You wait a turn to recover and observe surroundings.', 'msg-info');
+    draw();
+}
+
 window.addEventListener('keydown', (e) => {
+    // Escape closes modals
+    if (e.key === 'Escape') {
+        const sheet = document.getElementById('sheet-modal');
+        const inspect = document.getElementById('inspect-modal');
+        if (sheet && sheet.classList.contains('active')) sheet.classList.remove('active');
+        if (inspect && inspect.classList.contains('active')) inspect.classList.remove('active');
+        return;
+    }
+
+    // Hotkey: C or I toggles Character Sheet
+    if (e.key === 'c' || e.key === 'C' || e.key === 'i' || e.key === 'I') {
+        const sheet = document.getElementById('sheet-modal');
+        if (sheet) {
+            if (sheet.classList.contains('active')) {
+                sheet.classList.remove('active');
+            } else {
+                populateSheet();
+                sheet.classList.add('active');
+            }
+        }
+        return;
+    }
+
+    // Hotkey: Z cycles Zoom
+    if (e.key === 'z' || e.key === 'Z') {
+        cycleZoom();
+        return;
+    }
+
     let dx = 0, dy = 0;
-    if (e.key === 'ArrowUp' || e.key === 'w') dy = -1;
-    if (e.key === 'ArrowDown' || e.key === 's') dy = 1;
-    if (e.key === 'ArrowLeft' || e.key === 'a') dx = -1;
-    if (e.key === 'ArrowRight' || e.key === 'd') dx = 1;
+    if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') dy = -1;
+    if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') dy = 1;
+    if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') dx = -1;
+    if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') dx = 1;
     if (e.key === ' ' || e.key === 'Spacebar') {
         // Space = Wait / Rest Turn
         e.preventDefault();
-        endTurn();
-        draw();
+        waitTurn();
         return;
     }
     if (dx !== 0 || dy !== 0) {
@@ -726,7 +765,7 @@ window.addEventListener('keydown', (e) => {
 });
 
 // ==========================================
-// 11. CHARACTER SHEET VISUAL PAPERDOLL
+// 11. CHARACTER SHEET VISUAL PAPERDOLL (25 SLOTS)
 // ==========================================
 export function populateSheet() {
     const formatMod = (m) => m >= 0 ? `+${m}` : `${m}`;
@@ -747,14 +786,17 @@ export function populateSheet() {
     document.getElementById('sheet-hp').innerText = `${player.hp} / ${player.maxHp}`;
     document.getElementById('sheet-ac').innerText = player.ac;
 
-    // Visual Paperdoll Body Slots:
+    // Visual Paperdoll Body Slots: 10 categorized equipment positions
     const eq = player.equipment;
     const slotCard = (slotName, item, iconPlaceholder) => `
-        <div class="paperdoll-slot" title="${slotName}">
-            <div style="font-size: 10px; color: #888; text-transform: uppercase;">${slotName}</div>
-            <div style="font-size: 18px; margin: 2px 0;">${item ? item.icon : iconPlaceholder}</div>
-            <div style="font-size: 10px; color: #64d8cb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                ${item ? item.name : '<span style="color:#444">Empty</span>'}
+        <div class="paperdoll-slot ${item ? 'equipped' : ''}" title="${slotName}: ${item ? item.name : 'Empty'}">
+            <div class="slot-label">${slotName}</div>
+            <div class="slot-icon">${item ? item.icon : iconPlaceholder}</div>
+            <div class="slot-name">
+                ${item ? item.name : '<span style="color:#4a5068">Empty</span>'}
+            </div>
+            <div class="slot-stat">
+                ${item && item.desc ? item.desc : ''}
             </div>
         </div>
     `;
@@ -780,10 +822,10 @@ export function populateSheet() {
         </div>
     `;
 
-    // 15 Backpack slots
+    // 15 Backpack slots (10 equipped + 15 backpack = 25 total slots)
     const bagHtml = player.backpack.map((item, idx) => `
-        <div class="backpack-slot">
-            ${item ? `${item.icon} <span style="color:#ddd">${item.name}</span>` : `<span style="color:#333">[Slot ${idx+1}]</span>`}
+        <div class="backpack-slot ${item ? 'equipped' : ''}">
+            ${item ? `${item.icon} <span style="color:#ddd">${item.name}</span>` : `<span style="color:#444">Slot ${idx+1}</span>`}
         </div>
     `).join('');
     document.getElementById('backpack-grid').innerHTML = bagHtml;
