@@ -2,143 +2,286 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RPG Engine Prototype - Seeded Sandbox v0.3</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pixel RPG</title>
     <style>
-        body { font-family: 'Courier New', monospace; background: #121212; color: #e0e0e0; display: flex; flex-direction: column; align-items: center; padding: 20px; }
-        #game-container { display: flex; gap: 20px; background: #1a1a1a; padding: 20px; border-radius: 8px; border: 2px solid #333; }
-        canvas { background: #000; border: 2px solid #555; image-rendering: pixelated; }
-        #sidebar { width: 320px; display: flex; flex-direction: column; gap: 12px; }
-        .panel { background: #222; padding: 12px; border-radius: 4px; border: 1px solid #444; }
-        h3 { margin: 0 0 8px 0; color: #ffcc00; font-size: 15px; border-bottom: 1px solid #444; padding-bottom: 4px; display: flex; justify-content: space-between; align-items: center; }
-        .stat-line { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }
-        #log { height: 160px; overflow-y: auto; background: #0a0a0a; border: 1px solid #333; padding: 8px; font-size: 12px; color: #a0a0a0; display: flex; flex-direction: column-reverse; }
-        .controls { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; width: 150px; margin: 0 auto; }
-        button { background: #333; color: #fff; border: 1px solid #555; padding: 8px; cursor: pointer; font-weight: bold; border-radius: 4px; font-family: monospace; }
-        button:hover { background: #444; border-color: #ffcc00; }
-        button:active { background: #222; }
-        .btn-seed { background: #2a3540; border-color: #4a6580; color: #7ec8ff; font-size: 12px; }
-        .btn-seed:hover { background: #354656; border-color: #7ec8ff; }
-        .empty { visibility: hidden; }
-        .log-hit { color: #55ff55; }
-        .log-miss { color: #ff5555; }
-        .log-victory { color: #ffff55; font-weight: bold; }
-        .log-loot { color: #ff99ff; font-weight: bold; }
-        .log-seed { color: #7ec8ff; font-style: italic; }
-        
-        #seed-input {
-            width: 100%;
-            background: #0d0d0d;
-            border: 1px solid #555;
-            color: #ffcc00;
-            font-family: 'Courier New', monospace;
-            font-size: 14px;
-            font-weight: bold;
-            padding: 6px 8px;
+        * {
             box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: #0d0d12;
+            color: #e0e0e8;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            min-height: 100vh;
+            min-height: 100dvh;
+            padding: 10px 12px 14px 12px;
+            overflow: hidden;
+            touch-action: manipulation;
+        }
+
+        /* Minimal Header Bar */
+        #header-bar {
+            width: 100%;
+            max-width: 360px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 4px 2px;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+
+        .header-chip {
+            background: #181924;
+            border: 1px solid #36384a;
+            padding: 6px 10px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: bold;
+            color: #f0f0ff;
+            cursor: pointer;
+        }
+
+        .header-chip:active {
+            border-color: #ffcc00;
+        }
+
+        .btn-icon {
+            background: #252838;
+            border: 1px solid #454963;
+            color: #ffcc00;
+            padding: 2px 7px;
             border-radius: 4px;
-            letter-spacing: 2px;
-            text-align: center;
-            text-transform: uppercase;
-        }
-
-        .equip-tag {
-            color: #64d8cb;
+            cursor: pointer;
             font-size: 12px;
-            margin-top: 4px;
-            padding-top: 4px;
-            border-top: 1px dashed #3a3a3a;
+            font-family: inherit;
         }
 
-        /* Responsive layout for phone playtesting */
-        @media (max-width: 700px) {
-            body { padding: 10px; }
-            #game-container { flex-direction: column; align-items: center; width: 100%; max-width: 360px; padding: 10px; }
-            #sidebar { width: 100%; }
-            canvas { max-width: 100%; height: auto; }
+        .btn-icon:active {
+            background: #353950;
+        }
+
+        /* Map Viewport */
+        #map-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            max-width: 360px;
+            margin: auto 0;
+        }
+
+        canvas {
+            display: block;
+            background: #08080c;
+            border: 2px solid #3d4052;
+            border-radius: 8px;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            width: 100%;
+            max-width: 360px;
+            height: auto;
+            aspect-ratio: 1 / 1;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7);
+            touch-action: none;
+            cursor: pointer;
+        }
+
+        /* Single-Line Message Bar at Bottom */
+        #message-bar {
+            width: 100%;
+            max-width: 360px;
+            background: #14151e;
+            border: 1px solid #323547;
+            border-left: 4px solid #ffcc00;
+            border-radius: 6px;
+            padding: 10px 12px;
+            font-size: 12px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: #f0f0f0;
+            margin-top: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+        }
+
+        .msg-hit { color: #55ff77 !important; }
+        .msg-miss { color: #ff6666 !important; }
+        .msg-victory { color: #ffff55 !important; font-weight: bold; }
+        .msg-loot { color: #ff99ff !important; font-weight: bold; }
+        .msg-info { color: #7ec8ff !important; }
+
+        /* Character Sheet Popup Modal */
+        #sheet-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(3px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            z-index: 100;
+        }
+
+        #sheet-modal.active {
+            display: flex;
+        }
+
+        .modal-card {
+            background: #181924;
+            border: 2px solid #ffcc00;
+            border-radius: 10px;
+            width: 100%;
+            max-width: 330px;
+            padding: 16px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.9);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            animation: popIn 0.15s ease-out;
+        }
+
+        @keyframes popIn {
+            from { transform: scale(0.92); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #333649;
+            padding-bottom: 8px;
+        }
+
+        .modal-title {
+            color: #ffcc00;
+            font-size: 15px;
+            font-weight: bold;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            color: #aaa;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 0 4px;
+        }
+
+        .close-btn:hover { color: #fff; }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            font-size: 13px;
+        }
+
+        .stat-box {
+            background: #111219;
+            border: 1px solid #2d3043;
+            padding: 6px 8px;
+            border-radius: 4px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .equip-box {
+            background: #111219;
+            border: 1px dashed #3a3d52;
+            padding: 8px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #64d8cb;
+            line-height: 1.6;
+        }
+
+        .modal-btn {
+            background: #2a3540;
+            border: 1px solid #4a6580;
+            color: #7ec8ff;
+            padding: 8px;
+            border-radius: 6px;
+            font-family: inherit;
+            font-weight: bold;
+            cursor: pointer;
         }
     </style>
 </head>
 <body>
 
-    <h2 style="color: #ffcc00; margin-bottom: 6px;">🛡️ RPG ENGINE SANDBOX v0.3</h2>
-    
-    <!-- Sleek Visible Seed Bar -->
-    <div style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 12px; font-size: 13px; flex-wrap: wrap;">
-        <span style="background: #1e1e1e; border: 1px solid #444; padding: 5px 12px; border-radius: 4px;">
-            🌱 Seed: <strong id="seed-display" style="color: #ffcc00; letter-spacing: 1.5px; font-size: 14px;">XXXX-XXXX</strong>
-        </span>
-        <button onclick="startNewPlaythrough()" class="btn-seed" style="padding: 5px 12px;">🎲 New Run</button>
-        <button onclick="restartCurrentPlaythrough()" class="btn-seed" style="padding: 5px 10px;">🔄 Replay</button>
+    <!-- Minimal Header: Seed + Character Button -->
+    <div id="header-bar">
+        <div class="header-chip" title="Active Playthrough Seed">
+            🌱 <span id="seed-display" style="color: #7ec8ff; letter-spacing: 1px;">XXXX-XXXX</span>
+            <button onclick="startNewPlaythrough()" class="btn-icon" title="New Random Run">🎲</button>
+        </div>
+
+        <div class="header-chip" onclick="openSheetModal()" title="View Character Sheet">
+            <span style="color: #ff5577;">❤️ <span id="hud-hp">28</span>/<span id="hud-max-hp">28</span></span>
+            <span style="color: #555;">|</span>
+            <span style="color: #64d8cb;">AC <span id="hud-ac">12</span></span>
+            <span style="font-size: 11px; color: #ffcc00; margin-left: 2px;">👤</span>
+        </div>
     </div>
 
-    <div id="game-container">
+    <!-- Main Map Viewport (Tap/Click anywhere to move) -->
+    <div id="map-container">
         <canvas id="stage" width="320" height="320"></canvas>
-        <div id="sidebar">
+    </div>
 
-            <!-- Hero Stats Panel with Dynamic Derived Getters -->
-            <div class="panel">
-                <h3>HERO: HUMAN WARRIOR</h3>
-                <div class="stat-line">
-                    <span id="stat-str">STR: 12 (+1)</span>
-                    <span id="stat-dex">DEX: 10 (+0)</span>
-                </div>
-                <div class="stat-line">
-                    <span id="stat-con">CON: 12 (+1)</span>
-                    <span id="stat-int">INT: 10 (+0)</span>
-                </div>
-                <div class="stat-line">
-                    <span id="stat-wis">WIS: 10 (+0)</span>
-                    <span id="stat-cha">CHA: 10 (+0)</span>
-                </div>
-                <div class="stat-line" style="margin-top: 8px; font-weight: bold;">
-                    <span>HP: <span id="hero-hp">28</span>/<span id="hero-max-hp">28</span></span>
-                    <span>AC: <span id="hero-ac">12</span></span>
-                </div>
-                <div id="hero-equip" class="equip-tag">Weapon: Iron Blade | Armor: Padded Vest</div>
+    <!-- Single-Line Message Ticker -->
+    <div id="message-bar">> Tap any tile on the map to move...</div>
+
+    <!-- Character Sheet Modal Popup -->
+    <div id="sheet-modal" onclick="closeSheetModal(event)">
+        <div class="modal-card" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <span class="modal-title">🛡️ HUMAN WARRIOR</span>
+                <button class="close-btn" onclick="closeSheetModal()">✕</button>
             </div>
-
-            <!-- Target Panel -->
-            <div class="panel">
-                <h3 id="target-title">TARGET: SEWER RAT</h3>
-                <div class="stat-line">
-                    <span>HP: <span id="rat-hp">6</span>/<span id="rat-max-hp">6</span></span> 
-                    <span>AC: <span id="rat-ac">10</span></span>
-                </div>
+            <div class="stat-grid">
+                <div class="stat-box"><span id="sheet-str">STR: 12</span> <strong id="mod-str">+1</strong></div>
+                <div class="stat-box"><span id="sheet-dex">DEX: 10</span> <strong id="mod-dex">+0</strong></div>
+                <div class="stat-box"><span id="sheet-con">CON: 12</span> <strong id="mod-con">+1</strong></div>
+                <div class="stat-box"><span id="sheet-int">INT: 10</span> <strong id="mod-int">+0</strong></div>
+                <div class="stat-box"><span id="sheet-wis">WIS: 10</span> <strong id="mod-wis">+0</strong></div>
+                <div class="stat-box"><span id="sheet-cha">CHA: 10</span> <strong id="mod-cha">+0</strong></div>
             </div>
-
-            <!-- Movement Controls (Accessible for Mobile Touch & Mouse) -->
-            <div class="panel">
-                <h3>CONTROLS</h3>
-                <div class="controls">
-                    <button class="empty"></button>
-                    <button onclick="move(0, -1)">▲</button>
-                    <button class="empty"></button>
-                    <button onclick="move(-1, 0)">◀</button>
-                    <button onclick="move(0, 0)" title="Inspect / Wait Turn">👁️</button>
-                    <button onclick="move(1, 0)">▶</button>
-                    <button class="empty"></button>
-                    <button onclick="move(0, 1)">▼</button>
-                    <button class="empty"></button>
-                </div>
+            <div class="stat-grid" style="margin-top: 2px;">
+                <div class="stat-box" style="border-color: #ff5577;"><span>Hit Points:</span> <strong id="sheet-hp">28/28</strong></div>
+                <div class="stat-box" style="border-color: #64d8cb;"><span>Armor Class:</span> <strong id="sheet-ac">12</strong></div>
             </div>
-
-            <!-- Combat & World Resolution Log -->
-            <div class="panel">
-                <h3>RESOLUTION LOG</h3>
-                <div id="log"><div>Engine ready. Awaiting initialization...</div></div>
+            <div class="equip-box" id="sheet-equip">
+                ⚔️ <strong>Weapon:</strong> Iron Blade (1d6)<br>
+                🛡️ <strong>Armor:</strong> Padded Vest (+1 AC)
             </div>
-
+            <button class="modal-btn" onclick="closeSheetModal()">Close Sheet</button>
         </div>
     </div>
 
     <script>
         // ==========================================
-        // 1. DETERMINISTIC SEED ENGINE (Mulberry32)
+        // 1. SEED PRNG ENGINE (Mulberry32)
         // ==========================================
-        // 8-character base-32 string (format: XXXX-XXXX)
-        // 32^8 = 1,099,511,627,776 (~1.1 Trillion) distinct runs!
-        const SEED_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Excludes ambiguous O, 0, I, 1
+        const SEED_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
         function generateRandomSeedString() {
             let s = '';
@@ -149,7 +292,6 @@
             return s;
         }
 
-        // 32-bit FNV-1a Hash function for arbitrary seed strings
         function hashString(str) {
             let h = 2166136261 >>> 0;
             for (let i = 0; i < str.length; i++) {
@@ -160,19 +302,17 @@
 
         let currentSeed = '';
         let rngState = 0;
-        let rngCallCount = 0;
 
         function seedRNG(seedStr) {
             currentSeed = seedStr.toUpperCase().trim();
             rngState = hashString(currentSeed);
-            rngCallCount = 0;
-            updateSeedUI();
+            document.getElementById('seed-display').innerText = currentSeed;
+            const url = new URL(window.location);
+            url.searchParams.set('seed', currentSeed);
+            window.history.replaceState({}, '', url);
         }
 
-        // Fast Mulberry32 PRNG
         function rng() {
-            rngCallCount++;
-            updateRollCountUI();
             let t = rngState += 0x6D2B79F5;
             t = Math.imul(t ^ t >>> 15, t | 1);
             t ^= t + Math.imul(t ^ t >>> 7, t | 61);
@@ -187,22 +327,25 @@
             return arr[Math.floor(rng() * arr.length)];
         }
 
-        function updateSeedUI() {
-            const display = document.getElementById('seed-display');
-            if (display) display.innerText = currentSeed;
-            // Update URL search query without reloading page for easy sharing
-            const url = new URL(window.location);
-            url.searchParams.set('seed', currentSeed);
-            window.history.replaceState({}, '', url);
+        // ==========================================
+        // 2. MODAL & STATUS BAR
+        // ==========================================
+        function openSheetModal() {
+            document.getElementById('sheet-modal').classList.add('active');
         }
 
-        function updateRollCountUI() {
-            const counter = document.getElementById('rng-counter');
-            if (counter) counter.innerText = `Rolls: ${rngCallCount}`;
+        function closeSheetModal() {
+            document.getElementById('sheet-modal').classList.remove('active');
+        }
+
+        function postMessage(text, className = '') {
+            const bar = document.getElementById('message-bar');
+            bar.className = className;
+            bar.innerHTML = `> ${text}`;
         }
 
         // ==========================================
-        // 2. LOOT TABLES & EQUIPMENT MODIFIERS
+        // 3. LOOT TABLES
         // ==========================================
         const LOOT_PREFIXES = [
             { name: "Rusty", strBonus: 0, dexBonus: 0, acBonus: 0 },
@@ -237,7 +380,7 @@
                     dice: base.dice,
                     strBonus: prefix.strBonus,
                     dexBonus: prefix.dexBonus,
-                    desc: `1d${base.dice} Dmg${prefix.strBonus ? ` (+${prefix.strBonus} STR)` : ''}${prefix.dexBonus ? ` (+${prefix.dexBonus} DEX)` : ''}`
+                    desc: `1d${base.dice} Dmg${prefix.strBonus ? ` (+${prefix.strBonus} STR)` : ''}`
                 };
             } else {
                 const base = rngChoice(ARMORS);
@@ -245,13 +388,13 @@
                     type: 'armor',
                     name: `${prefix.name} ${base.name}`,
                     acBonus: base.baseAc + prefix.acBonus,
-                    desc: `+${base.baseAc + prefix.acBonus} AC${prefix.strBonus ? ` (+${prefix.strBonus} STR)` : ''}`
+                    desc: `+${base.baseAc + prefix.acBonus} AC`
                 };
             }
         }
 
         // ==========================================
-        // 3. CORE RPG MODELS & DYNAMIC GETTERS
+        // 4. ENTITY MODELS
         // ==========================================
         const canvas = document.getElementById('stage');
         const ctx = canvas.getContext('2d');
@@ -260,19 +403,16 @@
         let player = {
             x: 1,
             y: 1,
-            // Base Core RPG Attributes
             baseStr: 12,
             baseDex: 10,
             baseCon: 12,
             baseInt: 10,
             baseWis: 10,
             baseCha: 10,
-            // Equipment
             weapon: { name: "Iron Blade", dice: 6, strBonus: 0, dexBonus: 0, desc: "1d6 Dmg" },
             armor: { name: "Padded Vest", acBonus: 1, desc: "+1 AC" },
             hp: 28,
 
-            // Dynamic Getters
             get str() { return this.baseStr + (this.weapon.strBonus || 0); },
             get dex() { return this.baseDex + (this.weapon.dexBonus || 0); },
             get con() { return this.baseCon; },
@@ -283,10 +423,7 @@
             get strMod() { return Math.floor((this.str - 10) / 2); },
             get dexMod() { return Math.floor((this.dex - 10) / 2); },
             get conMod() { return Math.floor((this.con - 10) / 2); },
-
-            // CON directly hooks into Max HP calculation (Base 20 + CON * 2 / mod)
             get maxHp() { return 20 + (this.conMod * 8); },
-            // Armor Class calculation
             get ac() { return 10 + this.armor.acBonus + this.dexMod; }
         };
 
@@ -309,41 +446,26 @@
         };
 
         let map = [];
-
-        function logMessage(text, className = '') {
-            const logDiv = document.getElementById('log');
-            const entry = document.createElement('div');
-            entry.className = className;
-            entry.innerHTML = `&gt; ${text}`;
-            logDiv.insertBefore(entry, logDiv.firstChild);
-        }
+        let targetCursor = null;
 
         // ==========================================
-        // 4. MAP GENERATION (SEEDED PROCEDURAL PILLARS)
+        // 5. MAP BUILDER
         // ==========================================
         function buildSeededMap() {
             map = [];
             for (let y = 0; y < 10; y++) {
                 map[y] = [];
                 for (let x = 0; x < 10; x++) {
-                    if (y === 0 || y === 9 || x === 0 || x === 9) {
-                        map[y][x] = 1; // Perimeter border wall
-                    } else {
-                        map[y][x] = 0; // Open floor tile
-                    }
+                    map[y][x] = (y === 0 || y === 9 || x === 0 || x === 9) ? 1 : 0;
                 }
             }
 
-            // Scatter 4 to 6 interior stone rubble pillars based on seed
             const pillarCount = rngInt(4, 6);
             let placed = 0;
             while (placed < pillarCount) {
                 const rx = rngInt(2, 7);
                 const ry = rngInt(2, 7);
-                // Keep clear of initial start (1,1), rat spawn, and chest spawn
-                if ((rx === 1 && ry === 1) || (rx === rat.x && ry === rat.y) || (rx === chest.x && ry === chest.y)) {
-                    continue;
-                }
+                if ((rx === 1 && ry === 1) || (rx === rat.x && ry === rat.y) || (rx === chest.x && ry === chest.y)) continue;
                 if (map[ry][rx] === 0) {
                     map[ry][rx] = 1;
                     placed++;
@@ -352,218 +474,300 @@
         }
 
         // ==========================================
-        // 5. PLAYTHROUGH INITIALIZATION
+        // 6. INITIALIZATION
         // ==========================================
         function initPlaythrough(seedStr) {
+            cancelWalking();
             seedRNG(seedStr);
 
-            // Reset Player
             player.x = 1;
             player.y = 1;
             player.weapon = { name: "Iron Blade", dice: 6, strBonus: 0, dexBonus: 0, desc: "1d6 Dmg" };
             player.armor = { name: "Padded Vest", acBonus: 1, desc: "+1 AC" };
             player.hp = player.maxHp;
 
-            // Seeded Monster Variants
             const ratPrefixes = ["Vile", "Giant", "Rabid", "Sewer", "Plagued"];
-            const ratName = `${rngChoice(ratPrefixes)} Rat`;
-            const bonusHp = rngInt(0, 3);
-            const bonusAc = rngInt(0, 1);
-
-            rat.name = ratName;
+            rat.name = `${rngChoice(ratPrefixes)} Rat`;
             rat.x = rngInt(5, 7);
             rat.y = rngInt(5, 7);
-            rat.maxHp = 6 + bonusHp;
+            rat.maxHp = 6 + rngInt(0, 3);
             rat.hp = rat.maxHp;
-            rat.ac = 10 + bonusAc;
+            rat.ac = 10 + rngInt(0, 1);
             rat.alive = true;
 
-            // Seeded Chest Setup
             chest.x = rngInt(6, 8);
             chest.y = rngInt(1, 3);
             chest.opened = false;
             chest.item = generateSeededLoot();
 
-            // Construct Map
             buildSeededMap();
-
-            // Clear Log
-            const logDiv = document.getElementById('log');
-            logDiv.innerHTML = '';
-            logMessage(`Playthrough Seed: [${currentSeed}] loaded.`, 'log-seed');
-            logMessage(`Dungeon floor matrix synthesized with seeded terrain.`, 'log-seed');
+            postMessage(`Seed [${currentSeed}] loaded. Tap screen to move!`, 'msg-info');
 
             updateUI();
             draw();
         }
 
         function updateUI() {
-            document.getElementById('hero-hp').innerText = player.hp;
-            document.getElementById('hero-max-hp').innerText = player.maxHp;
-            document.getElementById('hero-ac').innerText = player.ac;
+            document.getElementById('hud-hp').innerText = player.hp;
+            document.getElementById('hud-max-hp').innerText = player.maxHp;
+            document.getElementById('hud-ac').innerText = player.ac;
 
-            const formatMod = (m) => m >= 0 ? `(+${m})` : `(${m})`;
-            document.getElementById('stat-str').innerText = `STR: ${player.str} ${formatMod(player.strMod)}`;
-            document.getElementById('stat-dex').innerText = `DEX: ${player.dex} ${formatMod(player.dexMod)}`;
-            document.getElementById('stat-con').innerText = `CON: ${player.con} ${formatMod(player.conMod)}`;
-            document.getElementById('stat-int').innerText = `INT: ${player.int} ${formatMod(Math.floor((player.int-10)/2))}`;
-            document.getElementById('stat-wis').innerText = `WIS: ${player.wis} ${formatMod(Math.floor((player.wis-10)/2))}`;
-            document.getElementById('stat-cha').innerText = `CHA: ${player.cha} ${formatMod(Math.floor((player.cha-10)/2))}`;
+            const formatMod = (m) => m >= 0 ? `+${m}` : `${m}`;
+            document.getElementById('sheet-str').innerText = `STR: ${player.str}`;
+            document.getElementById('mod-str').innerText = formatMod(player.strMod);
+            document.getElementById('sheet-dex').innerText = `DEX: ${player.dex}`;
+            document.getElementById('mod-dex').innerText = formatMod(player.dexMod);
+            document.getElementById('sheet-con').innerText = `CON: ${player.con}`;
+            document.getElementById('mod-con').innerText = formatMod(player.conMod);
+            document.getElementById('sheet-int').innerText = `INT: ${player.int}`;
+            document.getElementById('mod-int').innerText = formatMod(Math.floor((player.int-10)/2));
+            document.getElementById('sheet-wis').innerText = `WIS: ${player.wis}`;
+            document.getElementById('mod-wis').innerText = formatMod(Math.floor((player.wis-10)/2));
+            document.getElementById('sheet-cha').innerText = `CHA: ${player.cha}`;
+            document.getElementById('mod-cha').innerText = formatMod(Math.floor((player.cha-10)/2));
 
-            document.getElementById('hero-equip').innerText = `Wpn: ${player.weapon.name} (${player.weapon.desc}) | Arm: ${player.armor.name} (${player.armor.desc})`;
-
-            document.getElementById('target-title').innerText = `TARGET: ${rat.name.toUpperCase()}`;
-            document.getElementById('rat-hp').innerText = rat.hp;
-            document.getElementById('rat-max-hp').innerText = rat.maxHp;
-            document.getElementById('rat-ac').innerText = rat.ac;
+            document.getElementById('sheet-hp').innerText = `${player.hp} / ${player.maxHp}`;
+            document.getElementById('sheet-ac').innerText = player.ac;
+            document.getElementById('sheet-equip').innerHTML = `⚔️ <strong>Weapon:</strong> ${player.weapon.name} (${player.weapon.desc})<br>🛡️ <strong>Armor:</strong> ${player.armor.name} (${player.armor.desc})`;
         }
 
         // ==========================================
-        // 6. RENDER LOOP
+        // 7. RENDER LOOP
         // ==========================================
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+
             for (let y = 0; y < 10; y++) {
                 for (let x = 0; x < 10; x++) {
                     if (map[y][x] === 1) {
-                        ctx.fillStyle = '#444'; // Wall / stone rubble
+                        ctx.fillStyle = '#3a3d4f';
                         ctx.fillRect(x * tileSize, y * tileSize, tileSize - 1, tileSize - 1);
-                        ctx.strokeStyle = '#222';
+                        ctx.strokeStyle = '#252632';
                         ctx.strokeRect(x * tileSize, y * tileSize, tileSize, tileSize);
                     } else {
-                        ctx.fillStyle = '#1a1a1a'; // Open floor
+                        ctx.fillStyle = '#12131a';
                         ctx.fillRect(x * tileSize, y * tileSize, tileSize - 1, tileSize - 1);
-                        ctx.strokeStyle = '#252525';
+                        ctx.strokeStyle = '#1d1f2b';
                         ctx.strokeRect(x * tileSize, y * tileSize, tileSize, tileSize);
                     }
                 }
             }
 
-            // Draw Treasure Chest
+            if (targetCursor) {
+                ctx.strokeStyle = '#64d8cb';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(targetCursor.x * tileSize + 2, targetCursor.y * tileSize + 2, tileSize - 4, tileSize - 4);
+                ctx.lineWidth = 1;
+            }
+
             if (!chest.opened) {
                 ctx.fillStyle = '#ffb703';
                 ctx.font = 'bold 16px Courier New';
                 ctx.fillText('📦 C', chest.x * tileSize + 2, chest.y * tileSize + 22);
             } else {
-                ctx.fillStyle = '#666';
+                ctx.fillStyle = '#555';
                 ctx.font = '14px Courier New';
                 ctx.fillText('📭 _', chest.x * tileSize + 4, chest.y * tileSize + 22);
             }
 
-            // Draw Monster
             if (rat.alive) {
                 ctx.fillStyle = '#ff5555';
                 ctx.font = 'bold 16px Courier New';
                 ctx.fillText('🐀 R', rat.x * tileSize + 4, rat.y * tileSize + 22);
             }
 
-            // Draw Player
-            ctx.fillStyle = '#55ff55';
+            ctx.fillStyle = '#55ff77';
             ctx.font = 'bold 16px Courier New';
             ctx.fillText('🛡️ P', player.x * tileSize + 4, player.y * tileSize + 22);
         }
 
         // ==========================================
-        // 7. INPUT & MOVEMENT
+        // 8. TAP-TO-MOVE (BFS PATHFINDING)
         // ==========================================
-        function move(dx, dy) {
-            if (dx === 0 && dy === 0) {
-                logMessage("👁️ Inspected surroundings: Area passive survey complete.");
+        let walkTimer = null;
+
+        function cancelWalking() {
+            if (walkTimer) {
+                clearTimeout(walkTimer);
+                walkTimer = null;
+            }
+            targetCursor = null;
+        }
+
+        function findPath(startX, startY, endX, endY) {
+            if (startX === endX && startY === endY) return [];
+
+            const queue = [[startX, startY]];
+            const visited = Array.from({ length: 10 }, () => Array(10).fill(false));
+            const parent = Array.from({ length: 10 }, () => Array(10).fill(null));
+            visited[startY][startX] = true;
+
+            const isSolid = (x, y) => {
+                if (x < 0 || x >= 10 || y < 0 || y >= 10) return true;
+                if (map[y][x] === 1) return true;
+                if (x === endX && y === endY) return false;
+                if (rat.alive && x === rat.x && y === rat.y) return true;
+                return false;
+            };
+
+            const dirs = [
+                { dx: 0, dy: -1 },
+                { dx: 0, dy: 1 },
+                { dx: -1, dy: 0 },
+                { dx: 1, dy: 0 }
+            ];
+
+            let found = false;
+            while (queue.length > 0) {
+                const [cx, cy] = queue.shift();
+                if (cx === endX && cy === endY) {
+                    found = true;
+                    break;
+                }
+
+                for (const d of dirs) {
+                    const nx = cx + d.dx;
+                    const ny = cy + d.dy;
+                    if (nx < 0 || nx >= 10 || ny < 0 || ny >= 10) continue;
+                    if (visited[ny][nx] || isSolid(nx, ny)) continue;
+
+                    visited[ny][nx] = true;
+                    parent[ny][nx] = [cx, cy];
+                    queue.push([nx, ny]);
+                }
+            }
+
+            if (!found) return [];
+
+            const path = [];
+            let curr = [endX, endY];
+            while (curr[0] !== startX || curr[1] !== startY) {
+                path.unshift(curr);
+                curr = parent[curr[1]][curr[0]];
+            }
+            return path;
+        }
+
+        function executePath(path) {
+            if (path.length === 0) {
+                cancelWalking();
+                draw();
                 return;
             }
 
-            let nextX = player.x + dx;
-            let nextY = player.y + dy;
+            const [nextX, nextY] = path.shift();
 
-            if (map[nextY][nextX] === 1) {
-                logMessage("COLLISION: Solid terrain blocks movement vectors.");
-                return;
-            }
-
-            // Combat trigger
             if (rat.alive && nextX === rat.x && nextY === rat.y) {
+                cancelWalking();
                 resolveCombatTurn();
                 return;
             }
 
-            // Treasure Chest interaction
             if (!chest.opened && nextX === chest.x && nextY === chest.y) {
+                cancelWalking();
                 openChest();
                 return;
             }
 
             player.x = nextX;
             player.y = nextY;
-            logMessage(`Player moved to: (${player.x}, ${player.y})`);
             draw();
+
+            if (path.length > 0) {
+                walkTimer = setTimeout(() => executePath(path), 110);
+            } else {
+                cancelWalking();
+                draw();
+            }
         }
 
+        function handleTapMove(tileX, tileY) {
+            if (tileX < 0 || tileX >= 10 || tileY < 0 || tileY >= 10) return;
+            if (map[tileY][tileX] === 1) {
+                postMessage("Wall blocks that path.", "msg-miss");
+                return;
+            }
+
+            cancelWalking();
+            targetCursor = { x: tileX, y: tileY };
+            draw();
+
+            const path = findPath(player.x, player.y, tileX, tileY);
+            if (path.length > 0) {
+                executePath(path);
+            } else {
+                targetCursor = null;
+                draw();
+            }
+        }
+
+        function getCanvasTileCoords(e) {
+            const rect = canvas.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            return {
+                x: Math.floor(((clientX - rect.left) * scaleX) / tileSize),
+                y: Math.floor(((clientY - rect.top) * scaleY) / tileSize)
+            };
+        }
+
+        canvas.addEventListener('click', (e) => {
+            const tile = getCanvasTileCoords(e);
+            handleTapMove(tile.x, tile.y);
+        });
+
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const tile = getCanvasTileCoords(e);
+            handleTapMove(tile.x, tile.y);
+        }, { passive: false });
+
+        // ==========================================
+        // 9. INTERACTIONS & COMBAT
+        // ==========================================
         function openChest() {
             chest.opened = true;
             const item = chest.item;
-            logMessage(`🎁 Opened ancient chest! Discovered: ${item.name}!`, 'log-loot');
+            postMessage(`🎁 Found & equipped: ${item.name}!`, 'msg-loot');
 
-            if (item.type === 'weapon') {
-                player.weapon = item;
-                logMessage(`⚔️ Equipped weapon: ${item.name} (${item.desc})`, 'log-loot');
-            } else if (item.type === 'armor') {
-                player.armor = item;
-                logMessage(`🛡️ Equipped armor: ${item.name} (${item.desc})`, 'log-loot');
-            }
+            if (item.type === 'weapon') player.weapon = item;
+            if (item.type === 'armor') player.armor = item;
             updateUI();
             draw();
         }
 
-        // ==========================================
-        // 8. COMBAT RESOLUTION (DETERMINISTIC SEEDED ROLLS)
-        // ==========================================
         function resolveCombatTurn() {
-            logMessage(`⚔️ Attacking ${rat.name}!`);
-
-            // Seeded d20 Attack Roll: d20 + DEX Modifier + BAB (+1)
-            let d20Roll = rngInt(1, 20);
-            let bab = 1;
-            let attackTotal = d20Roll + player.dexMod + bab;
+            let d20 = rngInt(1, 20);
+            let attackTotal = d20 + player.dexMod + 1;
 
             if (attackTotal >= rat.ac) {
-                // Seeded Damage Roll: Weapon dice roll + STR Modifier
-                let weaponDmg = rngInt(1, player.weapon.dice);
-                let totalDamage = Math.max(1, weaponDmg + player.strMod);
-                rat.hp = Math.max(0, rat.hp - totalDamage);
-                document.getElementById('rat-hp').innerText = rat.hp;
-
-                logMessage(`💥 HIT! d20(${d20Roll}) + DEX(${player.dexMod}) + BAB(${bab}) = ${attackTotal} vs AC ${rat.ac}. Dealt ${totalDamage} damage!`, 'log-hit');
+                let dmg = Math.max(1, rngInt(1, player.weapon.dice) + player.strMod);
+                rat.hp = Math.max(0, rat.hp - dmg);
 
                 if (rat.hp <= 0) {
                     rat.alive = false;
-                    logMessage(`🏆 VICTORY! The ${rat.name} was vanquished!`, 'log-victory');
-                    // Monster drop
-                    const droppedItem = generateSeededLoot();
-                    logMessage(`✨ Loot Drop: ${rat.name} dropped ${droppedItem.name}!`, 'log-loot');
-                    if (droppedItem.type === 'weapon' && (droppedItem.dice > player.weapon.dice || droppedItem.strBonus > player.weapon.strBonus)) {
-                        player.weapon = droppedItem;
-                        logMessage(`⚔️ Auto-equipped superior weapon: ${droppedItem.name}!`, 'log-loot');
-                    } else if (droppedItem.type === 'armor' && droppedItem.acBonus > player.armor.acBonus) {
-                        player.armor = droppedItem;
-                        logMessage(`🛡️ Auto-equipped superior armor: ${droppedItem.name}!`, 'log-loot');
-                    }
-                    updateUI();
+                    const drop = generateSeededLoot();
+                    postMessage(`🏆 Defeated ${rat.name}! Looted ${drop.name}!`, 'msg-victory');
+                    if (drop.type === 'weapon') player.weapon = drop;
+                    if (drop.type === 'armor') player.armor = drop;
+                } else {
+                    postMessage(`💥 Hit ${rat.name} for ${dmg} dmg! (${rat.hp}/${rat.maxHp} HP left)`, 'msg-hit');
                 }
             } else {
-                logMessage(`🛡️ MISS! d20(${d20Roll}) + Modifiers = ${attackTotal} vs AC ${rat.ac}.`, 'log-miss');
+                postMessage(`🛡️ Missed ${rat.name} (Rolled ${attackTotal} vs AC ${rat.ac}).`, 'msg-miss');
             }
 
-            // Monster Counter-Attack
             if (rat.alive) {
-                let ratRoll = rngInt(1, 20);
-                let ratAttack = ratRoll + 1;
+                let ratAttack = rngInt(1, 20) + 1;
                 if (ratAttack >= player.ac) {
-                    let damage = rngInt(1, rat.damageDice);
-                    player.hp = Math.max(0, player.hp - damage);
-                    document.getElementById('hero-hp').innerText = player.hp;
-                    logMessage(`🩸 OUCH! ${rat.name} hit for ${damage} damage (Roll: ${ratAttack} vs AC ${player.ac}).`, 'log-miss');
-                } else {
-                    logMessage(`🛡️ BLOCKED! ${rat.name} rolled ${ratAttack} vs AC ${player.ac}.`);
+                    let ratDmg = rngInt(1, rat.damageDice);
+                    player.hp = Math.max(0, player.hp - ratDmg);
+                    setTimeout(() => {
+                        postMessage(`🩸 Rat bit you for ${ratDmg} dmg! (${player.hp}/${player.maxHp} HP)`, 'msg-miss');
+                        updateUI();
+                    }, 400);
                 }
             }
 
@@ -571,35 +775,24 @@
             draw();
         }
 
-        // ==========================================
-        // 9. CONTROLS & SEED MODIFIERS
-        // ==========================================
-        function startNewPlaythrough() {
-            const newSeed = generateRandomSeedString();
-            initPlaythrough(newSeed);
-        }
-
-        function restartCurrentPlaythrough() {
-            initPlaythrough(currentSeed);
-        }
-
-        function applyManualSeed() {
-            const input = document.getElementById('seed-input');
-            let val = input.value.trim().toUpperCase();
-            if (val.length === 0) val = generateRandomSeedString();
-            initPlaythrough(val);
-        }
-
-        window.addEventListener('keydown', function(e) {
-            if (e.target.tagName === 'INPUT') return; // Do not intercept typing in seed field
-            if (e.key === 'ArrowUp' || e.key === 'w')    { move(0, -1); e.preventDefault(); }
-            if (e.key === 'ArrowDown' || e.key === 's')  { move(0, 1);  e.preventDefault(); }
-            if (e.key === 'ArrowLeft' || e.key === 'a')  { move(-1, 0); e.preventDefault(); }
-            if (e.key === 'ArrowRight' || e.key === 'd') { move(1, 0);  e.preventDefault(); }
-            if (e.key === ' ') { move(0, 0); e.preventDefault(); }
+        // Keyboard controls for computer
+        window.addEventListener('keydown', (e) => {
+            let dx = 0, dy = 0;
+            if (e.key === 'ArrowUp' || e.key === 'w') dy = -1;
+            if (e.key === 'ArrowDown' || e.key === 's') dy = 1;
+            if (e.key === 'ArrowLeft' || e.key === 'a') dx = -1;
+            if (e.key === 'ArrowRight' || e.key === 'd') dx = 1;
+            if (dx !== 0 || dy !== 0) {
+                e.preventDefault();
+                handleTapMove(player.x + dx, player.y + dy);
+            }
         });
 
-        // Initialize from URL parameter (?seed=XXXX-XXXX) or generate fresh
+        function startNewPlaythrough() {
+            initPlaythrough(generateRandomSeedString());
+        }
+
+        // Launch
         const urlParams = new URLSearchParams(window.location.search);
         const initialSeed = urlParams.get('seed') || generateRandomSeedString();
         initPlaythrough(initialSeed);
