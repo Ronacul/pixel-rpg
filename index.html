@@ -75,6 +75,7 @@
 
         /* Map Viewport */
         #map-container {
+            position: relative;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -122,9 +123,10 @@
         .msg-victory { color: #ffff55 !important; font-weight: bold; }
         .msg-loot { color: #ff99ff !important; font-weight: bold; }
         .msg-info { color: #7ec8ff !important; }
+        .msg-inspect { color: #ffd166 !important; }
 
-        /* Character Sheet Popup Modal */
-        #sheet-modal {
+        /* Popup Modals */
+        .modal-overlay {
             position: fixed;
             top: 0;
             left: 0;
@@ -139,7 +141,7 @@
             z-index: 100;
         }
 
-        #sheet-modal.active {
+        .modal-overlay.active {
             display: flex;
         }
 
@@ -148,7 +150,7 @@
             border: 2px solid #ffcc00;
             border-radius: 10px;
             width: 100%;
-            max-width: 330px;
+            max-width: 320px;
             padding: 16px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.9);
             display: flex;
@@ -242,16 +244,16 @@
         </div>
     </div>
 
-    <!-- Main Map Viewport (Tap/Click anywhere to move) -->
+    <!-- Main Map Viewport (Tap/Click to move | Long-press/Right-click to inspect) -->
     <div id="map-container">
         <canvas id="stage" width="320" height="320"></canvas>
     </div>
 
     <!-- Single-Line Message Ticker -->
-    <div id="message-bar">> Tap any tile on the map to move...</div>
+    <div id="message-bar">> Tap to move | Long-press any tile to inspect...</div>
 
-    <!-- Character Sheet Modal Popup -->
-    <div id="sheet-modal" onclick="closeSheetModal(event)">
+    <!-- 1. Character Sheet Modal Popup -->
+    <div id="sheet-modal" class="modal-overlay" onclick="closeSheetModal(event)">
         <div class="modal-card" onclick="event.stopPropagation()">
             <div class="modal-header">
                 <span class="modal-title">🛡️ HUMAN WARRIOR</span>
@@ -277,9 +279,80 @@
         </div>
     </div>
 
+    <!-- 2. Inspect / Query Modal Popup (Triggered via Long-Press) -->
+    <div id="inspect-modal" class="modal-overlay" onclick="closeInspectModal(event)">
+        <div class="modal-card" onclick="event.stopPropagation()" style="text-align: center;">
+            <div class="modal-header" style="justify-content: center; position: relative;">
+                <span class="modal-title" id="inspect-title">🔍 TILE INSPECT</span>
+                <button class="close-btn" onclick="closeInspectModal()" style="position: absolute; right: 0;">✕</button>
+            </div>
+            <div style="font-size: 38px; margin: 4px 0;" id="inspect-icon">🐀</div>
+            <div style="font-size: 16px; font-weight: bold; color: #ffcc00;" id="inspect-name">Sewer Rat</div>
+            <div style="font-size: 12px; color: #aaa; line-height: 1.4;" id="inspect-desc">Hostile vermin inhabiting dungeon depths.</div>
+            <div id="inspect-details" style="background: #111219; border: 1px solid #2d3043; border-radius: 4px; padding: 8px; font-size: 12px; color: #64d8cb; line-height: 1.5; text-align: left;">
+                <!-- Filled dynamically -->
+            </div>
+            <button class="modal-btn" onclick="closeInspectModal()">Done</button>
+        </div>
+    </div>
+
     <script>
         // ==========================================
-        // 1. SEED PRNG ENGINE (Mulberry32)
+        // 1. SPRITE & ICON REGISTRY (EASY UPDATE MECHANISM)
+        // ==========================================
+        // Single-cell icons: no letters!
+        // Update any sprite anytime via updateSprite(key, { icon: '...' })
+        const SPRITES = {
+            player: {
+                icon: '🛡️',
+                size: 21,
+                name: 'Human Warrior',
+                desc: 'Level 1 Adventurer. Guided by your hand.'
+            },
+            rat: {
+                icon: '🐀',
+                size: 21,
+                name: 'Sewer Rat',
+                desc: 'Aggressive dungeon vermin with sharp incisors.'
+            },
+            chestClosed: {
+                icon: '📦',
+                size: 20,
+                name: 'Ancient Chest',
+                desc: 'Sturdy wooden lockbox containing equipment.'
+            },
+            chestOpen: {
+                icon: '📭',
+                size: 18,
+                name: 'Opened Chest',
+                desc: 'An emptied container.'
+            },
+            rubble: {
+                icon: '🪨',
+                size: 19,
+                name: 'Stone Rubble',
+                desc: 'Collapsed ancient masonry. Impassable.'
+            },
+            wall: {
+                name: 'Dungeon Wall',
+                desc: 'Dense granite barrier outlining the dungeon chamber.'
+            },
+            floor: {
+                name: 'Stone Floor',
+                desc: 'Open flagstone pathway ready for exploration.'
+            }
+        };
+
+        // Utility mechanic to update sprite definitions dynamically
+        function updateSprite(key, newProps) {
+            if (SPRITES[key]) {
+                Object.assign(SPRITES[key], newProps);
+                draw();
+            }
+        }
+
+        // ==========================================
+        // 2. SEED PRNG ENGINE (Mulberry32)
         // ==========================================
         const SEED_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
@@ -328,7 +401,7 @@
         }
 
         // ==========================================
-        // 2. MODAL & STATUS BAR
+        // 3. MODALS & STATUS BAR
         // ==========================================
         function openSheetModal() {
             document.getElementById('sheet-modal').classList.add('active');
@@ -338,6 +411,18 @@
             document.getElementById('sheet-modal').classList.remove('active');
         }
 
+        function openInspectModal(data) {
+            document.getElementById('inspect-icon').innerText = data.icon || '🔍';
+            document.getElementById('inspect-name').innerText = data.name;
+            document.getElementById('inspect-desc').innerText = data.desc;
+            document.getElementById('inspect-details').innerHTML = data.details;
+            document.getElementById('inspect-modal').classList.add('active');
+        }
+
+        function closeInspectModal() {
+            document.getElementById('inspect-modal').classList.remove('active');
+        }
+
         function postMessage(text, className = '') {
             const bar = document.getElementById('message-bar');
             bar.className = className;
@@ -345,7 +430,7 @@
         }
 
         // ==========================================
-        // 3. LOOT TABLES
+        // 4. LOOT TABLES
         // ==========================================
         const LOOT_PREFIXES = [
             { name: "Rusty", strBonus: 0, dexBonus: 0, acBonus: 0 },
@@ -394,7 +479,7 @@
         }
 
         // ==========================================
-        // 4. ENTITY MODELS
+        // 5. ENTITY MODELS
         // ==========================================
         const canvas = document.getElementById('stage');
         const ctx = canvas.getContext('2d');
@@ -449,17 +534,19 @@
         let targetCursor = null;
 
         // ==========================================
-        // 5. MAP BUILDER
+        // 6. MAP BUILDER
         // ==========================================
         function buildSeededMap() {
             map = [];
             for (let y = 0; y < 10; y++) {
                 map[y] = [];
                 for (let x = 0; x < 10; x++) {
+                    // 1 = solid border wall
                     map[y][x] = (y === 0 || y === 9 || x === 0 || x === 9) ? 1 : 0;
                 }
             }
 
+            // Scatter 4 to 6 interior stone rubble pillars (stored as 2 for distinct rubble)
             const pillarCount = rngInt(4, 6);
             let placed = 0;
             while (placed < pillarCount) {
@@ -467,14 +554,14 @@
                 const ry = rngInt(2, 7);
                 if ((rx === 1 && ry === 1) || (rx === rat.x && ry === rat.y) || (rx === chest.x && ry === chest.y)) continue;
                 if (map[ry][rx] === 0) {
-                    map[ry][rx] = 1;
+                    map[ry][rx] = 2; // 2 = Stone Rubble Obstacle
                     placed++;
                 }
             }
         }
 
         // ==========================================
-        // 6. INITIALIZATION
+        // 7. INITIALIZATION
         // ==========================================
         function initPlaythrough(seedStr) {
             cancelWalking();
@@ -501,7 +588,7 @@
             chest.item = generateSeededLoot();
 
             buildSeededMap();
-            postMessage(`Seed [${currentSeed}] loaded. Tap screen to move!`, 'msg-info');
+            postMessage(`Seed [${currentSeed}] active. Tap to move | Long-press to inspect.`, 'msg-info');
 
             updateUI();
             draw();
@@ -532,19 +619,41 @@
         }
 
         // ==========================================
-        // 7. RENDER LOOP
+        // 8. RENDER LOOP (SINGLE-CELL ICONS, NO LETTERS)
         // ==========================================
+        function drawSprite(sprite, cellX, cellY) {
+            const cx = cellX * tileSize + tileSize / 2;
+            const cy = cellY * tileSize + tileSize / 2;
+            ctx.save();
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = `${sprite.size || 20}px 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif`;
+            ctx.fillText(sprite.icon, cx, cy + 1);
+            ctx.restore();
+        }
+
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+            // Draw Base Terrain Grid
             for (let y = 0; y < 10; y++) {
                 for (let x = 0; x < 10; x++) {
-                    if (map[y][x] === 1) {
+                    const tileType = map[y][x];
+                    if (tileType === 1) {
+                        // Perimeter Wall
                         ctx.fillStyle = '#3a3d4f';
                         ctx.fillRect(x * tileSize, y * tileSize, tileSize - 1, tileSize - 1);
                         ctx.strokeStyle = '#252632';
                         ctx.strokeRect(x * tileSize, y * tileSize, tileSize, tileSize);
+                    } else if (tileType === 2) {
+                        // Interior Rubble Tile
+                        ctx.fillStyle = '#222330';
+                        ctx.fillRect(x * tileSize, y * tileSize, tileSize - 1, tileSize - 1);
+                        ctx.strokeStyle = '#2d3042';
+                        ctx.strokeRect(x * tileSize, y * tileSize, tileSize, tileSize);
+                        drawSprite(SPRITES.rubble, x, y);
                     } else {
+                        // Open Floor
                         ctx.fillStyle = '#12131a';
                         ctx.fillRect(x * tileSize, y * tileSize, tileSize - 1, tileSize - 1);
                         ctx.strokeStyle = '#1d1f2b';
@@ -553,6 +662,7 @@
                 }
             }
 
+            // Move Target Reticle
             if (targetCursor) {
                 ctx.strokeStyle = '#64d8cb';
                 ctx.lineWidth = 2;
@@ -560,29 +670,120 @@
                 ctx.lineWidth = 1;
             }
 
-            if (!chest.opened) {
-                ctx.fillStyle = '#ffb703';
-                ctx.font = 'bold 16px Courier New';
-                ctx.fillText('📦 C', chest.x * tileSize + 2, chest.y * tileSize + 22);
-            } else {
-                ctx.fillStyle = '#555';
-                ctx.font = '14px Courier New';
-                ctx.fillText('📭 _', chest.x * tileSize + 4, chest.y * tileSize + 22);
-            }
+            // Chest (Single Cell Icon)
+            drawSprite(chest.opened ? SPRITES.chestOpen : SPRITES.chestClosed, chest.x, chest.y);
 
+            // Monster (Single Cell Icon)
             if (rat.alive) {
-                ctx.fillStyle = '#ff5555';
-                ctx.font = 'bold 16px Courier New';
-                ctx.fillText('🐀 R', rat.x * tileSize + 4, rat.y * tileSize + 22);
+                drawSprite(SPRITES.rat, rat.x, rat.y);
             }
 
-            ctx.fillStyle = '#55ff77';
-            ctx.font = 'bold 16px Courier New';
-            ctx.fillText('🛡️ P', player.x * tileSize + 4, player.y * tileSize + 22);
+            // Player (Single Cell Icon)
+            drawSprite(SPRITES.player, player.x, player.y);
         }
 
         // ==========================================
-        // 8. TAP-TO-MOVE (BFS PATHFINDING)
+        // 9. QUERY / INSPECT SYSTEM
+        // ==========================================
+        function queryTile(x, y) {
+            if (x < 0 || x >= 10 || y < 0 || y >= 10) return;
+
+            let data = null;
+
+            // 1. Check Player
+            if (player.x === x && player.y === y) {
+                data = {
+                    icon: SPRITES.player.icon,
+                    name: 'Hero: Human Warrior',
+                    desc: SPRITES.player.desc,
+                    details: `
+                        <strong>HP:</strong> ${player.hp} / ${player.maxHp}<br>
+                        <strong>Armor Class:</strong> ${player.ac}<br>
+                        <strong>Attack:</strong> ${player.weapon.name} (${player.weapon.desc})<br>
+                        <strong>Attributes:</strong> STR ${player.str} | DEX ${player.dex} | CON ${player.con}
+                    `
+                };
+                postMessage(`🔍 [Hero]: ${player.hp}/${player.maxHp} HP | AC ${player.ac} | STR ${player.str}`, 'msg-inspect');
+            }
+            // 2. Check Monster
+            else if (rat.alive && rat.x === x && rat.y === y) {
+                data = {
+                    icon: SPRITES.rat.icon,
+                    name: rat.name,
+                    desc: SPRITES.rat.desc,
+                    details: `
+                        <strong>Health:</strong> ${rat.hp} / ${rat.maxHp} HP<br>
+                        <strong>Armor Class:</strong> ${rat.ac} AC<br>
+                        <strong>Damage:</strong> 1d${rat.damageDice} Piercing Bite<br>
+                        <strong>Status:</strong> Active & Hostile
+                    `
+                };
+                postMessage(`🔍 [${rat.name}]: ${rat.hp}/${rat.maxHp} HP | AC ${rat.ac} | Atk 1d${rat.damageDice}`, 'msg-inspect');
+            }
+            // 3. Check Chest
+            else if (chest.x === x && chest.y === y) {
+                const status = chest.opened ? "Opened & Empty" : "Locked (Walk into it to open)";
+                data = {
+                    icon: chest.opened ? SPRITES.chestOpen.icon : SPRITES.chestClosed.icon,
+                    name: chest.opened ? SPRITES.chestOpen.name : SPRITES.chestClosed.name,
+                    desc: chest.opened ? SPRITES.chestOpen.desc : SPRITES.chestClosed.desc,
+                    details: `
+                        <strong>State:</strong> ${status}<br>
+                        <strong>Loot Category:</strong> Equipment Drop<br>
+                        <strong>Action:</strong> Walk into tile to claim reward
+                    `
+                };
+                postMessage(`🔍 [Chest]: ${status}`, 'msg-inspect');
+            }
+            // 4. Check Rubble
+            else if (map[y][x] === 2) {
+                data = {
+                    icon: SPRITES.rubble.icon,
+                    name: SPRITES.rubble.name,
+                    desc: SPRITES.rubble.desc,
+                    details: `
+                        <strong>Type:</strong> Dungeon Obstacle<br>
+                        <strong>Passable:</strong> No (Blocks movement & vectors)<br>
+                        <strong>Tactics:</strong> Use for cover & chokepoints
+                    `
+                };
+                postMessage(`🔍 [Stone Rubble]: Solid dungeon debris. Impassable.`, 'msg-inspect');
+            }
+            // 5. Check Wall
+            else if (map[y][x] === 1) {
+                data = {
+                    icon: '🧱',
+                    name: SPRITES.wall.name,
+                    desc: SPRITES.wall.desc,
+                    details: `
+                        <strong>Material:</strong> Reinforced Granite<br>
+                        <strong>Passable:</strong> No (Perimeter barrier)
+                    `
+                };
+                postMessage(`🔍 [Perimeter Wall]: Impassable granite bedrock.`, 'msg-inspect');
+            }
+            // 6. Open Floor
+            else {
+                data = {
+                    icon: '▫️',
+                    name: SPRITES.floor.name,
+                    desc: SPRITES.floor.desc,
+                    details: `
+                        <strong>Coordinates:</strong> (${x}, ${y})<br>
+                        <strong>Terrain:</strong> Open Flagstone Floor<br>
+                        <strong>Movement:</strong> 1 Turn Step
+                    `
+                };
+                postMessage(`🔍 [Floor (${x},${y})]: Open flagstone floor.`, 'msg-inspect');
+            }
+
+            if (data) {
+                openInspectModal(data);
+            }
+        }
+
+        // ==========================================
+        // 10. TAP-TO-MOVE (BFS PATHFINDING)
         // ==========================================
         let walkTimer = null;
 
@@ -604,7 +805,7 @@
 
             const isSolid = (x, y) => {
                 if (x < 0 || x >= 10 || y < 0 || y >= 10) return true;
-                if (map[y][x] === 1) return true;
+                if (map[y][x] === 1 || map[y][x] === 2) return true; // walls & rubble are solid
                 if (x === endX && y === endY) return false;
                 if (rat.alive && x === rat.x && y === rat.y) return true;
                 return false;
@@ -683,8 +884,8 @@
 
         function handleTapMove(tileX, tileY) {
             if (tileX < 0 || tileX >= 10 || tileY < 0 || tileY >= 10) return;
-            if (map[tileY][tileX] === 1) {
-                postMessage("Wall blocks that path.", "msg-miss");
+            if (map[tileY][tileX] === 1 || map[tileY][tileX] === 2) {
+                postMessage("Obstacle blocks that path.", "msg-miss");
                 return;
             }
 
@@ -713,19 +914,98 @@
             };
         }
 
-        canvas.addEventListener('click', (e) => {
-            const tile = getCanvasTileCoords(e);
-            handleTapMove(tile.x, tile.y);
-        });
+        // ==========================================
+        // 11. TOUCH & MOUSE LISTENERS (TAP TO MOVE vs LONG-PRESS TO INSPECT)
+        // ==========================================
+        let holdTimer = null;
+        let holdTriggered = false;
+        let startPos = { x: 0, y: 0 };
 
+        // Touch event handling (Mobile)
         canvas.addEventListener('touchstart', (e) => {
             e.preventDefault();
+            const touch = e.touches[0];
+            startPos = { x: touch.clientX, y: touch.clientY };
+            holdTriggered = false;
+
             const tile = getCanvasTileCoords(e);
-            handleTapMove(tile.x, tile.y);
+
+            // 400ms threshold for Long-Press Query
+            holdTimer = setTimeout(() => {
+                holdTriggered = true;
+                if (navigator.vibrate) navigator.vibrate(35); // Haptic bump
+                queryTile(tile.x, tile.y);
+            }, 400);
         }, { passive: false });
 
+        canvas.addEventListener('touchmove', (e) => {
+            if (!holdTimer) return;
+            const touch = e.touches[0];
+            const dist = Math.hypot(touch.clientX - startPos.x, touch.clientY - startPos.y);
+            // If moved more than 8 pixels, cancel hold
+            if (dist > 8) {
+                clearTimeout(holdTimer);
+                holdTimer = null;
+            }
+        });
+
+        canvas.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            if (holdTimer) {
+                clearTimeout(holdTimer);
+                holdTimer = null;
+            }
+
+            if (!holdTriggered) {
+                // Short tap -> move!
+                const tile = getCanvasTileCoords(e.changedTouches ? { touches: [e.changedTouches[0]], clientX: e.changedTouches[0].clientX, clientY: e.changedTouches[0].clientY } : e);
+                handleTapMove(tile.x, tile.y);
+            }
+            holdTriggered = false;
+        });
+
+        // Mouse handling (Desktop: Left click to move, Right-click to inspect, or Left-hold)
+        canvas.addEventListener('mousedown', (e) => {
+            if (e.button === 2) return; // Right click handled by contextmenu
+            startPos = { x: e.clientX, y: e.clientY };
+            holdTriggered = false;
+            const tile = getCanvasTileCoords(e);
+
+            holdTimer = setTimeout(() => {
+                holdTriggered = true;
+                queryTile(tile.x, tile.y);
+            }, 400);
+        });
+
+        canvas.addEventListener('mouseup', (e) => {
+            if (holdTimer) {
+                clearTimeout(holdTimer);
+                holdTimer = null;
+            }
+            if (e.button === 0 && !holdTriggered) {
+                const tile = getCanvasTileCoords(e);
+                handleTapMove(tile.x, tile.y);
+            }
+            holdTriggered = false;
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            if (holdTimer) {
+                clearTimeout(holdTimer);
+                holdTimer = null;
+            }
+            holdTriggered = false;
+        });
+
+        // Right-click directly triggers Query/Inspect on desktop
+        canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            const tile = getCanvasTileCoords(e);
+            queryTile(tile.x, tile.y);
+        });
+
         // ==========================================
-        // 9. INTERACTIONS & COMBAT
+        // 12. INTERACTIONS & COMBAT
         // ==========================================
         function openChest() {
             chest.opened = true;
