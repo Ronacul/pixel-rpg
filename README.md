@@ -43,3 +43,11 @@ Even with a **Private GitHub repository**, you can connect free hosting services
   1. Log in with your GitHub account (`Ronacul`).
   2. Select your private `pixel-rpg` repository.
   3. Deploy! You'll get an `https://...` link that you and anyone else can open anywhere on mobile.
+
+---
+
+## 📚 Engine Architecture & Design Docs
+
+- [Master Plan (Phases 1-4)](file:///C:/Users/The%20One/.gemini/antigravity/scratch/pixel-rpg/MASTER_PLAN.md): Core attributes, derived mechanics, modular registry, and monster behavior.
+- [System Modification Maps](file:///C:/Users/The%20One/.gemini/antigravity/scratch/pixel-rpg/SYSTEM_MODIFICATIONS.md): d20 combat formulas and perception radar scan matrix.
+
