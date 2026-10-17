@@ -62,29 +62,19 @@
 <body>
 
     <h2 style="color: #ffcc00; margin-bottom: 6px;">🛡️ RPG ENGINE SANDBOX v0.3</h2>
-    <div style="margin-bottom: 12px; color: #aaa; font-size: 13px; text-align: center;">
-        Seeded World Matrix | Arrow Keys or D-Pad to move | Walk into Rat (R) to fight | Chest (C) for loot
+    
+    <!-- Sleek Visible Seed Bar -->
+    <div style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 12px; font-size: 13px; flex-wrap: wrap;">
+        <span style="background: #1e1e1e; border: 1px solid #444; padding: 5px 12px; border-radius: 4px;">
+            🌱 Seed: <strong id="seed-display" style="color: #ffcc00; letter-spacing: 1.5px; font-size: 14px;">XXXX-XXXX</strong>
+        </span>
+        <button onclick="startNewPlaythrough()" class="btn-seed" style="padding: 5px 12px;">🎲 New Run</button>
+        <button onclick="restartCurrentPlaythrough()" class="btn-seed" style="padding: 5px 10px;">🔄 Replay</button>
     </div>
 
     <div id="game-container">
         <canvas id="stage" width="320" height="320"></canvas>
         <div id="sidebar">
-
-            <!-- Seed & Playthrough Modifier Panel -->
-            <div class="panel">
-                <h3><span>🌱 PLAYTHROUGH SEED</span> <span id="rng-counter" style="font-size: 11px; color: #888;">Rolls: 0</span></h3>
-                <div style="display: flex; gap: 6px; margin-bottom: 6px;">
-                    <input id="seed-input" type="text" maxlength="9" placeholder="XXXX-XXXX" value="">
-                    <button onclick="applyManualSeed()" class="btn-seed" title="Load custom seed">Load</button>
-                </div>
-                <div style="display: flex; gap: 6px;">
-                    <button onclick="startNewPlaythrough()" class="btn-seed" style="flex: 1;">🎲 New Seed</button>
-                    <button onclick="restartCurrentPlaythrough()" class="btn-seed" style="flex: 1;">🔄 Replay Run</button>
-                </div>
-                <div style="font-size: 10px; color: #777; margin-top: 5px; text-align: center;">
-                    8-char deterministic seed governs map, rolls & loot drops.
-                </div>
-            </div>
 
             <!-- Hero Stats Panel with Dynamic Derived Getters -->
             <div class="panel">
@@ -198,8 +188,8 @@
         }
 
         function updateSeedUI() {
-            const input = document.getElementById('seed-input');
-            if (input) input.value = currentSeed;
+            const display = document.getElementById('seed-display');
+            if (display) display.innerText = currentSeed;
             // Update URL search query without reloading page for easy sharing
             const url = new URL(window.location);
             url.searchParams.set('seed', currentSeed);
