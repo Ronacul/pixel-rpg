@@ -4,16 +4,13 @@ A 2D retro RPG engine sandbox prototype built with HTML5 Canvas and vanilla Java
 
 ## Features
 
-- **RPG Engine Sandbox v0.2:**
-  - **10x10 Tile Grid Matrix:** Perimeter solid walls with open dungeon floor grid.
-  - **Hero (Human Warrior):** Tracked core attributes (STR 12 (+1), DEX 10 (+0), CON 12 (+1), INT 10 (+0), WIS 10 (+0), CHA 10 (+0)), HP (28/28), and Armor Class (AC 12).
-  - **Target (Sewer Rat):** Interactive monster entity with HP (6/6), AC 10, and counter-attack behavior.
-  - **d20 Combat Engine:**
-    - Player attack roll: `d20 + BAB (+1)` vs Target AC.
-    - Damage pipeline: `d6 + STR Modifier (+1)` physical damage.
-    - Enemy retaliation attack roll & damage resolution on turn.
-  - **Combat Resolution Log:** Live combat feed with color-coded hits, misses, and victory states.
-  - **Controls:** Arrow keys for desktop movement; on-screen directional D-Pad for mouse and mobile touch controls.
+- **RPG Engine Sandbox v0.3 (Seeded Runs):**
+  - **🌱 Deterministic Seed Engine:** 8-character Base-32 alphanumeric seeds (`XXXX-XXXX`, ~1.1 trillion permutations) powered by Mulberry32 PRNG.
+  - **🗺️ Procedural Map Generation:** Seed-governed stone pillar and obstacle placement inside the 10x10 dungeon matrix.
+  - **⚔️ Seeded Combat & d20 Pipeline:** Deterministic d20 attack rolls, damage calculations (`1d(dice) + STR mod`), and monster retaliation.
+  - **🎁 Dynamic Loot & Equipment System:** Seeded ancient chests and monster drops (`Weapon` and `Armor` with affixes like *Hardened*, *Swift*, *Brawny*, *Champion's*) that directly modify dynamic player attributes (STR, DEX, AC, HP).
+  - **🔄 Replay & Share:** Replay the exact same seed to test alternative combat tactics, or share any run using URL parameters (`?seed=XXXX-XXXX`).
+  - **📱 Touch & Mobile Ready:** Responsive D-Pad and full mobile layout for playtesting directly on phones.
 
 ---
 
@@ -51,3 +48,4 @@ Even with a **Private GitHub repository**, you can connect free hosting services
 
 - [Master Plan (Phases 1-4)](file:///C:/Users/The%20One/.gemini/antigravity/scratch/pixel-rpg/MASTER_PLAN.md): Core attributes, derived mechanics, modular registry, and monster behavior.
 - [System Modification Maps](file:///C:/Users/The%20One/.gemini/antigravity/scratch/pixel-rpg/SYSTEM_MODIFICATIONS.md): d20 combat formulas and perception radar scan matrix.
+

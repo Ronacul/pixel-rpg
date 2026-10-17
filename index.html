@@ -3,29 +3,57 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RPG Engine Prototype - Vertical Slice</title>
+    <title>RPG Engine Prototype - Seeded Sandbox v0.3</title>
     <style>
         body { font-family: 'Courier New', monospace; background: #121212; color: #e0e0e0; display: flex; flex-direction: column; align-items: center; padding: 20px; }
         #game-container { display: flex; gap: 20px; background: #1a1a1a; padding: 20px; border-radius: 8px; border: 2px solid #333; }
         canvas { background: #000; border: 2px solid #555; image-rendering: pixelated; }
-        #sidebar { width: 300px; display: flex; flex-direction: column; gap: 15px; }
+        #sidebar { width: 320px; display: flex; flex-direction: column; gap: 12px; }
         .panel { background: #222; padding: 12px; border-radius: 4px; border: 1px solid #444; }
-        h3 { margin: 0 0 10px 0; color: #ffcc00; font-size: 16px; border-bottom: 1px solid #444; padding-bottom: 5px; }
-        .stat-line { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 4px; }
+        h3 { margin: 0 0 8px 0; color: #ffcc00; font-size: 15px; border-bottom: 1px solid #444; padding-bottom: 4px; display: flex; justify-content: space-between; align-items: center; }
+        .stat-line { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }
         #log { height: 160px; overflow-y: auto; background: #0a0a0a; border: 1px solid #333; padding: 8px; font-size: 12px; color: #a0a0a0; display: flex; flex-direction: column-reverse; }
         .controls { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; width: 150px; margin: 0 auto; }
-        button { background: #333; color: #fff; border: 1px solid #555; padding: 10px; cursor: pointer; font-weight: bold; border-radius: 4px; }
+        button { background: #333; color: #fff; border: 1px solid #555; padding: 8px; cursor: pointer; font-weight: bold; border-radius: 4px; font-family: monospace; }
         button:hover { background: #444; border-color: #ffcc00; }
         button:active { background: #222; }
+        .btn-seed { background: #2a3540; border-color: #4a6580; color: #7ec8ff; font-size: 12px; }
+        .btn-seed:hover { background: #354656; border-color: #7ec8ff; }
         .empty { visibility: hidden; }
         .log-hit { color: #55ff55; }
         .log-miss { color: #ff5555; }
         .log-victory { color: #ffff55; font-weight: bold; }
+        .log-loot { color: #ff99ff; font-weight: bold; }
+        .log-seed { color: #7ec8ff; font-style: italic; }
+        
+        #seed-input {
+            width: 100%;
+            background: #0d0d0d;
+            border: 1px solid #555;
+            color: #ffcc00;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            font-weight: bold;
+            padding: 6px 8px;
+            box-sizing: border-box;
+            border-radius: 4px;
+            letter-spacing: 2px;
+            text-align: center;
+            text-transform: uppercase;
+        }
+
+        .equip-tag {
+            color: #64d8cb;
+            font-size: 12px;
+            margin-top: 4px;
+            padding-top: 4px;
+            border-top: 1px dashed #3a3a3a;
+        }
 
         /* Responsive layout for phone playtesting */
-        @media (max-width: 680px) {
+        @media (max-width: 700px) {
             body { padding: 10px; }
-            #game-container { flex-direction: column; align-items: center; width: 100%; max-width: 360px; }
+            #game-container { flex-direction: column; align-items: center; width: 100%; max-width: 360px; padding: 10px; }
             #sidebar { width: 100%; }
             canvas { max-width: 100%; height: auto; }
         }
@@ -33,68 +61,264 @@
 </head>
 <body>
 
-    <h2 style="color: #ffcc00; margin-bottom: 10px;">🛡️ RPG ENGINE SANDBOX v0.2</h2>
-    <div style="margin-bottom: 15px; color: #aaa; font-size: 14px; text-align: center;">Use your keyboard Arrow Keys or click the D-Pad to move your Warrior (P) to the Rat (R).</div>
+    <h2 style="color: #ffcc00; margin-bottom: 6px;">🛡️ RPG ENGINE SANDBOX v0.3</h2>
+    <div style="margin-bottom: 12px; color: #aaa; font-size: 13px; text-align: center;">
+        Seeded World Matrix | Arrow Keys or D-Pad to move | Walk into Rat (R) to fight | Chest (C) for loot
+    </div>
 
     <div id="game-container">
         <canvas id="stage" width="320" height="320"></canvas>
         <div id="sidebar">
+
+            <!-- Seed & Playthrough Modifier Panel -->
             <div class="panel">
-                <h3>HERO: HUMAN WARRIOR</h3>
-                <div class="stat-line"><span>STR: 12 (+1)</span> <span>DEX: 10 (+0)</span></div>
-                <div class="stat-line"><span>CON: 12 (+1)</span> <span>INT: 10 (+0)</span></div>
-                <div class="stat-line"><span>WIS: 10 (+0)</span> <span>CHA: 10 (+0)</span></div>
-                <div class="stat-line" style="margin-top: 10px; font-weight: bold;">
-                    <span>HP: <span id="hero-hp">28</span>/28</span>
-                    <span>AC: 12</span>
+                <h3><span>🌱 PLAYTHROUGH SEED</span> <span id="rng-counter" style="font-size: 11px; color: #888;">Rolls: 0</span></h3>
+                <div style="display: flex; gap: 6px; margin-bottom: 6px;">
+                    <input id="seed-input" type="text" maxlength="9" placeholder="XXXX-XXXX" value="">
+                    <button onclick="applyManualSeed()" class="btn-seed" title="Load custom seed">Load</button>
+                </div>
+                <div style="display: flex; gap: 6px;">
+                    <button onclick="startNewPlaythrough()" class="btn-seed" style="flex: 1;">🎲 New Seed</button>
+                    <button onclick="restartCurrentPlaythrough()" class="btn-seed" style="flex: 1;">🔄 Replay Run</button>
+                </div>
+                <div style="font-size: 10px; color: #777; margin-top: 5px; text-align: center;">
+                    8-char deterministic seed governs map, rolls & loot drops.
                 </div>
             </div>
+
+            <!-- Hero Stats Panel with Dynamic Derived Getters -->
             <div class="panel">
-                <h3>TARGET: SEWER RAT</h3>
-                <div class="stat-line"><span>HP: <span id="rat-hp">6</span>/6</span> <span>AC: 10</span></div>
+                <h3>HERO: HUMAN WARRIOR</h3>
+                <div class="stat-line">
+                    <span id="stat-str">STR: 12 (+1)</span>
+                    <span id="stat-dex">DEX: 10 (+0)</span>
+                </div>
+                <div class="stat-line">
+                    <span id="stat-con">CON: 12 (+1)</span>
+                    <span id="stat-int">INT: 10 (+0)</span>
+                </div>
+                <div class="stat-line">
+                    <span id="stat-wis">WIS: 10 (+0)</span>
+                    <span id="stat-cha">CHA: 10 (+0)</span>
+                </div>
+                <div class="stat-line" style="margin-top: 8px; font-weight: bold;">
+                    <span>HP: <span id="hero-hp">28</span>/<span id="hero-max-hp">28</span></span>
+                    <span>AC: <span id="hero-ac">12</span></span>
+                </div>
+                <div id="hero-equip" class="equip-tag">Weapon: Iron Blade | Armor: Padded Vest</div>
             </div>
+
+            <!-- Target Panel -->
             <div class="panel">
-                <h3>MOVEMENT INPUT CONTROLS</h3>
+                <h3 id="target-title">TARGET: SEWER RAT</h3>
+                <div class="stat-line">
+                    <span>HP: <span id="rat-hp">6</span>/<span id="rat-max-hp">6</span></span> 
+                    <span>AC: <span id="rat-ac">10</span></span>
+                </div>
+            </div>
+
+            <!-- Movement Controls (Accessible for Mobile Touch & Mouse) -->
+            <div class="panel">
+                <h3>CONTROLS</h3>
                 <div class="controls">
                     <button class="empty"></button>
                     <button onclick="move(0, -1)">▲</button>
                     <button class="empty"></button>
                     <button onclick="move(-1, 0)">◀</button>
-                    <button onclick="move(0, 0)">👁️</button>
+                    <button onclick="move(0, 0)" title="Inspect / Wait Turn">👁️</button>
                     <button onclick="move(1, 0)">▶</button>
                     <button class="empty"></button>
                     <button onclick="move(0, 1)">▼</button>
                     <button class="empty"></button>
                 </div>
             </div>
+
+            <!-- Combat & World Resolution Log -->
             <div class="panel">
-                <h3>COMBAT RESOLUTION LOG</h3>
-                <div id="log"><div>Engine ready. Map matrix successfully constructed...</div></div>
+                <h3>RESOLUTION LOG</h3>
+                <div id="log"><div>Engine ready. Awaiting initialization...</div></div>
             </div>
+
         </div>
     </div>
 
     <script>
+        // ==========================================
+        // 1. DETERMINISTIC SEED ENGINE (Mulberry32)
+        // ==========================================
+        // 8-character base-32 string (format: XXXX-XXXX)
+        // 32^8 = 1,099,511,627,776 (~1.1 Trillion) distinct runs!
+        const SEED_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Excludes ambiguous O, 0, I, 1
+
+        function generateRandomSeedString() {
+            let s = '';
+            for (let i = 0; i < 8; i++) {
+                if (i === 4) s += '-';
+                s += SEED_CHARS[Math.floor(Math.random() * SEED_CHARS.length)];
+            }
+            return s;
+        }
+
+        // 32-bit FNV-1a Hash function for arbitrary seed strings
+        function hashString(str) {
+            let h = 2166136261 >>> 0;
+            for (let i = 0; i < str.length; i++) {
+                h = Math.imul(h ^ str.charCodeAt(i), 16777619);
+            }
+            return h >>> 0;
+        }
+
+        let currentSeed = '';
+        let rngState = 0;
+        let rngCallCount = 0;
+
+        function seedRNG(seedStr) {
+            currentSeed = seedStr.toUpperCase().trim();
+            rngState = hashString(currentSeed);
+            rngCallCount = 0;
+            updateSeedUI();
+        }
+
+        // Fast Mulberry32 PRNG
+        function rng() {
+            rngCallCount++;
+            updateRollCountUI();
+            let t = rngState += 0x6D2B79F5;
+            t = Math.imul(t ^ t >>> 15, t | 1);
+            t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+            return ((t ^ t >>> 14) >>> 0) / 4294967296;
+        }
+
+        function rngInt(min, max) {
+            return Math.floor(rng() * (max - min + 1)) + min;
+        }
+
+        function rngChoice(arr) {
+            return arr[Math.floor(rng() * arr.length)];
+        }
+
+        function updateSeedUI() {
+            const input = document.getElementById('seed-input');
+            if (input) input.value = currentSeed;
+            // Update URL search query without reloading page for easy sharing
+            const url = new URL(window.location);
+            url.searchParams.set('seed', currentSeed);
+            window.history.replaceState({}, '', url);
+        }
+
+        function updateRollCountUI() {
+            const counter = document.getElementById('rng-counter');
+            if (counter) counter.innerText = `Rolls: ${rngCallCount}`;
+        }
+
+        // ==========================================
+        // 2. LOOT TABLES & EQUIPMENT MODIFIERS
+        // ==========================================
+        const LOOT_PREFIXES = [
+            { name: "Rusty", strBonus: 0, dexBonus: 0, acBonus: 0 },
+            { name: "Hardened", strBonus: 1, dexBonus: 0, acBonus: 1 },
+            { name: "Swift", strBonus: 0, dexBonus: 2, acBonus: 0 },
+            { name: "Brawny", strBonus: 2, dexBonus: 0, acBonus: 0 },
+            { name: "Stalwart", strBonus: 0, dexBonus: 0, acBonus: 2 },
+            { name: "Champion's", strBonus: 2, dexBonus: 1, acBonus: 1 }
+        ];
+
+        const WEAPONS = [
+            { name: "Dagger", dice: 4 },
+            { name: "Shortsword", dice: 6 },
+            { name: "Broadsword", dice: 8 },
+            { name: "Battleaxe", dice: 8 }
+        ];
+
+        const ARMORS = [
+            { name: "Leather Jerkin", baseAc: 1 },
+            { name: "Ring Mail", baseAc: 2 },
+            { name: "Scale Cuirass", baseAc: 3 }
+        ];
+
+        function generateSeededLoot() {
+            const isWeapon = rng() > 0.5;
+            const prefix = rngChoice(LOOT_PREFIXES);
+            if (isWeapon) {
+                const base = rngChoice(WEAPONS);
+                return {
+                    type: 'weapon',
+                    name: `${prefix.name} ${base.name}`,
+                    dice: base.dice,
+                    strBonus: prefix.strBonus,
+                    dexBonus: prefix.dexBonus,
+                    desc: `1d${base.dice} Dmg${prefix.strBonus ? ` (+${prefix.strBonus} STR)` : ''}${prefix.dexBonus ? ` (+${prefix.dexBonus} DEX)` : ''}`
+                };
+            } else {
+                const base = rngChoice(ARMORS);
+                return {
+                    type: 'armor',
+                    name: `${prefix.name} ${base.name}`,
+                    acBonus: base.baseAc + prefix.acBonus,
+                    desc: `+${base.baseAc + prefix.acBonus} AC${prefix.strBonus ? ` (+${prefix.strBonus} STR)` : ''}`
+                };
+            }
+        }
+
+        // ==========================================
+        // 3. CORE RPG MODELS & DYNAMIC GETTERS
+        // ==========================================
         const canvas = document.getElementById('stage');
         const ctx = canvas.getContext('2d');
         const tileSize = 32;
 
-        let player = { x: 1, y: 1, hp: 28, maxHp: 28, str: 12, dex: 10, ac: 12 };
-        let rat = { x: 6, y: 5, hp: 6, maxHp: 6, ac: 10, alive: true };
+        let player = {
+            x: 1,
+            y: 1,
+            // Base Core RPG Attributes
+            baseStr: 12,
+            baseDex: 10,
+            baseCon: 12,
+            baseInt: 10,
+            baseWis: 10,
+            baseCha: 10,
+            // Equipment
+            weapon: { name: "Iron Blade", dice: 6, strBonus: 0, dexBonus: 0, desc: "1d6 Dmg" },
+            armor: { name: "Padded Vest", acBonus: 1, desc: "+1 AC" },
+            hp: 28,
 
-        // Explicitly load a 10x10 zero-filled floor grid surrounded by border walls
-        const map = [];
-        for (let y = 0; y < 10; y++) {
-            map[y] = [];
-            for (let x = 0; x < 10; x++) {
-                // Generate solid wall blocks on the perimeter borders
-                if (y === 0 || y === 9 || x === 0 || x === 9) {
-                    map[y][x] = 1;
-                } else {
-                    map[y][x] = 0; // Open floor tile
-                }
-            }
-        }
+            // Dynamic Getters
+            get str() { return this.baseStr + (this.weapon.strBonus || 0); },
+            get dex() { return this.baseDex + (this.weapon.dexBonus || 0); },
+            get con() { return this.baseCon; },
+            get int() { return this.baseInt; },
+            get wis() { return this.baseWis; },
+            get cha() { return this.baseCha; },
+
+            get strMod() { return Math.floor((this.str - 10) / 2); },
+            get dexMod() { return Math.floor((this.dex - 10) / 2); },
+            get conMod() { return Math.floor((this.con - 10) / 2); },
+
+            // CON directly hooks into Max HP calculation (Base 20 + CON * 2 / mod)
+            get maxHp() { return 20 + (this.conMod * 8); },
+            // Armor Class calculation
+            get ac() { return 10 + this.armor.acBonus + this.dexMod; }
+        };
+
+        let rat = {
+            name: "Sewer Rat",
+            x: 6,
+            y: 5,
+            hp: 6,
+            maxHp: 6,
+            ac: 10,
+            damageDice: 4,
+            alive: true
+        };
+
+        let chest = {
+            x: 8,
+            y: 2,
+            opened: false,
+            item: null
+        };
+
+        let map = [];
 
         function logMessage(text, className = '') {
             const logDiv = document.getElementById('log');
@@ -104,13 +328,118 @@
             logDiv.insertBefore(entry, logDiv.firstChild);
         }
 
+        // ==========================================
+        // 4. MAP GENERATION (SEEDED PROCEDURAL PILLARS)
+        // ==========================================
+        function buildSeededMap() {
+            map = [];
+            for (let y = 0; y < 10; y++) {
+                map[y] = [];
+                for (let x = 0; x < 10; x++) {
+                    if (y === 0 || y === 9 || x === 0 || x === 9) {
+                        map[y][x] = 1; // Perimeter border wall
+                    } else {
+                        map[y][x] = 0; // Open floor tile
+                    }
+                }
+            }
+
+            // Scatter 4 to 6 interior stone rubble pillars based on seed
+            const pillarCount = rngInt(4, 6);
+            let placed = 0;
+            while (placed < pillarCount) {
+                const rx = rngInt(2, 7);
+                const ry = rngInt(2, 7);
+                // Keep clear of initial start (1,1), rat spawn, and chest spawn
+                if ((rx === 1 && ry === 1) || (rx === rat.x && ry === rat.y) || (rx === chest.x && ry === chest.y)) {
+                    continue;
+                }
+                if (map[ry][rx] === 0) {
+                    map[ry][rx] = 1;
+                    placed++;
+                }
+            }
+        }
+
+        // ==========================================
+        // 5. PLAYTHROUGH INITIALIZATION
+        // ==========================================
+        function initPlaythrough(seedStr) {
+            seedRNG(seedStr);
+
+            // Reset Player
+            player.x = 1;
+            player.y = 1;
+            player.weapon = { name: "Iron Blade", dice: 6, strBonus: 0, dexBonus: 0, desc: "1d6 Dmg" };
+            player.armor = { name: "Padded Vest", acBonus: 1, desc: "+1 AC" };
+            player.hp = player.maxHp;
+
+            // Seeded Monster Variants
+            const ratPrefixes = ["Vile", "Giant", "Rabid", "Sewer", "Plagued"];
+            const ratName = `${rngChoice(ratPrefixes)} Rat`;
+            const bonusHp = rngInt(0, 3);
+            const bonusAc = rngInt(0, 1);
+
+            rat.name = ratName;
+            rat.x = rngInt(5, 7);
+            rat.y = rngInt(5, 7);
+            rat.maxHp = 6 + bonusHp;
+            rat.hp = rat.maxHp;
+            rat.ac = 10 + bonusAc;
+            rat.alive = true;
+
+            // Seeded Chest Setup
+            chest.x = rngInt(6, 8);
+            chest.y = rngInt(1, 3);
+            chest.opened = false;
+            chest.item = generateSeededLoot();
+
+            // Construct Map
+            buildSeededMap();
+
+            // Clear Log
+            const logDiv = document.getElementById('log');
+            logDiv.innerHTML = '';
+            logMessage(`Playthrough Seed: [${currentSeed}] loaded.`, 'log-seed');
+            logMessage(`Dungeon floor matrix synthesized with seeded terrain.`, 'log-seed');
+
+            updateUI();
+            draw();
+        }
+
+        function updateUI() {
+            document.getElementById('hero-hp').innerText = player.hp;
+            document.getElementById('hero-max-hp').innerText = player.maxHp;
+            document.getElementById('hero-ac').innerText = player.ac;
+
+            const formatMod = (m) => m >= 0 ? `(+${m})` : `(${m})`;
+            document.getElementById('stat-str').innerText = `STR: ${player.str} ${formatMod(player.strMod)}`;
+            document.getElementById('stat-dex').innerText = `DEX: ${player.dex} ${formatMod(player.dexMod)}`;
+            document.getElementById('stat-con').innerText = `CON: ${player.con} ${formatMod(player.conMod)}`;
+            document.getElementById('stat-int').innerText = `INT: ${player.int} ${formatMod(Math.floor((player.int-10)/2))}`;
+            document.getElementById('stat-wis').innerText = `WIS: ${player.wis} ${formatMod(Math.floor((player.wis-10)/2))}`;
+            document.getElementById('stat-cha').innerText = `CHA: ${player.cha} ${formatMod(Math.floor((player.cha-10)/2))}`;
+
+            document.getElementById('hero-equip').innerText = `Wpn: ${player.weapon.name} (${player.weapon.desc}) | Arm: ${player.armor.name} (${player.armor.desc})`;
+
+            document.getElementById('target-title').innerText = `TARGET: ${rat.name.toUpperCase()}`;
+            document.getElementById('rat-hp').innerText = rat.hp;
+            document.getElementById('rat-max-hp').innerText = rat.maxHp;
+            document.getElementById('rat-ac').innerText = rat.ac;
+        }
+
+        // ==========================================
+        // 6. RENDER LOOP
+        // ==========================================
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             for (let y = 0; y < 10; y++) {
                 for (let x = 0; x < 10; x++) {
                     if (map[y][x] === 1) {
-                        ctx.fillStyle = '#444'; // Wall block
+                        ctx.fillStyle = '#444'; // Wall / stone rubble
                         ctx.fillRect(x * tileSize, y * tileSize, tileSize - 1, tileSize - 1);
+                        ctx.strokeStyle = '#222';
+                        ctx.strokeRect(x * tileSize, y * tileSize, tileSize, tileSize);
                     } else {
                         ctx.fillStyle = '#1a1a1a'; // Open floor
                         ctx.fillRect(x * tileSize, y * tileSize, tileSize - 1, tileSize - 1);
@@ -119,27 +448,57 @@
                     }
                 }
             }
+
+            // Draw Treasure Chest
+            if (!chest.opened) {
+                ctx.fillStyle = '#ffb703';
+                ctx.font = 'bold 16px Courier New';
+                ctx.fillText('📦 C', chest.x * tileSize + 2, chest.y * tileSize + 22);
+            } else {
+                ctx.fillStyle = '#666';
+                ctx.font = '14px Courier New';
+                ctx.fillText('📭 _', chest.x * tileSize + 4, chest.y * tileSize + 22);
+            }
+
+            // Draw Monster
             if (rat.alive) {
                 ctx.fillStyle = '#ff5555';
                 ctx.font = 'bold 16px Courier New';
                 ctx.fillText('🐀 R', rat.x * tileSize + 4, rat.y * tileSize + 22);
             }
+
+            // Draw Player
             ctx.fillStyle = '#55ff55';
             ctx.font = 'bold 16px Courier New';
             ctx.fillText('🛡️ P', player.x * tileSize + 4, player.y * tileSize + 22);
         }
 
+        // ==========================================
+        // 7. INPUT & MOVEMENT
+        // ==========================================
         function move(dx, dy) {
+            if (dx === 0 && dy === 0) {
+                logMessage("👁️ Inspected surroundings: Area passive survey complete.");
+                return;
+            }
+
             let nextX = player.x + dx;
             let nextY = player.y + dy;
 
             if (map[nextY][nextX] === 1) {
-                logMessage("COLLISION: Border wall blocks movement vectors.");
+                logMessage("COLLISION: Solid terrain blocks movement vectors.");
                 return;
             }
 
+            // Combat trigger
             if (rat.alive && nextX === rat.x && nextY === rat.y) {
                 resolveCombatTurn();
+                return;
+            }
+
+            // Treasure Chest interaction
+            if (!chest.opened && nextX === chest.x && nextY === chest.y) {
+                openChest();
                 return;
             }
 
@@ -149,50 +508,111 @@
             draw();
         }
 
-        function resolveCombatTurn() {
-            logMessage("⚔️ Attacking Sewer Rat!");
-            let d20Roll = Math.floor(Math.random() * 20) + 1;
-            let attackTotal = d20Roll + 1; // +1 BAB bonus from level 1
+        function openChest() {
+            chest.opened = true;
+            const item = chest.item;
+            logMessage(`🎁 Opened ancient chest! Discovered: ${item.name}!`, 'log-loot');
 
-            if (attackTotal >= rat.ac) {
-                let d6Damage = Math.floor(Math.random() * 6) + 1;
-                let totalDamage = d6Damage + 1; // +1 STR modifier bonus from 12 Strength
-                rat.hp = Math.max(0, rat.hp - totalDamage);
-                document.getElementById('rat-hp').innerText = rat.hp;
-                logMessage(`💥 HIT! Rolled ${attackTotal} vs AC 10. Dealt ${totalDamage} damage!`, 'log-hit');
-
-                if (rat.hp <= 0) {
-                    rat.alive = false;
-                    logMessage("🏆 VICTORY! The Sewer Rat has been defeated!", 'log-victory');
-                }
-            } else {
-                logMessage(`🛡️ MISS! Rolled ${attackTotal} vs Rat AC 10.`, 'log-miss');
+            if (item.type === 'weapon') {
+                player.weapon = item;
+                logMessage(`⚔️ Equipped weapon: ${item.name} (${item.desc})`, 'log-loot');
+            } else if (item.type === 'armor') {
+                player.armor = item;
+                logMessage(`🛡️ Equipped armor: ${item.name} (${item.desc})`, 'log-loot');
             }
-
-            if (rat.alive) {
-                let ratRoll = Math.floor(Math.random() * 20) + 1;
-                let ratAttack = ratRoll + 1;
-                if (ratAttack >= player.ac) {
-                    let damage = Math.floor(Math.random() * 4) + 1;
-                    player.hp = Math.max(0, player.hp - damage);
-                    document.getElementById('hero-hp').innerText = player.hp;
-                    logMessage(`🩸 OUCH! Rat bit you for ${damage} damage.`, 'log-miss');
-                } else {
-                    logMessage(`🛡️ BLOCKED! Rat missed your AC layout score of ${player.ac}.`);
-                }
-            }
+            updateUI();
             draw();
         }
 
+        // ==========================================
+        // 8. COMBAT RESOLUTION (DETERMINISTIC SEEDED ROLLS)
+        // ==========================================
+        function resolveCombatTurn() {
+            logMessage(`⚔️ Attacking ${rat.name}!`);
+
+            // Seeded d20 Attack Roll: d20 + DEX Modifier + BAB (+1)
+            let d20Roll = rngInt(1, 20);
+            let bab = 1;
+            let attackTotal = d20Roll + player.dexMod + bab;
+
+            if (attackTotal >= rat.ac) {
+                // Seeded Damage Roll: Weapon dice roll + STR Modifier
+                let weaponDmg = rngInt(1, player.weapon.dice);
+                let totalDamage = Math.max(1, weaponDmg + player.strMod);
+                rat.hp = Math.max(0, rat.hp - totalDamage);
+                document.getElementById('rat-hp').innerText = rat.hp;
+
+                logMessage(`💥 HIT! d20(${d20Roll}) + DEX(${player.dexMod}) + BAB(${bab}) = ${attackTotal} vs AC ${rat.ac}. Dealt ${totalDamage} damage!`, 'log-hit');
+
+                if (rat.hp <= 0) {
+                    rat.alive = false;
+                    logMessage(`🏆 VICTORY! The ${rat.name} was vanquished!`, 'log-victory');
+                    // Monster drop
+                    const droppedItem = generateSeededLoot();
+                    logMessage(`✨ Loot Drop: ${rat.name} dropped ${droppedItem.name}!`, 'log-loot');
+                    if (droppedItem.type === 'weapon' && (droppedItem.dice > player.weapon.dice || droppedItem.strBonus > player.weapon.strBonus)) {
+                        player.weapon = droppedItem;
+                        logMessage(`⚔️ Auto-equipped superior weapon: ${droppedItem.name}!`, 'log-loot');
+                    } else if (droppedItem.type === 'armor' && droppedItem.acBonus > player.armor.acBonus) {
+                        player.armor = droppedItem;
+                        logMessage(`🛡️ Auto-equipped superior armor: ${droppedItem.name}!`, 'log-loot');
+                    }
+                    updateUI();
+                }
+            } else {
+                logMessage(`🛡️ MISS! d20(${d20Roll}) + Modifiers = ${attackTotal} vs AC ${rat.ac}.`, 'log-miss');
+            }
+
+            // Monster Counter-Attack
+            if (rat.alive) {
+                let ratRoll = rngInt(1, 20);
+                let ratAttack = ratRoll + 1;
+                if (ratAttack >= player.ac) {
+                    let damage = rngInt(1, rat.damageDice);
+                    player.hp = Math.max(0, player.hp - damage);
+                    document.getElementById('hero-hp').innerText = player.hp;
+                    logMessage(`🩸 OUCH! ${rat.name} hit for ${damage} damage (Roll: ${ratAttack} vs AC ${player.ac}).`, 'log-miss');
+                } else {
+                    logMessage(`🛡️ BLOCKED! ${rat.name} rolled ${ratAttack} vs AC ${player.ac}.`);
+                }
+            }
+
+            updateUI();
+            draw();
+        }
+
+        // ==========================================
+        // 9. CONTROLS & SEED MODIFIERS
+        // ==========================================
+        function startNewPlaythrough() {
+            const newSeed = generateRandomSeedString();
+            initPlaythrough(newSeed);
+        }
+
+        function restartCurrentPlaythrough() {
+            initPlaythrough(currentSeed);
+        }
+
+        function applyManualSeed() {
+            const input = document.getElementById('seed-input');
+            let val = input.value.trim().toUpperCase();
+            if (val.length === 0) val = generateRandomSeedString();
+            initPlaythrough(val);
+        }
+
         window.addEventListener('keydown', function(e) {
-            if (e.key === 'ArrowUp')    { move(0, -1); e.preventDefault(); }
-            if (e.key === 'ArrowDown')  { move(0, 1);  e.preventDefault(); }
-            if (e.key === 'ArrowLeft')  { move(-1, 0); e.preventDefault(); }
-            if (e.key === 'ArrowRight') { move(1, 0);  e.preventDefault(); }
+            if (e.target.tagName === 'INPUT') return; // Do not intercept typing in seed field
+            if (e.key === 'ArrowUp' || e.key === 'w')    { move(0, -1); e.preventDefault(); }
+            if (e.key === 'ArrowDown' || e.key === 's')  { move(0, 1);  e.preventDefault(); }
+            if (e.key === 'ArrowLeft' || e.key === 'a')  { move(-1, 0); e.preventDefault(); }
+            if (e.key === 'ArrowRight' || e.key === 'd') { move(1, 0);  e.preventDefault(); }
+            if (e.key === ' ') { move(0, 0); e.preventDefault(); }
         });
 
-        // Fire initial view render frame loop
-        draw();
+        // Initialize from URL parameter (?seed=XXXX-XXXX) or generate fresh
+        const urlParams = new URLSearchParams(window.location.search);
+        const initialSeed = urlParams.get('seed') || generateRandomSeedString();
+        initPlaythrough(initialSeed);
     </script>
 </body>
 </html>
