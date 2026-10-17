@@ -12,7 +12,16 @@ export const TILES = {
     SECRET_DOOR: 4,       // Hidden: renders as wall until detected
     STAIRS_DOWN: 5,
     STAIRS_UP: 6,
-    RUBBLE: 7
+    RUBBLE: 7,
+    PILLAR: 8,            // Marble/stone column: impassable, blocks sight, provides cover
+    PIT: 9,               // Bottomless pit/chasm: impassable hazard
+    TRAP_SPIKE: 10,       // Hidden floor spike trap: inflicts 1d8 + bleeding
+    TRAP_FIRE: 11,        // Hidden fire plate trap: spawns 3x3 fire zone + burning
+    TRAP_GAS: 12,         // Hidden spore trap: spawns 3x3 poison gas zone + poison
+    BARREL: 13,           // Destructible obstacle: drops loot or explosive blast
+    ALTAR: 14,            // Sacred shrine: grants full heal and blessed buff
+    ALTAR_INERT: 15,      // Depleted shrine
+    FOLIAGE: 16           // Dense brush: slow passage, flammable into fire zone
 };
 
 export const VISIBILITY = {

@@ -1,4 +1,5 @@
-// Item & Equipment Catalog with Affix Generators
+// Item & Equipment Catalog with Affix Generators and Diverse Delivery Types
+// Supports Melee, Ranged Projectiles, AoE Flasks, and Status-Inflicting Armaments
 
 export const ITEM_SLOTS = {
     HELM: 'helm',
@@ -14,27 +15,87 @@ export const ITEM_SLOTS = {
 };
 
 export const BASE_ITEMS = [
-    // Weapons
-    { name: 'Dagger', slot: ITEM_SLOTS.MAIN_HAND, dice: 4, icon: '🗡️' },
-    { name: 'Shortsword', slot: ITEM_SLOTS.MAIN_HAND, dice: 6, icon: '⚔️' },
-    { name: 'Broadsword', slot: ITEM_SLOTS.MAIN_HAND, dice: 8, icon: '🗡️' },
-    { name: 'Warhammer', slot: ITEM_SLOTS.MAIN_HAND, dice: 10, icon: '🔨' },
+    // Standard Melee Weapons
+    { name: 'Dagger', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'ADJACENT', dice: 4, icon: '🗡️' },
+    { name: 'Shortsword', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'ADJACENT', dice: 6, icon: '⚔️' },
+    { name: 'Broadsword', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'ADJACENT', dice: 8, icon: '🗡️' },
+    { name: 'Warhammer', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'ADJACENT', dice: 10, icon: '🔨' },
+
+    // Status-Inflicting Melee Weapons
+    { name: 'Poisoned Stiletto', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'ADJACENT', dice: 4, statusOnHit: 'POISONED', statusDuration: 4, icon: '🗡️' },
+    { name: 'Jagged Flail', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'ADJACENT', dice: 8, statusOnHit: 'BLEEDING', statusDuration: 4, icon: '⛓️' },
+
+    // Distance Ranged Weapons (Equipped in Main Hand, fired across line-of-sight)
+    { name: 'Hunting Bow', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'RANGED', range: 6, dice: 6, icon: '🏹' },
+    { name: 'Heavy Crossbow', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'RANGED', range: 8, dice: 10, icon: '🏹' },
+    { name: 'Throwing Daggers', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'RANGED', range: 5, dice: 4, statusOnHit: 'BLEEDING', statusDuration: 3, icon: '🗡️' },
+
+    // Tactical Thrown Flasks / Bombs (Can be equipped or thrown from backpack)
+    { 
+        name: "Alchemist's Fire", 
+        slot: ITEM_SLOTS.OFF_HAND, 
+        delivery: 'AOE', 
+        range: 5, 
+        radius: 1, 
+        dice: 6, 
+        diceCount: 2, 
+        zoneType: 'FIRE', 
+        zoneDuration: 4, 
+        statusOnHit: 'BURNING', 
+        statusDuration: 3, 
+        isConsumable: true,
+        icon: '🔥' 
+    },
+    { 
+        name: 'Poison Gas Flask', 
+        slot: ITEM_SLOTS.OFF_HAND, 
+        delivery: 'AOE', 
+        range: 5, 
+        radius: 1, 
+        dice: 4, 
+        diceCount: 1, 
+        zoneType: 'POISON_GAS', 
+        zoneDuration: 5, 
+        statusOnHit: 'POISONED', 
+        statusDuration: 4, 
+        isConsumable: true,
+        icon: '🧪' 
+    },
+    { 
+        name: 'Holy Water Flask', 
+        slot: ITEM_SLOTS.OFF_HAND, 
+        delivery: 'AOE', 
+        range: 5, 
+        radius: 1, 
+        isPositive: true, 
+        zoneType: 'CONSECRATION', 
+        zoneDuration: 6, 
+        healPotency: 12, 
+        isConsumable: true,
+        icon: '✨' 
+    },
+
     // Off-hand / Shields
     { name: 'Buckler', slot: ITEM_SLOTS.OFF_HAND, ac: 1, icon: '🛡️' },
     { name: 'Heater Shield', slot: ITEM_SLOTS.OFF_HAND, ac: 2, icon: '🛡️' },
+
     // Armor
     { name: 'Leather Jerkin', slot: ITEM_SLOTS.ARMOR, ac: 2, icon: '🦺' },
     { name: 'Chainmail Hauberk', slot: ITEM_SLOTS.ARMOR, ac: 4, icon: '🛡️' },
     { name: 'Plate Cuirass', slot: ITEM_SLOTS.ARMOR, ac: 6, icon: '🛡️' },
+
     // Helms
     { name: 'Iron Coif', slot: ITEM_SLOTS.HELM, ac: 1, icon: '🪖' },
     { name: 'Great Helm', slot: ITEM_SLOTS.HELM, ac: 2, icon: '🪖' },
+
     // Gauntlets
     { name: 'Leather Gloves', slot: ITEM_SLOTS.GAUNTLETS, dex: 1, icon: '🧤' },
     { name: 'Steel Gauntlets', slot: ITEM_SLOTS.GAUNTLETS, str: 1, ac: 1, icon: '🧤' },
+
     // Boots
     { name: 'Traveler Boots', slot: ITEM_SLOTS.BOOTS, dex: 1, icon: '🥾' },
     { name: 'Iron Sabatons', slot: ITEM_SLOTS.BOOTS, ac: 1, con: 1, icon: '🥾' },
+
     // Rings & Trinkets
     { name: 'Band of Fortitude', slot: ITEM_SLOTS.RING_LEFT, con: 2, icon: '💍' },
     { name: 'Ring of Quickness', slot: ITEM_SLOTS.RING_RIGHT, dex: 2, icon: '💍' },
@@ -48,7 +109,9 @@ export const AFFIXES = [
     { name: 'Keen', str: 0, dex: 1, diceBonus: 1 },
     { name: 'Reinforced', ac: 1, con: 1 },
     { name: 'Eldritch', int: 2, wis: 2 },
-    { name: 'Titan’s', str: 3, con: 2, ac: 1 }
+    { name: 'Titan’s', str: 3, con: 2, ac: 1 },
+    { name: 'Venomous', statusOnHit: 'POISONED', statusDuration: 4 },
+    { name: 'Serrated', statusOnHit: 'BLEEDING', statusDuration: 4 }
 ];
 
 export function generateLootItem(prng, floorLevel = 1) {
@@ -60,7 +123,18 @@ export function generateLootItem(prng, floorLevel = 1) {
         name: affix ? `${affix.name} ${base.name}` : base.name,
         slot: base.slot,
         icon: base.icon,
+        delivery: base.delivery || 'ADJACENT',
+        range: base.range || 0,
+        radius: base.radius || 0,
+        isPositive: !!base.isPositive,
+        isConsumable: !!base.isConsumable,
+        zoneType: base.zoneType || null,
+        zoneDuration: base.zoneDuration || 0,
+        statusOnHit: affix?.statusOnHit || base.statusOnHit || null,
+        statusDuration: affix?.statusDuration || base.statusDuration || 0,
         dice: (base.dice || 0) + (affix?.diceBonus || 0),
+        diceCount: base.diceCount || 1,
+        healPotency: base.healPotency || 0,
         ac: (base.ac || 0) + (affix?.ac || 0),
         str: (base.str || 0) + (affix?.str || 0),
         dex: (base.dex || 0) + (affix?.dex || 0),
@@ -70,7 +144,12 @@ export function generateLootItem(prng, floorLevel = 1) {
     };
 
     const stats = [];
-    if (item.dice) stats.push(`1d${item.dice} Dmg`);
+    if (item.delivery === 'RANGED') stats.push(`Ranged (${item.range}t)`);
+    if (item.delivery === 'AOE') stats.push(`AoE (${item.radius}r, ${item.range}t)`);
+    if (item.dice) stats.push(`${item.diceCount > 1 ? item.diceCount : ''}1d${item.dice} Dmg`);
+    if (item.statusOnHit) stats.push(`Inflicts ${item.statusOnHit}`);
+    if (item.zoneType) stats.push(`Leaves ${item.zoneType} field`);
+    if (item.healPotency) stats.push(`Heals +${item.healPotency} HP`);
     if (item.ac) stats.push(`+${item.ac} AC`);
     if (item.str) stats.push(`+${item.str} STR`);
     if (item.dex) stats.push(`+${item.dex} DEX`);
@@ -81,4 +160,3 @@ export function generateLootItem(prng, floorLevel = 1) {
 
     return item;
 }
-

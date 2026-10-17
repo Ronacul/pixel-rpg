@@ -62,11 +62,76 @@ export function generateFloor(baseSeed, floorLevel) {
             }
         }
 
-        // Rubble in larger 7x7+ rooms
-        if (room.w >= 7 && room.h >= 7 && prng.chance(0.4)) {
-            const ox = prng.nextInt(room.x + 1, room.x + room.w - 2);
-            const oy = prng.nextInt(room.y + 1, room.y + room.h - 2);
-            terrain[oy * MAP_WIDTH + ox] = TILES.RUBBLE;
+        // Tactical Terrain & Interactive Features
+        if (idx !== 0) {
+            // Sacred Altar in Secret Rooms
+            if (room.isSecret && (idx === 1 || idx === 2)) {
+                terrain[room.cy * MAP_WIDTH + room.cx] = TILES.ALTAR;
+            }
+
+            // Symmetrical Stone Pillars in large rooms (Provides Cover)
+            if (room.w >= 7 && room.h >= 7 && prng.chance(0.65)) {
+                const px1 = room.x + 2;
+                const py1 = room.y + 2;
+                const px2 = room.x + room.w - 3;
+                const py2 = room.y + room.h - 3;
+                terrain[py1 * MAP_WIDTH + px1] = TILES.PILLAR;
+                terrain[py2 * MAP_WIDTH + px2] = TILES.PILLAR;
+                if (room.w >= 8 && room.h >= 8) {
+                    terrain[py1 * MAP_WIDTH + px2] = TILES.PILLAR;
+                    terrain[py2 * MAP_WIDTH + px1] = TILES.PILLAR;
+                }
+            }
+
+            // Destructible Barrels & Crates in room corners
+            if (prng.chance(0.7)) {
+                const cornerCandidates = [
+                    { x: room.x + 1, y: room.y + 1 },
+                    { x: room.x + room.w - 2, y: room.y + 1 },
+                    { x: room.x + 1, y: room.y + room.h - 2 },
+                    { x: room.x + room.w - 2, y: room.y + room.h - 2 }
+                ];
+                for (const c of cornerCandidates) {
+                    if (prng.chance(0.4) && terrain[c.y * MAP_WIDTH + c.x] === TILES.FLOOR) {
+                        terrain[c.y * MAP_WIDTH + c.x] = TILES.BARREL;
+                    }
+                }
+            }
+
+            // Flammable Foliage & Briars in damp cavern rooms
+            if (prng.chance(0.35)) {
+                const fx = prng.nextInt(room.x + 1, room.x + room.w - 2);
+                const fy = prng.nextInt(room.y + 1, room.y + room.h - 2);
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        const tx = fx + dx;
+                        const ty = fy + dy;
+                        if (tx >= room.x + 1 && tx < room.x + room.w - 1 && ty >= room.y + 1 && ty < room.y + room.h - 1) {
+                            if (terrain[ty * MAP_WIDTH + tx] === TILES.FLOOR && prng.chance(0.6)) {
+                                terrain[ty * MAP_WIDTH + tx] = TILES.FOLIAGE;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Pits & Chasms (Rare impassable terrain hazard)
+            if (prng.chance(0.12) && room.w >= 6 && room.h >= 6) {
+                const pitX = prng.nextInt(room.x + 2, room.x + room.w - 3);
+                const pitY = prng.nextInt(room.y + 2, room.y + room.h - 3);
+                if (terrain[pitY * MAP_WIDTH + pitX] === TILES.FLOOR) {
+                    terrain[pitY * MAP_WIDTH + pitX] = TILES.PIT;
+                }
+            }
+
+            // Rubble
+            if (room.w >= 7 && room.h >= 7 && prng.chance(0.3)) {
+                const ox = prng.nextInt(room.x + 1, room.x + room.w - 2);
+                const oy = prng.nextInt(room.y + 1, room.y + room.h - 2);
+                if (terrain[oy * MAP_WIDTH + ox] === TILES.FLOOR) {
+                    terrain[oy * MAP_WIDTH + ox] = TILES.RUBBLE;
+                }
+            }
         }
     });
 
@@ -158,6 +223,19 @@ export function generateFloor(baseSeed, floorLevel) {
                         terrain[y * MAP_WIDTH + x] = prng.chance(0.12) ? TILES.SECRET_DOOR : TILES.DOOR_CLOSED;
                     }
                     doors.push({ x, y, type: terrain[y * MAP_WIDTH + x] });
+                } else if ((isHorizontalChoke || isVerticalChoke) && prng.chance(0.08)) {
+                    // Hidden Floor Traps in chokepoint hallways (Avoid spawn room cx/cy)
+                    const isNearSpawn = Math.hypot(rooms[0].cx - x, rooms[0].cy - y) < 4;
+                    if (!isNearSpawn) {
+                        const roll = prng.nextInt(1, 100);
+                        if (roll <= 45) {
+                            terrain[y * MAP_WIDTH + x] = TILES.TRAP_SPIKE;
+                        } else if (roll <= 75) {
+                            terrain[y * MAP_WIDTH + x] = TILES.TRAP_FIRE;
+                        } else {
+                            terrain[y * MAP_WIDTH + x] = TILES.TRAP_GAS;
+                        }
+                    }
                 }
             }
         }
@@ -245,6 +323,8 @@ export function generateFloor(baseSeed, floorLevel) {
         stairsDownPos,
         monsters,
         chests,
+        hazardZones: [],
+        trapsRevealed: new Set(),
         bloodStains: []
     };
 }

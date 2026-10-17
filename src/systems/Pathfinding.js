@@ -24,12 +24,12 @@ export function findPath(startX, startY, endX, endY, terrain, monsters, maxRadiu
     const isPassable = (x, y) => {
         if (x < minX || x > maxX || y < minY || y > maxY) return false;
         const tile = terrain[y * MAP_WIDTH + x];
-        // Solid obstacles
-        if (tile === TILES.WALL || tile === TILES.RUBBLE || tile === TILES.SECRET_DOOR) return false;
-        // Target can be an entity or door to interact with
+        // Solid impassable obstacles
+        if (tile === TILES.WALL || tile === TILES.RUBBLE || tile === TILES.SECRET_DOOR || tile === TILES.PILLAR || tile === TILES.PIT) return false;
+        // Target can be an entity, barrel, or door to interact with
         if (x === endX && y === endY) return true;
-        // Avoid walking through closed doors or live monsters mid-path
-        if (tile === TILES.DOOR_CLOSED) return false;
+        // Avoid walking through closed doors, destructible barrels, or live monsters mid-path
+        if (tile === TILES.DOOR_CLOSED || tile === TILES.BARREL) return false;
         if (monsters.some(m => m.alive && m.x === x && m.y === y)) return false;
         return true;
     };

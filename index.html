@@ -441,8 +441,15 @@
             <span style="color: #ff5577;">❤️ <span id="hud-hp">28</span>/<span id="hud-max-hp">28</span></span>
             <span style="color: #555;">|</span>
             <span style="color: #64d8cb;">AC <span id="hud-ac">12</span></span>
+            <span id="hud-statuses" style="margin-left: 2px;"></span>
             <span style="color: #ffcc00; margin-left: 2px;">👤</span>
         </div>
+    </div>
+
+    <!-- Active Targeting Mode Banner -->
+    <div id="targeting-banner" style="display: none; width: 100%; max-width: 360px; background: #2b1d05; border: 1px solid #ffcc00; border-radius: 6px; padding: 5px 10px; margin-bottom: 4px; font-size: 11px; color: #ffcc00; justify-content: space-between; align-items: center; box-shadow: 0 0 10px rgba(255,204,0,0.3);">
+        <div>🎯 <strong id="targeting-action-name" style="color: #64d8cb;">Bow Shot</strong> (<span id="targeting-range-text">Range 6</span>)</div>
+        <button id="btn-cancel-target" class="btn-icon" style="background: #3d1519; color: #ff99aa; border-color: #882233;">Cancel ✕</button>
     </div>
 
     <!-- Main Map Viewport (Tap/Click to move | Long-press to inspect) -->
@@ -452,19 +459,24 @@
 
     <!-- Primary Action Controls Bar (Prominent on Mobile & Desktop) -->
     <div id="action-bar">
-        <button id="btn-zoom-main" class="action-btn" title="Toggle Map Zoom: 1x, 1.5x, 2.5x (Hotkey: Z)">
-            <span style="font-size: 14px;">🔍</span>
-            <span>Zoom: <strong id="action-zoom-label" style="color: #64d8cb;">1x</strong></span>
+        <button id="btn-target-main" class="action-btn" title="Aim & Fire Equipped Weapon or Throw Item (Hotkey: T)">
+            <span style="font-size: 14px;">🎯</span>
+            <span id="action-target-label" style="color: #64d8cb;">Aim</span>
+        </button>
+
+        <button id="btn-spells-main" class="action-btn" title="Cast Class Feats & Spells (Hotkey: F)">
+            <span style="font-size: 14px;" id="action-spells-icon">⚡</span>
+            <span id="action-spells-name" style="color: #ffcc00;">Spells</span>
         </button>
 
         <button id="btn-sheet-main" class="action-btn action-btn-highlight" title="Open Character Paperdoll & Inventory (Hotkey: C)">
             <span style="font-size: 14px;">👤</span>
-            <span style="color: #ffcc00;">Paperdoll (25)</span>
+            <span style="color: #ffcc00;">Gear (25)</span>
         </button>
 
-        <button id="btn-feat-main" class="action-btn" title="Use Primary Class Feat (Hotkey: F)">
-            <span style="font-size: 14px;" id="action-feat-icon">💨</span>
-            <span id="action-feat-name" style="color: #ffcc00;">Second Wind</span>
+        <button id="btn-zoom-main" class="action-btn" title="Toggle Map Zoom: 1x, 1.5x, 2x (Hotkey: Z)">
+            <span style="font-size: 14px;">🔍</span>
+            <span><strong id="action-zoom-label" style="color: #64d8cb;">1x</strong></span>
         </button>
 
         <button id="btn-wait-main" class="action-btn" title="Pass 1 turn / Rest & Heal (Hotkey: Space)">
@@ -659,6 +671,23 @@
         </div>
     </div>
 
+    <!-- 5. Spells & Class Feats Modal -->
+    <div id="spells-modal" class="modal-overlay" onclick="closeSpellsModal(event)">
+        <div class="modal-card" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <div>
+                    <span class="modal-title" id="spells-modal-title">⚡ CLASS SPELLS & FEATS</span>
+                    <div style="font-size: 10px; color: #888;">Select an ability to cast or aim:</div>
+                </div>
+                <button class="close-btn" onclick="closeSpellsModal()">✕</button>
+            </div>
+            <div id="spells-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 60vh; overflow-y: auto;">
+                <!-- Generated dynamically -->
+            </div>
+            <button class="modal-btn" onclick="closeSpellsModal()">Done</button>
+        </div>
+    </div>
+
     <!-- Core Modular Engine Script with Cache-Busting Version Query -->
     <script type="module">
         import {
@@ -667,14 +696,19 @@
             populateSheet,
             cycleZoom,
             waitTurn,
-            usePrimaryFeat,
+            triggerAimMode,
+            openSpellsModal,
+            closeSpellsModal,
+            useAbilityById,
+            throwItemFromBackpack,
+            cancelTargeting,
             selectSlot,
             equipSelectedBackpackItem,
             unequipSelectedBodyItem,
             dropSelectedBackpackItem,
             boostStat
-        } from './src/main.js?v=5.0';
-        import { PRNG } from './src/core/RNG.js?v=5.0';
+        } from './src/main.js?v=6.0';
+        import { PRNG } from './src/core/RNG.js?v=6.0';
 
         window.openSheetModal = function() {
             populateSheet();
@@ -693,6 +727,12 @@
             document.getElementById('levelup-modal').classList.remove('active');
         };
 
+        window.openSpellsModal = openSpellsModal;
+        window.closeSpellsModal = closeSpellsModal;
+        window.useAbilityById = useAbilityById;
+        window.throwItemFromBackpack = throwItemFromBackpack;
+        window.cancelTargeting = cancelTargeting;
+
         window.chooseMilestoneStat = function(stat) {
             boostStat(stat);
             window.closeLevelUpModal();
@@ -709,7 +749,9 @@
         document.getElementById('btn-sheet-main').addEventListener('click', window.openSheetModal);
         document.getElementById('btn-zoom-main').addEventListener('click', cycleZoom);
         document.getElementById('btn-wait-main').addEventListener('click', waitTurn);
-        document.getElementById('btn-feat-main').addEventListener('click', usePrimaryFeat);
+        document.getElementById('btn-target-main').addEventListener('click', triggerAimMode);
+        document.getElementById('btn-spells-main').addEventListener('click', openSpellsModal);
+        document.getElementById('btn-cancel-target').addEventListener('click', cancelTargeting);
 
         document.getElementById('btn-reroll').addEventListener('click', () => {
             const newSeed = PRNG.generateRandomSeed();

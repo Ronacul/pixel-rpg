@@ -2,6 +2,7 @@
 
 import { ITEM_SLOTS } from '../data/Items.js';
 import { CLASSES, XP_TABLE, isAttributeMilestone } from '../data/Classes.js';
+import { EffectSystem } from '../systems/Effects.js';
 
 export class PlayerCharacter {
     constructor(classKey = 'WARRIOR') {
@@ -17,9 +18,10 @@ export class PlayerCharacter {
         // Class Assignment
         this.characterClass = CLASSES[classKey] || CLASSES.WARRIOR;
 
-        // Cooldowns and Active Buffs
+        // Cooldowns, Active Buffs & Status Effects
         this.cooldowns = {};
         this.activeBuffs = [];
+        this.statuses = [];
 
         // Passive Health Regen Rate (Heal 1 HP every REGEN_RATE turns)
         this.REGEN_RATE = 12;
@@ -65,7 +67,9 @@ export class PlayerCharacter {
     }
 
     get dex() {
-        return this.baseDex + this.getEquippedItems().reduce((sum, item) => sum + (item.dex || 0), 0);
+        const statusDex = EffectSystem.getStatusModifiers(this).dexMod;
+        const equipDex = this.getEquippedItems().reduce((sum, item) => sum + (item.dex || 0), 0);
+        return Math.max(1, this.baseDex + equipDex + statusDex);
     }
 
     get con() {
@@ -105,17 +109,22 @@ export class PlayerCharacter {
         return 20 + (this.conMod * 8) + this.bonusHp;
     }
 
-    // Armor Class: 10 + Equipment AC + DEX Mod + Active Buffs
+    // Armor Class: 10 + Equipment AC + DEX Mod + Active Buffs + Status Modifiers (e.g. Clumsy -2, Blessed +2)
     get ac() {
         const equipAc = this.getEquippedItems().reduce((sum, item) => sum + (item.ac || 0), 0);
         const buffAc = this.activeBuffs
             .filter(b => b.stat === 'ac')
             .reduce((sum, b) => sum + (b.value || 0), 0);
-        return 10 + equipAc + this.dexMod + buffAc;
+        const statusAc = EffectSystem.getStatusModifiers(this).acMod;
+        return Math.max(5, 10 + equipAc + this.dexMod + buffAc + statusAc);
     }
 
     get weapon() {
-        return this.equipment[ITEM_SLOTS.MAIN_HAND] || { name: 'Fists', dice: 3, desc: '1d3 Unarmed' };
+        return this.equipment[ITEM_SLOTS.MAIN_HAND] || { name: 'Fists', delivery: 'ADJACENT', dice: 3, desc: '1d3 Unarmed' };
+    }
+
+    get isStunned() {
+        return EffectSystem.getStatusModifiers(this).isStunned;
     }
 
     // ==========================================

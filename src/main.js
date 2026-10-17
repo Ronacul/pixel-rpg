@@ -1,5 +1,7 @@
 // Pixel RPG Main Engine Orchestrator
-// 200x200 Map | 25 Floors | Perception Fog | Monster Pursuit AI | Blood Stains | Zoom & Paperdoll
+// 100x100 Map | 25 Floors | Perception Radar | Monster Pursuit AI | Blood Decals
+// Diverse Combat: Melee, Ranged Projectiles, AoE Blasts, Lingering Hazard Zones, Status Effects
+// Tactical Terrain: Pillars (Cover), Pits, Destructible Barrels, Ancient Altars, Flammable Foliage, Traps
 
 import { PRNG } from './core/RNG.js';
 import { MAP_WIDTH, MAP_HEIGHT, TILES, VISIBILITY, DungeonManager } from './map/Dungeon.js';
@@ -8,8 +10,9 @@ import { PlayerCharacter } from './entities/Character.js';
 import { PerceptionSystem } from './systems/Perception.js';
 import { CombatSystem } from './systems/Combat.js';
 import { findPath } from './systems/Pathfinding.js';
-import { ITEM_SLOTS } from './data/Items.js';
+import { ITEM_SLOTS, generateLootItem } from './data/Items.js';
 import { CLASSES, XP_TABLE, isAttributeMilestone } from './data/Classes.js';
+import { EffectSystem, STATUS_TYPES, ZONE_TYPES, DELIVERY_TYPES } from './systems/Effects.js';
 
 // Viewport Camera & Zoom Settings
 const ZOOM_LEVELS = [
@@ -35,6 +38,11 @@ let prng = null;
 let targetCursor = null;
 let walkTimer = null;
 
+// Targeting Mode State Machine
+let targetingMode = false;
+let targetingAction = null; // { name, delivery, range, radius, isPositive, isItem, backpackIdx, ... }
+let hoverWorldPos = null;   // { x, y } currently targeted by cursor
+
 // ==========================================
 // 1. GAME INITIALIZATION
 // ==========================================
@@ -42,6 +50,7 @@ export function startPlaythrough(seedString) {
     if (walkTimer) clearTimeout(walkTimer);
     walkTimer = null;
     targetCursor = null;
+    cancelTargeting();
 
     prng = new PRNG(seedString);
     dungeonManager = new DungeonManager(seedString);
@@ -75,6 +84,13 @@ function loadFloor(floorNum, enterFromAbove = true) {
         player.y = currentFloorData.stairsDownPos.y;
     }
 
+    runPerceptionRadar();
+
+    postMessage(`Floor ${floorNum}: ${currentFloorData.biome.name}`, 'msg-info');
+    updateHUD();
+}
+
+function runPerceptionRadar() {
     PerceptionSystem.updateVisibility(
         currentFloorData,
         player.x,
@@ -86,11 +102,15 @@ function loadFloor(floorNum, enterFromAbove = true) {
             const levelUps = player.gainXp(25);
             if (levelUps.length > 0) handleLevelUps(levelUps);
             updateHUD();
+        },
+        (tx, ty, trapTile) => {
+            const trapName = (trapTile === TILES.TRAP_SPIKE) ? 'Spike Trap' : (trapTile === TILES.TRAP_FIRE ? 'Fire Plate' : 'Gas Spores');
+            postMessage(`⚠️ TRAP SPOTTED! ${trapName} detected at (${tx}, ${ty})! +15 XP`, 'msg-loot');
+            const levelUps = player.gainXp(15);
+            if (levelUps.length > 0) handleLevelUps(levelUps);
+            updateHUD();
         }
     );
-
-    postMessage(`Floor ${floorNum}: ${currentFloorData.biome.name}`, 'msg-info');
-    updateHUD();
 }
 
 // ==========================================
@@ -107,8 +127,6 @@ export function cycleZoom() {
 
     const azl = document.getElementById('action-zoom-label');
     if (azl) azl.innerText = z.label;
-    const hz = document.getElementById('hud-zoom');
-    if (hz) hz.innerText = z.label;
     postMessage(`🔍 Map Zoom set to ${z.label} (${VIEW_COLS}x${VIEW_ROWS} tiles view)`, 'msg-info');
     draw();
 }
@@ -125,18 +143,30 @@ function updateHUD() {
     document.getElementById('hud-max-hp').innerText = player.maxHp;
     document.getElementById('hud-ac').innerText = player.ac;
 
-    // Feat button status in Action Bar
-    const abilities = player.getAvailableAbilities();
-    const primaryFeat = abilities[0];
-    if (primaryFeat) {
-        const featIcon = document.getElementById('action-feat-icon');
-        const featName = document.getElementById('action-feat-name');
-        if (featIcon) featIcon.innerText = primaryFeat.icon;
-        const cd = player.cooldowns[primaryFeat.id] || 0;
-        if (featName) {
-            featName.innerText = cd > 0 ? `${primaryFeat.name} (${cd}t)` : `${primaryFeat.name}`;
-            featName.style.color = cd > 0 ? '#888' : '#ffcc00';
+    // Status effect badges on HUD
+    const hudStatuses = document.getElementById('hud-statuses');
+    if (hudStatuses) {
+        if (player.statuses && player.statuses.length > 0) {
+            hudStatuses.innerHTML = player.statuses
+                .map(s => `<span title="${s.name} (${s.duration}t)">${s.icon}</span>`)
+                .join(' ');
+        } else {
+            hudStatuses.innerHTML = '';
         }
+    }
+
+    // Aim button label
+    const targetLabel = document.getElementById('action-target-label');
+    if (targetLabel) {
+        targetLabel.innerText = targetingMode ? 'Aiming...' : 'Aim';
+    }
+
+    // Spells button
+    const pAbil = player.getAvailableAbilities();
+    const readyAbilCount = pAbil.filter(a => player.canUseAbility(a.id)).length;
+    const spellsName = document.getElementById('action-spells-name');
+    if (spellsName) {
+        spellsName.innerText = `Spells (${readyAbilCount})`;
     }
 
     const url = new URL(window.location);
@@ -151,7 +181,7 @@ function postMessage(text, className = '') {
 }
 
 // ==========================================
-// 4. RENDERING LOOP (BLOOD POOLS & CULLING)
+// 4. RENDERING LOOP (BLOOD, HAZARD ZONES, COVER, TARGETING)
 // ==========================================
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -159,7 +189,7 @@ function draw() {
     const camX = player.x - Math.floor(VIEW_COLS / 2);
     const camY = player.y - Math.floor(VIEW_ROWS / 2);
 
-    const { terrain, visibility, biome, monsters, chests, bloodStains } = currentFloorData;
+    const { terrain, visibility, biome, monsters, chests, bloodStains, hazardZones, trapsRevealed } = currentFloorData;
 
     for (let ry = 0; ry < VIEW_ROWS; ry++) {
         for (let rx = 0; rx < VIEW_COLS; rx++) {
@@ -186,12 +216,44 @@ function draw() {
 
             const isDim = (vis === VISIBILITY.EXPLORED);
 
-            // Terrain Base
+            // Terrain Rendering
             if (tile === TILES.WALL || tile === TILES.SECRET_DOOR) {
                 ctx.fillStyle = isDim ? '#1d1f28' : biome.wallColor;
                 ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
                 ctx.strokeStyle = isDim ? '#14151b' : biome.borderColor;
                 ctx.strokeRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+            } else if (tile === TILES.PILLAR) {
+                ctx.fillStyle = isDim ? '#181b22' : '#2b3040';
+                ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+                ctx.strokeStyle = isDim ? '#12141a' : '#4f5872';
+                ctx.strokeRect(screenX + 1, screenY + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+                drawGlyph('🏛️', screenX, screenY, isDim ? 0.45 : 1.0);
+            } else if (tile === TILES.PIT) {
+                ctx.fillStyle = '#020204';
+                ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+                ctx.strokeStyle = '#1b1420';
+                ctx.strokeRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+                drawGlyph('🕳️', screenX, screenY, isDim ? 0.4 : 0.95);
+            } else if (tile === TILES.BARREL) {
+                ctx.fillStyle = isDim ? '#14151c' : biome.floorColor;
+                ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+                drawGlyph('🛢️', screenX, screenY, isDim ? 0.5 : 1.0);
+            } else if (tile === TILES.ALTAR) {
+                ctx.fillStyle = isDim ? '#1a1912' : '#282414';
+                ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+                ctx.strokeStyle = '#ffd700';
+                ctx.strokeRect(screenX + 1, screenY + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+                drawGlyph('⛪', screenX, screenY, isDim ? 0.6 : 1.0);
+            } else if (tile === TILES.ALTAR_INERT) {
+                ctx.fillStyle = isDim ? '#121214' : biome.floorColor;
+                ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+                drawGlyph('🗿', screenX, screenY, isDim ? 0.4 : 0.8);
+            } else if (tile === TILES.FOLIAGE) {
+                ctx.fillStyle = isDim ? '#0d1810' : '#142718';
+                ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+                ctx.strokeStyle = '#1b3820';
+                ctx.strokeRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+                drawGlyph('🌿', screenX, screenY, isDim ? 0.45 : 0.9);
             } else if (tile === TILES.DOOR_CLOSED) {
                 ctx.fillStyle = isDim ? '#181922' : biome.floorColor;
                 ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
@@ -213,6 +275,20 @@ function draw() {
                 ctx.fillStyle = isDim ? '#181922' : biome.floorColor;
                 ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
                 drawGlyph('🪨', screenX, screenY, isDim ? 0.4 : 1.0);
+            } else if (tile === TILES.TRAP_SPIKE || tile === TILES.TRAP_FIRE || tile === TILES.TRAP_GAS) {
+                // Trap renders as normal floor unless spotted by Perception
+                ctx.fillStyle = isDim ? '#0f1016' : biome.floorColor;
+                ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+                ctx.strokeStyle = isDim ? '#090a0e' : '#1b1d28';
+                ctx.strokeRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+
+                const isSpotted = trapsRevealed && trapsRevealed.has(idx);
+                if (isSpotted) {
+                    const trapGlyph = (tile === TILES.TRAP_SPIKE) ? '⚙️' : (tile === TILES.TRAP_FIRE ? '🔥' : '☁️');
+                    drawGlyph(trapGlyph, screenX, screenY, isDim ? 0.5 : 1.0);
+                    ctx.strokeStyle = '#ff4455';
+                    ctx.strokeRect(screenX + 1, screenY + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+                }
             } else {
                 ctx.fillStyle = isDim ? '#0f1016' : biome.floorColor;
                 ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
@@ -229,6 +305,20 @@ function draw() {
                 ctx.fill();
             }
 
+            // Lingering Hazard Zones (Fire, Poison Gas, Consecration, etc.)
+            const zone = hazardZones?.find(z => z.x === worldX && z.y === worldY);
+            if (zone && vis !== VISIBILITY.UNEXPLORED) {
+                const zDef = ZONE_TYPES[zone.type];
+                if (zDef) {
+                    ctx.fillStyle = zDef.color;
+                    ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+                    ctx.strokeStyle = zDef.borderColor;
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(screenX + 1, screenY + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+                    drawGlyph(zDef.icon, screenX, screenY, isDim ? 0.4 : 0.75);
+                }
+            }
+
             // Chests
             const chest = chests.find(c => c.x === worldX && c.y === worldY);
             if (chest && (vis === VISIBILITY.VISIBLE || chest.opened)) {
@@ -240,11 +330,30 @@ function draw() {
                 const monster = monsters.find(m => m.alive && m.x === worldX && m.y === worldY);
                 if (monster) {
                     drawGlyph(monster.icon, screenX, screenY, 1.0);
+
+                    // Active status badge icons above monster
+                    if (monster.statuses && monster.statuses.length > 0) {
+                        const statusIcons = monster.statuses.map(s => s.icon).join('');
+                        ctx.save();
+                        ctx.textAlign = 'center';
+                        ctx.font = `${Math.floor(TILE_SIZE * 0.32)}px sans-serif`;
+                        ctx.fillText(statusIcons, screenX + TILE_SIZE / 2, screenY + 5);
+                        ctx.restore();
+                    }
+
+                    // Tactical cover indicator if adjacent to pillar
+                    const cover = EffectSystem.calculateTacticalCover(monster.x, monster.y, player.x, player.y, terrain);
+                    if (cover.hasCover) {
+                        ctx.save();
+                        ctx.font = `${Math.floor(TILE_SIZE * 0.3)}px sans-serif`;
+                        ctx.fillText('🛡️', screenX + 5, screenY + TILE_SIZE - 2);
+                        ctx.restore();
+                    }
                 }
             }
 
-            // Target Reticle
-            if (targetCursor && targetCursor.x === worldX && targetCursor.y === worldY) {
+            // Target Reticle (during normal pathing)
+            if (targetCursor && targetCursor.x === worldX && targetCursor.y === worldY && !targetingMode) {
                 ctx.strokeStyle = '#64d8cb';
                 ctx.lineWidth = 2;
                 ctx.strokeRect(screenX + 2, screenY + 2, TILE_SIZE - 4, TILE_SIZE - 4);
@@ -258,6 +367,70 @@ function draw() {
         const centerScreenX = Math.floor(VIEW_COLS / 2) * TILE_SIZE;
         const centerScreenY = Math.floor(VIEW_ROWS / 2) * TILE_SIZE;
         drawGlyph('🛡️', centerScreenX, centerScreenY, 1.0);
+
+        // Player status effect badge icons
+        if (player.statuses && player.statuses.length > 0) {
+            const pIcons = player.statuses.map(s => s.icon).join('');
+            ctx.save();
+            ctx.textAlign = 'center';
+            ctx.font = `${Math.floor(TILE_SIZE * 0.35)}px sans-serif`;
+            ctx.fillText(pIcons, centerScreenX + TILE_SIZE / 2, centerScreenY + 6);
+            ctx.restore();
+        }
+    }
+
+    // ==========================================
+    // TARGETING MODE OVERLAYS (RAYCAST & AOE PREVIEW)
+    // ==========================================
+    if (targetingMode && targetingAction && hoverWorldPos) {
+        const dist = Math.hypot(hoverWorldPos.x - player.x, hoverWorldPos.y - player.y);
+        const maxRange = targetingAction.range || 6;
+        const inRange = dist <= maxRange;
+
+        // Line-of-sight raycast check
+        const ray = EffectSystem.bresenhamRaycast(player.x, player.y, hoverWorldPos.x, hoverWorldPos.y, terrain);
+
+        // Draw projectile tracer line
+        ctx.save();
+        ctx.beginPath();
+        ctx.strokeStyle = (inRange && ray.clear) ? 'rgba(100, 255, 120, 0.85)' : 'rgba(255, 70, 70, 0.85)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+
+        const startScreenX = Math.floor(VIEW_COLS / 2) * TILE_SIZE + TILE_SIZE / 2;
+        const startScreenY = Math.floor(VIEW_ROWS / 2) * TILE_SIZE + TILE_SIZE / 2;
+        ctx.moveTo(startScreenX, startScreenY);
+
+        const endScreenX = (hoverWorldPos.x - camX) * TILE_SIZE + TILE_SIZE / 2;
+        const endScreenY = (hoverWorldPos.y - camY) * TILE_SIZE + TILE_SIZE / 2;
+        ctx.lineTo(endScreenX, endScreenY);
+        ctx.stroke();
+        ctx.restore();
+
+        // Shaded AoE Blast Area preview
+        if (targetingAction.radius && targetingAction.radius >= 1) {
+            const aoeTiles = EffectSystem.getAoETiles(hoverWorldPos.x, hoverWorldPos.y, targetingAction.radius);
+            for (const at of aoeTiles) {
+                const asx = (at.x - camX) * TILE_SIZE;
+                const asy = (at.y - camY) * TILE_SIZE;
+                if (asx >= 0 && asx < canvas.width && asy >= 0 && asy < canvas.height) {
+                    ctx.fillStyle = targetingAction.isPositive ? 'rgba(100, 216, 203, 0.28)' : 'rgba(255, 100, 50, 0.32)';
+                    ctx.fillRect(asx, asy, TILE_SIZE, TILE_SIZE);
+                    ctx.strokeStyle = targetingAction.isPositive ? '#64d8cb' : '#ff6633';
+                    ctx.strokeRect(asx + 1, asy + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+                }
+            }
+        }
+
+        // Draw crosshair on target
+        const hsX = (hoverWorldPos.x - camX) * TILE_SIZE;
+        const hsY = (hoverWorldPos.y - camY) * TILE_SIZE;
+        if (hsX >= 0 && hsX < canvas.width && hsY >= 0 && hsY < canvas.height) {
+            ctx.strokeStyle = inRange && ray.clear ? '#ffcc00' : '#ff4444';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(hsX + 2, hsY + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+            drawGlyph('🎯', hsX, hsY, 0.95);
+        }
     }
 }
 
@@ -271,7 +444,6 @@ function drawGlyph(glyph, x, y, opacity = 1.0) {
     ctx.restore();
 }
 
-// Spawn blood pool on tile
 function addBlood(x, y) {
     const { bloodStains } = currentFloorData;
     const existing = bloodStains.find(b => b.x === x && b.y === y);
@@ -283,22 +455,81 @@ function addBlood(x, y) {
 }
 
 // ==========================================
-// 5. TURN CYCLE & MONSTER PURSUIT AI
+// 5. TURN CYCLE & LINGERING HAZARDS / STATUS TICKS
 // ==========================================
 function endTurn() {
     if (!player.alive) return;
 
-    // 1. Passive Regen Check
+    // Check if player is stunned: skip player's next turn
+    const playerMods = EffectSystem.getStatusModifiers(player);
+    if (playerMods.isStunned) {
+        postMessage('⚡ You are STUNNED and incapacitated this turn!', 'msg-miss');
+    }
+
+    // 1. Natural turn advance (passive regen, cooldowns, buffs)
     const { healed } = player.advanceTurn();
     if (healed) {
         postMessage(`💖 Resting: Natural regeneration healed 1 HP! (${player.hp}/${player.maxHp})`, 'msg-loot');
-        updateHUD();
     }
 
-    // 2. Monster Pursuit AI Loop
-    const { monsters, terrain } = currentFloorData;
-    let pursuing = false;
+    // 2. Tick Player Lingering Statuses (Bleed, Poison, Burn, Regen)
+    EffectSystem.tickEntityStatuses(player, true, prng, {
+        onDamage: (ent, isP, status, dmg, dmgType) => {
+            postMessage(`${status.icon} ${status.name} drained ${dmg} ${dmgType} dmg! (${player.hp}/${player.maxHp} HP)`, 'msg-miss');
+        },
+        onHeal: (ent, isP, status, heal) => {
+            postMessage(`${status.icon} ${status.name} restored ${heal} HP! (${player.hp}/${player.maxHp})`, 'msg-loot');
+        },
+        onBlood: (x, y) => addBlood(x, y)
+    });
 
+    if (player.hp <= 0) {
+        handlePlayerDeath('Lingering Affliction');
+        return;
+    }
+
+    // 3. Tick Floor Hazard Zones (Fire, Poison Gas, Consecration, Acid, Web)
+    EffectSystem.tickFloorZones(currentFloorData, player, prng, {
+        onPlayerDamage: (dmg, zoneName) => {
+            postMessage(`⚠️ Caught in ${zoneName} taking ${dmg} dmg! (${player.hp}/${player.maxHp} HP)`, 'msg-miss');
+        },
+        onPlayerHeal: (heal) => {
+            postMessage(`✨ Consecrated Ground healed you for +${heal} HP!`, 'msg-loot');
+        },
+        onMonsterDamage: (m, dmg, zoneType) => {
+            if (m.hp <= 0) {
+                m.alive = false;
+                const xp = 10 * currentFloorData.floorLevel + Math.max(5, m.maxHp);
+                const lvs = player.gainXp(xp);
+                postMessage(`💀 ${m.name} perished in ${zoneType}! +${xp} XP`, 'msg-victory');
+                if (lvs.length > 0) handleLevelUps(lvs);
+            }
+        }
+    });
+
+    if (player.hp <= 0) {
+        handlePlayerDeath('Hazard Zone');
+        return;
+    }
+
+    // 4. Tick Living Monster Statuses
+    const { monsters, terrain } = currentFloorData;
+    for (const m of monsters) {
+        if (!m.alive) continue;
+        EffectSystem.tickEntityStatuses(m, false, prng, {
+            onBlood: (x, y) => addBlood(x, y)
+        });
+        if (m.hp <= 0) {
+            m.alive = false;
+            const xp = 10 * currentFloorData.floorLevel + Math.max(5, m.maxHp);
+            const lvs = player.gainXp(xp);
+            postMessage(`💀 ${m.name} succumbed to lingering affliction! +${xp} XP`, 'msg-victory');
+            if (lvs.length > 0) handleLevelUps(lvs);
+        }
+    }
+
+    // 5. Monster Pursuit AI Loop (Checking Stun & Pillar Cover)
+    let pursuing = false;
     for (const m of monsters) {
         if (!m.alive) continue;
 
@@ -313,40 +544,43 @@ function endTurn() {
 
             // Adjacent -> Attack player!
             if (dist <= 1.5) {
-                const roll = prng.nextInt(1, 20) + 1;
-                if (roll >= player.ac) {
-                    const dmg = prng.nextInt(1, m.dice || 4);
-                    player.hp = Math.max(0, player.hp - dmg);
+                const attackRes = CombatSystem.resolveMonsterAttack(prng, m, player, terrain);
+                if (attackRes.skipped) {
+                    postMessage(`⚡ ${m.name} is stunned and unable to attack.`);
+                } else if (attackRes.isHit) {
                     addBlood(player.x, player.y);
-                    postMessage(`🩸 ${m.name} struck you for ${dmg} dmg! (${player.hp}/${player.maxHp} HP)`, 'msg-miss');
-                    updateHUD();
-
+                    let hitMsg = `🩸 ${m.name} struck you for ${attackRes.damage} dmg! (${player.hp}/${player.maxHp} HP)`;
+                    if (attackRes.appliedStatus) {
+                        hitMsg += ` [Inflicted ${attackRes.appliedStatus}!]`;
+                    }
+                    postMessage(hitMsg, 'msg-miss');
                     if (player.hp <= 0) {
                         handlePlayerDeath(m.name);
                         return;
                     }
                 } else {
-                    postMessage(`🛡️ Blocked ${m.name}'s attack (Roll ${roll} vs AC ${player.ac}).`);
+                    const coverNote = attackRes.hasCover ? ' (Protected by Pillar Cover!)' : '';
+                    postMessage(`🛡️ Blocked ${m.name}'s strike${coverNote}.`);
                 }
             } else if (dist <= 12) {
-                // Pursue player along open tiles
-                const step = getStepTowards(m.x, m.y, player.x, player.y, terrain, monsters);
-                if (step) {
-                    m.x = step.x;
-                    m.y = step.y;
-                    pursuing = true;
+                // Monsters cannot move if stunned
+                if (!EffectSystem.getStatusModifiers(m).isStunned) {
+                    const step = getStepTowards(m.x, m.y, player.x, player.y, terrain, monsters);
+                    if (step) {
+                        m.x = step.x;
+                        m.y = step.y;
+                        pursuing = true;
+                    }
                 }
             }
         }
     }
 
-    if (pursuing) {
-        // Redraw to show moving monsters in sight
-        draw();
-    }
+    updateHUD();
+    draw();
 }
 
-// BFS single-step direction for monster pursuit
+// BFS single-step direction for monster pursuit (avoiding walls, pillars, pits, barrels)
 function getStepTowards(sx, sy, tx, ty, terrain, monsters) {
     const queue = [[sx, sy]];
     const visited = new Set([`${sx},${sy}`]);
@@ -374,11 +608,10 @@ function getStepTowards(sx, sy, tx, ty, terrain, monsters) {
             if (visited.has(k)) continue;
 
             const t = terrain[ny * MAP_WIDTH + nx];
-            // Monsters can walk through open floors and doors
-            const passable = (t === TILES.FLOOR || t === TILES.DOOR_OPEN || (nx === tx && ny === ty));
+            const isImpassable = (t === TILES.WALL || t === TILES.PILLAR || t === TILES.PIT || t === TILES.RUBBLE || t === TILES.DOOR_CLOSED || t === TILES.BARREL);
             const occupied = monsters.some(m => m.alive && m.x === nx && m.y === ny);
 
-            if (passable && !occupied) {
+            if ((!isImpassable || (nx === tx && ny === ty)) && !occupied) {
                 visited.add(k);
                 const step = (cx === sx && cy === sy) ? { x: nx, y: ny } : firstStep.get(`${cx},${cy}`);
                 firstStep.set(k, step);
@@ -395,6 +628,7 @@ function getStepTowards(sx, sy, tx, ty, terrain, monsters) {
 function handlePlayerDeath(slainBy) {
     player.alive = false;
     cancelWalking();
+    cancelTargeting();
 
     document.getElementById('death-floor').innerText = `Floor ${dungeonManager.currentFloor}`;
     document.getElementById('death-slain-by').innerText = `Slain by: ${slainBy}`;
@@ -406,7 +640,7 @@ function handlePlayerDeath(slainBy) {
 }
 
 // ==========================================
-// 7. MOVEMENT & PATH STEPPING
+// 7. MOVEMENT & INTERACTIVE TILE STEPPING
 // ==========================================
 function cancelWalking() {
     if (walkTimer) {
@@ -419,6 +653,12 @@ function cancelWalking() {
 function handleTap(targetWorldX, targetWorldY) {
     if (!player.alive) return;
     if (targetWorldX < 0 || targetWorldX >= MAP_WIDTH || targetWorldY < 0 || targetWorldY >= MAP_HEIGHT) return;
+
+    // IF IN TARGETING MODE: fire attack at target tile!
+    if (targetingMode) {
+        fireTargetedAction(targetWorldX, targetWorldY);
+        return;
+    }
 
     // Tap on self = Wait / Rest 1 Turn
     if (player.x === targetWorldX && player.y === targetWorldY) {
@@ -455,18 +695,18 @@ function stepPath(path) {
     const targetIdx = nextY * MAP_WIDTH + nextX;
     const tile = terrain[targetIdx];
 
-    // Door Breach
+    // 1. Closed Door Breach
     if (tile === TILES.DOOR_CLOSED) {
         terrain[targetIdx] = TILES.DOOR_OPEN;
         cancelWalking();
         postMessage('🚪 Breached door! Checking room beyond...', 'msg-info');
-        PerceptionSystem.updateVisibility(currentFloorData, player.x, player.y, player.per, player.perMod);
+        runPerceptionRadar();
         endTurn();
         draw();
         return;
     }
 
-    // Monster Attack
+    // 2. Adjacent Monster Attack
     const targetMonster = monsters.find(m => m.alive && m.x === nextX && m.y === nextY);
     if (targetMonster) {
         cancelWalking();
@@ -475,24 +715,88 @@ function stepPath(path) {
         return;
     }
 
-    // Step to tile
+    // 3. Destructible Barrel Smash
+    if (tile === TILES.BARREL) {
+        cancelWalking();
+        terrain[targetIdx] = TILES.FLOOR;
+        if (prng.chance(0.28)) {
+            postMessage('💥 POWDER KEG DETONATED! Exploded into flames!', 'msg-miss');
+            CombatSystem.resolveAoE(prng, player, nextX, nextY, { radius: 1, dice: 6, diceCount: 2, zoneEffect: { type: 'FIRE', duration: 4 } }, currentFloorData, { onBlood: addBlood });
+        } else {
+            const loot = generateLootItem(prng, currentFloorData.floorLevel);
+            const added = player.addToBackpack(loot);
+            postMessage(`🛢️ Smashed barrel! Uncovered: ${loot.name}! ${added ? 'Added to bag.' : '(Bag full)'}`, 'msg-loot');
+        }
+        endTurn();
+        draw();
+        return;
+    }
+
+    // 4. Sacred Ancient Altar Interaction
+    if (tile === TILES.ALTAR) {
+        cancelWalking();
+        terrain[targetIdx] = TILES.ALTAR_INERT;
+        // Cleanse all harmful curses & poisons
+        if (player.statuses) {
+            player.statuses = player.statuses.filter(s => !STATUS_TYPES[s.id]?.isHarmful);
+        }
+        const prevHp = player.hp;
+        player.hp = Math.min(player.maxHp, player.hp + 20);
+        EffectSystem.applyStatus(player, 'BLESSED', 20, 1, 'Sacred Altar');
+        postMessage(`✨ Ancient Altar cleansed all curses, restored ${player.hp - prevHp} HP, and granted Blessed divine favor!`, 'msg-loot');
+        endTurn();
+        draw();
+        return;
+    }
+
+    // 5. Impassable Hazards (Pits, Pillars)
+    if (tile === TILES.PIT || tile === TILES.PILLAR) {
+        cancelWalking();
+        postMessage('🚫 Impassable obstacle.', 'msg-miss');
+        draw();
+        return;
+    }
+
+    // Step player to tile
     player.x = nextX;
     player.y = nextY;
 
-    // Fog update
-    PerceptionSystem.updateVisibility(
-        currentFloorData,
-        player.x,
-        player.y,
-        player.per,
-        player.perMod,
-        (sx, sy) => {
-            postMessage(`👁️ Secret Door revealed at (${sx}, ${sy})! +25 XP`, 'msg-loot');
-            const levelUps = player.gainXp(25);
-            if (levelUps.length > 0) handleLevelUps(levelUps);
-            updateHUD();
+    // 6. Hidden / Revealed Trap Triggering
+    if (tile === TILES.TRAP_SPIKE || tile === TILES.TRAP_FIRE || tile === TILES.TRAP_GAS) {
+        currentFloorData.trapsRevealed.add(targetIdx);
+        cancelWalking();
+
+        if (tile === TILES.TRAP_SPIKE) {
+            const dmg = prng.nextInt(2, 8);
+            player.hp = Math.max(0, player.hp - dmg);
+            EffectSystem.applyStatus(player, 'BLEEDING', 4, 1, 'Floor Spikes');
+            addBlood(player.x, player.y);
+            postMessage(`⚡ FLOOR SPIKES SPRUNG! Took ${dmg} piercing damage and bleeding!`, 'msg-miss');
+        } else if (tile === TILES.TRAP_FIRE) {
+            EffectSystem.addAoEZones(currentFloorData, nextX, nextY, 1, 'FIRE', 4, 1);
+            const dmg = prng.nextInt(3, 10);
+            player.hp = Math.max(0, player.hp - dmg);
+            EffectSystem.applyStatus(player, 'BURNING', 3, 1, 'Fire Trap');
+            postMessage(`🔥 FIRE TRAP DETONATED! Took ${dmg} fire damage and caught burning!`, 'msg-miss');
+        } else if (tile === TILES.TRAP_GAS) {
+            EffectSystem.addAoEZones(currentFloorData, nextX, nextY, 1, 'POISON_GAS', 5, 1);
+            EffectSystem.applyStatus(player, 'POISONED', 5, 1, 'Gas Trap');
+            postMessage(`☁️ SPORE TRAP BURST! Inhaled choking poison fumes!`, 'msg-miss');
         }
-    );
+
+        if (player.hp <= 0) {
+            handlePlayerDeath('Dungeon Trap');
+            return;
+        }
+    }
+
+    // 7. Dense Foliage Slowdown
+    if (tile === TILES.FOLIAGE) {
+        postMessage('🌿 Pushing through dense briars...', 'msg-info');
+    }
+
+    // Update visibility & fog
+    runPerceptionRadar();
 
     // Loot Chest
     const chest = chests.find(c => !c.opened && c.x === nextX && c.y === nextY);
@@ -506,9 +810,7 @@ function stepPath(path) {
         } else {
             postMessage(`🎁 Found ${chest.item.name}, but Backpack is full! (+${xpReward} XP)`, 'msg-loot');
         }
-        if (levelUps.length > 0) {
-            handleLevelUps(levelUps);
-        }
+        if (levelUps.length > 0) handleLevelUps(levelUps);
         updateHUD();
     }
 
@@ -543,40 +845,40 @@ function stepPath(path) {
 }
 
 // ==========================================
-// 8. COMBAT RESOLUTION (WITH BLOOD SPLATTERS)
+// 8. COMBAT RESOLUTION (ADJACENT MELEE)
 // ==========================================
-function resolveCombatTurn(monster) {
+function resolveCombatTurn(monster, attackSource = null) {
     const isSurprise = monster.unaware === true;
     monster.unaware = false;
     monster.alert = true;
 
-    const result = CombatSystem.resolvePlayerAttack(prng, player, monster, isSurprise);
+    const { terrain } = currentFloorData;
+    const result = CombatSystem.resolvePlayerAttack(prng, player, monster, isSurprise, terrain, attackSource);
 
     if (result.isHit) {
         addBlood(monster.x, monster.y);
-        if (result.isSurprise) {
-            postMessage(`⚡ SURPRISE STRIKE! Rolled 2d20(${result.roll1}, ${result.roll2}) -> ${result.d20}. Dealt ${result.damage} dmg!`, 'msg-victory');
-        } else {
-            postMessage(`💥 Hit ${monster.name} for ${result.damage} dmg! (${monster.hp}/${monster.maxHp} HP)`, 'msg-hit');
-        }
+        let msg = result.isSurprise 
+            ? `⚡ SURPRISE STRIKE! Dealt ${result.damage} dmg!`
+            : `💥 Hit ${monster.name} for ${result.damage} dmg! (${monster.hp}/${monster.maxHp} HP)`;
+        if (result.appliedStatus) msg += ` [Inflicted ${result.appliedStatus}!]`;
+        postMessage(msg, result.isSurprise ? 'msg-victory' : 'msg-hit');
     } else {
-        postMessage(`🛡️ Missed ${monster.name} (Rolled ${result.attackTotal} vs AC ${result.targetAC}).`, 'msg-miss');
+        const coverNote = result.hasCover ? ' (Monster protected by Pillar Cover!)' : '';
+        postMessage(`🛡️ Missed ${monster.name}${coverNote} (Rolled ${result.attackTotal} vs AC ${result.targetAC}).`, 'msg-miss');
     }
 
     if (result.monsterDied) {
         const xpReward = 15 * currentFloorData.floorLevel + Math.max(10, monster.maxHp * 2);
         const levelUps = player.gainXp(xpReward);
         postMessage(`🏆 Defeated ${monster.name}! +${xpReward} XP`, 'msg-victory');
-        if (levelUps.length > 0) {
-            handleLevelUps(levelUps);
-        }
+        if (levelUps.length > 0) handleLevelUps(levelUps);
     } else if (result.monsterCounter?.isHit) {
         addBlood(player.x, player.y);
         setTimeout(() => {
             postMessage(`🩸 ${monster.name} bit back for ${result.monsterCounter.damage} dmg! (${player.hp}/${player.maxHp} HP)`, 'msg-miss');
             updateHUD();
             if (player.hp <= 0) handlePlayerDeath(monster.name);
-        }, 300);
+        }, 250);
     }
 
     updateHUD();
@@ -584,12 +886,321 @@ function resolveCombatTurn(monster) {
 }
 
 // ==========================================
-// 9. QUERY & INSPECT
+// 9. TARGETING MODE & DISTANCE / AOE ATTACKS
+// ==========================================
+export function triggerAimMode() {
+    if (targetingMode) {
+        cancelTargeting();
+        return;
+    }
+
+    // 1. Check equipped main_hand weapon
+    const weapon = player.weapon;
+    if (weapon.delivery === 'RANGED' || weapon.delivery === 'AOE') {
+        startTargeting(weapon);
+        return;
+    }
+
+    // 2. Check backpack for ranged weapon or throw flasks
+    const rangedItemIdx = player.backpack.findIndex(item => item && (item.delivery === 'RANGED' || item.delivery === 'AOE'));
+    if (rangedItemIdx !== -1) {
+        const item = player.backpack[rangedItemIdx];
+        startTargeting({ ...item, isItem: true, backpackIdx: rangedItemIdx });
+        return;
+    }
+
+    // 3. Check unlocked class ranged abilities
+    const rangedAbility = player.getAvailableAbilities().find(a => (a.delivery === 'RANGED' || a.delivery === 'AOE' || a.delivery === 'ZONE') && player.canUseAbility(a.id));
+    if (rangedAbility) {
+        startTargeting(rangedAbility);
+        return;
+    }
+
+    postMessage(`⚠️ Wielding melee weapon (${weapon.name}). Equip a bow/flask or open Spells & Feats (⚡) to target at range!`, 'msg-miss');
+}
+
+export function startTargeting(action) {
+    if (!action) return;
+    if (action.delivery === 'SELF') {
+        executeSelfAction(action);
+        return;
+    }
+
+    targetingMode = true;
+    targetingAction = action;
+    hoverWorldPos = { x: player.x, y: player.y };
+
+    const maxRange = action.range || 6;
+    const tb = document.getElementById('targeting-banner');
+    const an = document.getElementById('targeting-action-name');
+    const rt = document.getElementById('targeting-range-text');
+    if (tb) tb.style.display = 'flex';
+    if (an) an.innerText = action.name;
+    if (rt) rt.innerText = `Range ${maxRange}t`;
+
+    const targetLabel = document.getElementById('action-target-label');
+    if (targetLabel) targetLabel.innerText = 'Aiming...';
+
+    postMessage(`🎯 TARGETING: ${action.name} (Range ${maxRange}t). Tap visible target tile to fire | Esc to cancel.`, 'msg-info');
+    draw();
+}
+
+export function cancelTargeting() {
+    targetingMode = false;
+    targetingAction = null;
+    hoverWorldPos = null;
+
+    const tb = document.getElementById('targeting-banner');
+    if (tb) tb.style.display = 'none';
+
+    const targetLabel = document.getElementById('action-target-label');
+    if (targetLabel) targetLabel.innerText = 'Aim';
+
+    draw();
+}
+
+function fireTargetedAction(targetX, targetY) {
+    if (!targetingMode || !targetingAction) return;
+
+    const dist = Math.hypot(targetX - player.x, targetY - player.y);
+    const maxRange = targetingAction.range || 6;
+
+    if (dist > maxRange) {
+        postMessage(`⚠️ Target is out of range! (${dist.toFixed(1)} > max ${maxRange} tiles)`, 'msg-miss');
+        return;
+    }
+
+    const { terrain, monsters } = currentFloorData;
+    const ray = EffectSystem.bresenhamRaycast(player.x, player.y, targetX, targetY, terrain);
+
+    if (!ray.clear) {
+        postMessage('🚫 Line-of-sight blocked by solid wall or stone pillar!', 'msg-miss');
+        return;
+    }
+
+    const action = targetingAction;
+
+    // Ranged Single-Target Delivery
+    if (action.delivery === 'RANGED') {
+        const monster = monsters.find(m => m.alive && m.x === targetX && m.y === targetY);
+        if (monster) {
+            const res = CombatSystem.resolvePlayerAttack(prng, player, monster, false, terrain, action);
+            if (res.isHit) {
+                addBlood(monster.x, monster.y);
+                const coverText = res.hasCover ? ' (Pillar Cover applied)' : '';
+                let hitText = `🎯 ${action.name} struck ${monster.name} for ${res.damage} dmg!${coverText}`;
+                if (res.appliedStatus) hitText += ` [Inflicted ${res.appliedStatus}!]`;
+                postMessage(hitText, 'msg-victory');
+
+                if (res.monsterDied) {
+                    const xp = 15 * currentFloorData.floorLevel + Math.max(10, monster.maxHp * 2);
+                    const lvs = player.gainXp(xp);
+                    postMessage(`🏆 Defeated ${monster.name}! +${xp} XP`, 'msg-victory');
+                    if (lvs.length > 0) handleLevelUps(lvs);
+                }
+            } else {
+                const coverText = res.hasCover ? ' (Protected by Pillar Cover!)' : '';
+                postMessage(`🛡️ Missed ${monster.name}${coverText}. (Rolled ${res.attackTotal} vs AC ${res.targetAC})`, 'msg-miss');
+            }
+        } else {
+            // Shatter barrel at distance
+            const targetIdx = targetY * MAP_WIDTH + targetX;
+            if (terrain[targetIdx] === TILES.BARREL) {
+                terrain[targetIdx] = TILES.FLOOR;
+                if (prng.chance(0.28)) {
+                    postMessage('💥 Ranged shot detonated explosive powder barrel!', 'msg-loot');
+                    EffectSystem.addAoEZones(currentFloorData, targetX, targetY, 1, 'FIRE', 4, 1);
+                } else {
+                    const loot = generateLootItem(prng, currentFloorData.floorLevel);
+                    player.addToBackpack(loot);
+                    postMessage(`🎯 Shattered barrel! Uncovered: ${loot.name}!`, 'msg-loot');
+                }
+            } else {
+                postMessage(`🏹 ${action.name} struck the floor at (${targetX}, ${targetY}).`);
+            }
+        }
+    } 
+    // AoE Blast or Lingering Hazard Zone Delivery
+    else if (action.delivery === 'AOE' || action.delivery === 'ZONE') {
+        const aoeRes = CombatSystem.resolveAoE(prng, player, targetX, targetY, action, currentFloorData, { onBlood: addBlood });
+
+        if (action.isPositive && aoeRes.totalHeal > 0) {
+            postMessage(`✨ ${action.name} restored ${aoeRes.totalHeal} HP to hero!`, 'msg-victory');
+        }
+
+        if (aoeRes.hits.length > 0) {
+            let deadCount = 0;
+            for (const h of aoeRes.hits) {
+                if (h.died) {
+                    deadCount++;
+                    const xp = 15 * currentFloorData.floorLevel + Math.max(10, h.monster.maxHp * 2);
+                    const lvs = player.gainXp(xp);
+                    if (lvs.length > 0) handleLevelUps(lvs);
+                }
+            }
+            postMessage(`💥 ${action.name} blast hit ${aoeRes.hits.length} foe(s) for ${aoeRes.totalDamage} total dmg! ${deadCount > 0 ? `(${deadCount} slain!)` : ''}`, 'msg-victory');
+        } else if (!action.isPositive) {
+            postMessage(`💥 ${action.name} detonated at (${targetX}, ${targetY})!`, 'msg-info');
+        }
+
+        if (action.zoneEffect || action.zoneType) {
+            postMessage(`🔥 Lingering hazard field created in area!`, 'msg-loot');
+        }
+    }
+
+    // Consumable backpack item deduction
+    if (action.isItem && action.backpackIdx !== undefined) {
+        player.removeFromBackpack(action.backpackIdx);
+    }
+
+    // Cooldown trigger
+    if (action.id && !action.isItem) {
+        player.triggerAbilityCooldown(action.id);
+    }
+
+    cancelTargeting();
+    endTurn();
+    updateHUD();
+    draw();
+}
+
+export function throwItemFromBackpack(backpackIdx) {
+    if (backpackIdx < 0 || backpackIdx >= player.backpack.length) return;
+    const item = player.backpack[backpackIdx];
+    if (!item) return;
+
+    const sheet = document.getElementById('sheet-modal');
+    if (sheet) sheet.classList.remove('active');
+
+    startTargeting({ ...item, isItem: true, backpackIdx });
+}
+
+// ==========================================
+// 10. CLASS SPELLS & FEATS MODAL & EXECUTION
+// ==========================================
+export function openSpellsModal() {
+    if (!player || !player.alive) return;
+    const modal = document.getElementById('spells-modal');
+    const list = document.getElementById('spells-list');
+    if (!modal || !list) return;
+
+    const abilities = player.getAvailableAbilities();
+    if (abilities.length === 0) {
+        list.innerHTML = `<div style="color:#888; text-align:center; padding: 20px;">No class abilities unlocked yet.</div>`;
+    } else {
+        list.innerHTML = abilities.map(a => {
+            const cd = player.cooldowns[a.id] || 0;
+            const onCd = cd > 0;
+            const deliveryTag = a.delivery === 'SELF' ? 'SELF' : (a.delivery === 'AOE' ? `AOE (${a.radius}r, ${a.range || 0}t)` : (a.delivery === 'ZONE' ? `ZONE (${a.range}t)` : (a.delivery === 'RANGED' ? `RANGED (${a.range}t)` : 'ADJACENT')));
+            const statusHtml = onCd ? `<span style="color:#ff6666; font-size:10px;">[CD: ${cd}t]</span>` : `<span style="color:#55ff77; font-size:10px;">[Ready]</span>`;
+
+            let btnHtml = '';
+            if (onCd) {
+                btnHtml = `<button class="btn-action-small" disabled style="opacity:0.5;">On Cooldown</button>`;
+            } else if (a.delivery === 'SELF') {
+                btnHtml = `<button class="btn-action-small" style="background:#1a2e22; border-color:#55ff77; color:#55ff77;" onclick="window.useAbilityById('${a.id}')">Cast Now</button>`;
+            } else if (a.delivery === 'RANGED' || a.delivery === 'AOE' || a.delivery === 'ZONE') {
+                btnHtml = `<button class="btn-action-small" style="background:#2b2210; border-color:#ffcc00; color:#ffcc00;" onclick="window.useAbilityById('${a.id}')">🎯 Aim & Cast</button>`;
+            } else {
+                btnHtml = `<button class="btn-action-small" style="background:#2a1b1b; border-color:#ff7788; color:#ff7788;" onclick="window.useAbilityById('${a.id}')">Execute Strike</button>`;
+            }
+
+            return `
+                <div style="background: #0f111a; border: 1px solid #282c3f; border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 4px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-weight: bold; color: #ffcc00;">${a.icon} ${a.name}</span>
+                        <div style="display: flex; gap: 6px; align-items: center;">
+                            <span style="background: #192030; color: #64d8cb; border: 1px solid #364460; border-radius: 4px; padding: 1px 5px; font-size: 9px;">${deliveryTag}</span>
+                            ${statusHtml}
+                        </div>
+                    </div>
+                    <div style="font-size: 11px; color: #bbb; line-height: 1.3;">${a.desc}</div>
+                    <div style="margin-top: 4px;">${btnHtml}</div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    modal.classList.add('active');
+}
+
+export function closeSpellsModal() {
+    const modal = document.getElementById('spells-modal');
+    if (modal) modal.classList.remove('active');
+}
+
+export function useAbilityById(abilityId) {
+    closeSpellsModal();
+    const ability = player.characterClass.abilities.find(a => a.id === abilityId);
+    if (!ability) return;
+
+    if (!player.canUseAbility(ability.id)) {
+        const cd = player.cooldowns[ability.id] || 0;
+        postMessage(`⏳ ${ability.name} is on cooldown (${cd}t remaining).`, 'msg-miss');
+        return;
+    }
+
+    if (ability.delivery === 'SELF') {
+        executeSelfAction(ability);
+    } else if (ability.delivery === 'ADJACENT') {
+        const { monsters } = currentFloorData;
+        const adjacentMonster = monsters.find(m => m.alive && Math.hypot(m.x - player.x, m.y - player.y) <= 1.5);
+        if (adjacentMonster) {
+            resolveCombatTurn(adjacentMonster, ability);
+            player.triggerAbilityCooldown(ability.id);
+            endTurn();
+        } else {
+            postMessage(`⚠️ No monster adjacent to strike with ${ability.name}!`, 'msg-miss');
+        }
+    } else {
+        startTargeting(ability);
+    }
+}
+
+function executeSelfAction(action) {
+    if (action.type === 'heal') {
+        let healAmt = 0;
+        if (action.healPercent) {
+            healAmt = Math.max(6, Math.floor(player.maxHp * action.healPercent));
+        } else if (action.dice) {
+            const count = action.diceCount || 2;
+            for (let d = 0; d < count; d++) healAmt += prng.nextInt(1, action.dice);
+            healAmt += (player.wisMod || 0);
+        }
+        const prevHp = player.hp;
+        player.hp = Math.min(player.maxHp, player.hp + healAmt);
+        postMessage(`${action.icon} ${action.name} restored ${player.hp - prevHp} HP! (${player.hp}/${player.maxHp})`, 'msg-victory');
+    } else if (action.type === 'buff_attack') {
+        player.activeBuffs.push({ id: action.id, name: action.name, stat: 'bonus_dmg', value: 8, turnsLeft: 6 });
+        postMessage(`${action.icon} ${action.name} activated! Next melee strike deals crushing bonus damage.`, 'msg-victory');
+    } else if (action.type === 'buff_all') {
+        if (action.statusEffect) {
+            EffectSystem.applyStatus(player, action.statusEffect.type, action.statusEffect.duration, 1, action.name);
+        } else {
+            player.activeBuffs.push({ id: action.id, name: action.name, stat: 'ac', value: 2, turnsLeft: 15 });
+            player.activeBuffs.push({ id: action.id, name: action.name, stat: 'attack', value: 2, turnsLeft: 15 });
+        }
+        postMessage(`${action.icon} ${action.name} performed! Blessed aura protects for ${action.statusEffect?.duration || 15} turns.`, 'msg-victory');
+    } else if (action.type === 'heal_over_time') {
+        if (action.statusEffect) {
+            EffectSystem.applyStatus(player, action.statusEffect.type, action.statusEffect.duration, 1, action.name);
+        }
+        postMessage(`${action.icon} ${action.name} sung! Rapid cell regeneration active (+3 HP/turn).`, 'msg-victory');
+    }
+
+    if (action.id) player.triggerAbilityCooldown(action.id);
+    endTurn();
+    updateHUD();
+    draw();
+}
+
+// ==========================================
+// 11. TILE QUERY & INSPECT MODAL
 // ==========================================
 export function inspectTileAt(worldX, worldY) {
     if (worldX < 0 || worldX >= MAP_WIDTH || worldY < 0 || worldY >= MAP_HEIGHT) return;
 
-    const { terrain, visibility, monsters, chests, biome } = currentFloorData;
+    const { terrain, visibility, monsters, chests, biome, hazardZones, trapsRevealed } = currentFloorData;
     const idx = worldY * MAP_WIDTH + worldX;
     const vis = visibility[idx];
     const tile = terrain[idx];
@@ -597,28 +1208,33 @@ export function inspectTileAt(worldX, worldY) {
     let data = null;
 
     if (player.x === worldX && player.y === worldY) {
+        const statusesText = player.statuses?.map(s => `• <strong>${s.icon} ${s.name}:</strong> ${s.duration}t remaining`).join('<br>') || 'None (Healthy)';
         data = {
             icon: '🛡️',
-            name: 'Hero (Human Warrior)',
+            name: `Hero (${player.characterClass.name})`,
             desc: `Level ${player.level} • Floor ${dungeonManager.currentFloor}.`,
             details: `
                 <strong>HP:</strong> ${player.hp} / ${player.maxHp}<br>
                 <strong>AC:</strong> ${player.ac}<br>
                 <strong>Perception:</strong> ${player.per} (+${player.perMod})<br>
-                <strong>Regen:</strong> 1 HP every ${player.REGEN_RATE} turns
+                <strong>Regen:</strong> 1 HP every ${player.REGEN_RATE} turns<br>
+                <strong>Active Statuses:</strong><br>${statusesText}
             `
         };
     } else if (vis === VISIBILITY.VISIBLE && monsters.some(m => m.alive && m.x === worldX && m.y === worldY)) {
         const m = monsters.find(mon => mon.alive && mon.x === worldX && mon.y === worldY);
+        const cover = EffectSystem.calculateTacticalCover(m.x, m.y, player.x, player.y, terrain);
+        const mStatuses = m.statuses?.map(s => `• <strong>${s.icon} ${s.name}:</strong> ${s.duration}t`).join('<br>') || 'None';
         data = {
             icon: m.icon,
             name: m.name,
             desc: m.desc,
             details: `
                 <strong>HP:</strong> ${m.hp} / ${m.maxHp}<br>
-                <strong>AC:</strong> ${m.ac} (denied DEX if surprised)<br>
+                <strong>AC:</strong> ${m.ac} ${cover.hasCover ? '<span style="color:#64d8cb">(+2 Pillar Cover)</span>' : ''}<br>
                 <strong>Damage:</strong> 1d${m.dice}<br>
-                <strong>State:</strong> ${m.alert ? 'Alert & Pursuing' : 'Unaware (Vulnerable)'}
+                <strong>State:</strong> ${m.alert ? 'Alert & Pursuing' : 'Unaware (Vulnerable)'}<br>
+                <strong>Statuses:</strong><br>${mStatuses}
             `
         };
     } else if (vis !== VISIBILITY.UNEXPLORED && chests.some(c => c.x === worldX && c.y === worldY)) {
@@ -630,20 +1246,46 @@ export function inspectTileAt(worldX, worldY) {
             details: c.opened ? 'Empty' : `<strong>Item:</strong> ${c.item.name} (${c.item.desc})`
         };
     } else if (vis !== VISIBILITY.UNEXPLORED) {
-        if (tile === TILES.DOOR_CLOSED) {
-            data = { icon: '🚪', name: 'Closed Oak Door', desc: 'Blocks movement and sightlines.', details: 'Tap to breach open with surprise advantage.' };
+        // Check for hazard zone first
+        const zone = hazardZones?.find(z => z.x === worldX && z.y === worldY);
+        let zoneInfo = '';
+        if (zone) {
+            const zDef = ZONE_TYPES[zone.type];
+            zoneInfo = `<div style="color: #ff9944; margin-top: 4px;"><strong>Active Hazard:</strong> ${zDef.icon} ${zDef.name} (${zone.duration} turns left)<br>${zDef.desc}</div>`;
+        }
+
+        if (tile === TILES.PILLAR) {
+            data = { icon: '🏛️', name: 'Marble Stone Pillar', desc: 'Solid architectural column.', details: `Impassable structure. Blocks projectiles and provides +2 Tactical Cover AC to adjacent combatants against ranged attacks.${zoneInfo}` };
+        } else if (tile === TILES.PIT) {
+            data = { icon: '🕳️', name: 'Bottomless Chasm', desc: 'Deep abyssal drop into the unknown.', details: `Impassable terrain hazard. Falling into it causes fatal fall damage.${zoneInfo}` };
+        } else if (tile === TILES.BARREL) {
+            data = { icon: '🛢️', name: 'Dungeon Barrel', desc: 'Destructible container.', details: `Bump in melee or shoot from a distance to break. Contains loot items or explosive powder!${zoneInfo}` };
+        } else if (tile === TILES.ALTAR) {
+            data = { icon: '⛪', name: 'Ancient Sacred Altar', desc: 'Sanctified divine monument.', details: `Step onto or interact to pray: cleanses all poisons and bleeding, restores 20 HP, and grants Blessed aura for 20 turns!${zoneInfo}` };
+        } else if (tile === TILES.ALTAR_INERT) {
+            data = { icon: '🗿', name: 'Depleted Shrine', desc: 'Stone altar whose divine essence was received.', details: `Inert stone monument.${zoneInfo}` };
+        } else if (tile === TILES.FOLIAGE) {
+            data = { icon: '🌿', name: 'Dense Briars / Foliage', desc: 'Thorny overgrown brush.', details: `Passable terrain, but slows traversal. Flammable: ignites into a fire field if touched by fire!${zoneInfo}` };
+        } else if (tile === TILES.TRAP_SPIKE) {
+            data = { icon: '⚙️', name: 'Spike Trap Plate', desc: 'Mechanical spring-loaded floor spikes.', details: `Triggers on traversal: deals 1d8 piercing damage and inflicts Bleeding DoT.${zoneInfo}` };
+        } else if (tile === TILES.TRAP_FIRE) {
+            data = { icon: '🔥', name: 'Flame Jet Plate', desc: 'Hidden pressure vent.', details: `Triggers on traversal: detonates 3x3 blast, deals 2d6 fire damage, inflicts Burning, and creates a Fire field.${zoneInfo}` };
+        } else if (tile === TILES.TRAP_GAS) {
+            data = { icon: '☁️', name: 'Poison Spore Vent', desc: 'Noxious toxic gas emitter.', details: `Triggers on traversal: emits a 3x3 poison gas cloud and inflicts Poisoned status.${zoneInfo}` };
+        } else if (tile === TILES.DOOR_CLOSED) {
+            data = { icon: '🚪', name: 'Closed Oak Door', desc: 'Blocks movement and sightlines.', details: `Tap to breach open with surprise advantage.${zoneInfo}` };
         } else if (tile === TILES.DOOR_OPEN) {
-            data = { icon: '🚪', name: 'Open Doorway', desc: 'Passable doorway.', details: 'Permits line of sight and traversal.' };
+            data = { icon: '🚪', name: 'Open Doorway', desc: 'Passable doorway.', details: `Permits line-of-sight and passage.${zoneInfo}` };
         } else if (tile === TILES.STAIRS_DOWN) {
-            data = { icon: '🪜', name: 'Stairs Down', desc: `Descent to Floor ${dungeonManager.currentFloor + 1}.`, details: 'Tap to delve deeper.' };
+            data = { icon: '🪜', name: 'Stairs Down', desc: `Descent to Floor ${dungeonManager.currentFloor + 1}.`, details: `Tap to delve deeper.${zoneInfo}` };
         } else if (tile === TILES.STAIRS_UP) {
-            data = { icon: '⛺', name: 'Stairs Up', desc: `Ascent to Floor ${dungeonManager.currentFloor - 1}.`, details: 'Tap to return to cleared upper floor.' };
+            data = { icon: '⛺', name: 'Stairs Up', desc: `Ascent to Floor ${dungeonManager.currentFloor - 1}.`, details: `Tap to return to upper floor.${zoneInfo}` };
         } else if (tile === TILES.RUBBLE) {
-            data = { icon: '🪨', name: 'Stone Rubble', desc: 'Collapsed dungeon masonry.', details: 'Impassable barrier.' };
+            data = { icon: '🪨', name: 'Stone Rubble', desc: 'Collapsed dungeon masonry.', details: `Impassable barrier.${zoneInfo}` };
         } else if (tile === TILES.WALL) {
-            data = { icon: '🧱', name: 'Dungeon Wall', desc: `${biome.name} granite bedrock.`, details: 'Impassable perimeter.' };
+            data = { icon: '🧱', name: 'Dungeon Wall', desc: `${biome.name} granite bedrock.`, details: `Impassable perimeter.${zoneInfo}` };
         } else {
-            data = { icon: '▫️', name: 'Dungeon Floor', desc: biome.name, details: `World coordinates (${worldX}, ${worldY})` };
+            data = { icon: '▫️', name: 'Dungeon Floor', desc: biome.name, details: `World coordinates (${worldX}, ${worldY})${zoneInfo}` };
         }
     } else {
         data = { icon: '⬛', name: 'Darkness', desc: 'Unexplored territory.', details: 'Walk closer or increase Perception to illuminate.' };
@@ -659,7 +1301,6 @@ export function inspectTileAt(worldX, worldY) {
     }
 }
 
-// Screen to World Coords
 function screenToWorld(clientX, clientY) {
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
@@ -677,7 +1318,7 @@ function screenToWorld(clientX, clientY) {
 }
 
 // ==========================================
-// 10. INPUT LISTENERS
+// 12. INPUT LISTENERS
 // ==========================================
 let holdTimer = null;
 let holdTriggered = false;
@@ -690,6 +1331,8 @@ canvas.addEventListener('touchstart', (e) => {
     holdTriggered = false;
 
     const world = screenToWorld(touch.clientX, touch.clientY);
+    hoverWorldPos = world;
+    if (targetingMode) draw();
 
     holdTimer = setTimeout(() => {
         holdTriggered = true;
@@ -699,11 +1342,14 @@ canvas.addEventListener('touchstart', (e) => {
 }, { passive: false });
 
 canvas.addEventListener('touchmove', (e) => {
-    if (!holdTimer) return;
     const touch = e.touches[0];
-    if (Math.hypot(touch.clientX - startPos.x, touch.clientY - startPos.y) > 8) {
+    if (holdTimer && Math.hypot(touch.clientX - startPos.x, touch.clientY - startPos.y) > 8) {
         clearTimeout(holdTimer);
         holdTimer = null;
+    }
+    if (targetingMode) {
+        hoverWorldPos = screenToWorld(touch.clientX, touch.clientY);
+        draw();
     }
 });
 
@@ -721,11 +1367,19 @@ canvas.addEventListener('touchend', (e) => {
     holdTriggered = false;
 });
 
+canvas.addEventListener('mousemove', (e) => {
+    if (targetingMode) {
+        hoverWorldPos = screenToWorld(e.clientX, e.clientY);
+        draw();
+    }
+});
+
 canvas.addEventListener('mousedown', (e) => {
     if (e.button === 2) return;
     startPos = { x: e.clientX, y: e.clientY };
     holdTriggered = false;
     const world = screenToWorld(e.clientX, e.clientY);
+    hoverWorldPos = world;
 
     holdTimer = setTimeout(() => {
         holdTriggered = true;
@@ -753,83 +1407,15 @@ canvas.addEventListener('contextmenu', (e) => {
 
 export function waitTurn() {
     if (!player || !player.alive) return;
+    cancelWalking();
+    cancelTargeting();
     endTurn();
     postMessage('⏳ You wait a turn to recover and observe surroundings.', 'msg-info');
     draw();
 }
 
 // ==========================================
-// 11. CLASS FEATS & ABILITIES EXECUTION
-// ==========================================
-export function usePrimaryFeat() {
-    if (!player || !player.alive) return;
-    const abilities = player.getAvailableAbilities();
-    if (abilities.length === 0) {
-        postMessage('No class abilities unlocked yet.', 'msg-miss');
-        return;
-    }
-
-    const ability = abilities[0];
-    if (!player.canUseAbility(ability.id)) {
-        const cd = player.cooldowns[ability.id] || 0;
-        postMessage(`⏳ ${ability.name} is on cooldown (${cd} turns remaining).`, 'msg-miss');
-        return;
-    }
-
-    if (ability.type === 'heal') {
-        const healAmt = Math.max(6, Math.floor(player.maxHp * 0.35));
-        const prevHp = player.hp;
-        player.hp = Math.min(player.maxHp, player.hp + healAmt);
-        const actualHeal = player.hp - prevHp;
-        player.triggerAbilityCooldown(ability.id);
-        postMessage(`${ability.icon} ${ability.name} used! Restored ${actualHeal} HP.`, 'msg-victory');
-        endTurn();
-        updateHUD();
-        draw();
-    } else if (ability.type === 'buff_attack') {
-        player.activeBuffs.push({ id: ability.id, name: ability.name, stat: 'bonus_dmg', value: 8, turnsLeft: 6 });
-        player.triggerAbilityCooldown(ability.id);
-        postMessage(`${ability.icon} ${ability.name} activated! Next melee strike deals crushing bonus damage.`, 'msg-victory');
-        endTurn();
-        updateHUD();
-        draw();
-    } else if (ability.type === 'buff_all') {
-        player.activeBuffs.push({ id: ability.id, name: ability.name, stat: 'ac', value: 2, turnsLeft: 15 });
-        player.activeBuffs.push({ id: ability.id, name: ability.name, stat: 'attack', value: 2, turnsLeft: 15 });
-        player.triggerAbilityCooldown(ability.id);
-        postMessage(`${ability.icon} ${ability.name} performed! +2 AC and +2 Attack for 15 turns.`, 'msg-victory');
-        endTurn();
-        updateHUD();
-        draw();
-    } else if (ability.type === 'ranged_damage') {
-        const { monsters, visibility } = currentFloorData;
-        const visibleMonsters = monsters.filter(m => m.alive && visibility[m.y * MAP_WIDTH + m.x] === VISIBILITY.VISIBLE);
-        if (visibleMonsters.length === 0) {
-            postMessage(`⚠️ No monsters visible to target with ${ability.name}!`, 'msg-miss');
-            return;
-        }
-        visibleMonsters.sort((a, b) => Math.hypot(a.x - player.x, a.y - player.y) - Math.hypot(b.x - player.x, b.y - player.y));
-        const target = visibleMonsters[0];
-        const dmg = prng.nextInt(4, 10);
-        target.hp = Math.max(0, target.hp - dmg);
-        addBlood(target.x, target.y);
-        player.triggerAbilityCooldown(ability.id);
-        postMessage(`✨ Magic Missile struck ${target.name} for ${dmg} damage!`, 'msg-victory');
-        if (target.hp <= 0) {
-            target.alive = false;
-            const xp = 15 * currentFloorData.floorLevel + Math.max(10, target.maxHp * 2);
-            const levelUps = player.gainXp(xp);
-            postMessage(`🏆 Defeated ${target.name}! +${xp} XP`, 'msg-victory');
-            if (levelUps.length > 0) handleLevelUps(levelUps);
-        }
-        endTurn();
-        updateHUD();
-        draw();
-    }
-}
-
-// ==========================================
-// 12. LEVEL UP & MILESTONES
+// 13. LEVEL UP & MILESTONES
 // ==========================================
 export function handleLevelUps(levelUps) {
     if (!levelUps || levelUps.length === 0) return;
@@ -878,7 +1464,7 @@ export function boostStat(stat) {
 }
 
 // ==========================================
-// 13. INTERACTIVE PAPERDOLL SELECTION & ACTIONS
+// 14. INTERACTIVE PAPERDOLL SELECTION & ACTIONS
 // ==========================================
 let selectedSlot = null; // { type: 'body'|'backpack', id: string|number }
 
@@ -923,14 +1509,32 @@ export function dropSelectedBackpackItem() {
 }
 
 window.addEventListener('keydown', (e) => {
-    // Escape closes modals
+    // Escape closes modals or cancels targeting
     if (e.key === 'Escape') {
+        if (targetingMode) {
+            cancelTargeting();
+            return;
+        }
         const sheet = document.getElementById('sheet-modal');
         const inspect = document.getElementById('inspect-modal');
         const levelup = document.getElementById('levelup-modal');
+        const spells = document.getElementById('spells-modal');
         if (sheet && sheet.classList.contains('active')) sheet.classList.remove('active');
         if (inspect && inspect.classList.contains('active')) inspect.classList.remove('active');
         if (levelup && levelup.classList.contains('active')) levelup.classList.remove('active');
+        if (spells && spells.classList.contains('active')) spells.classList.remove('active');
+        return;
+    }
+
+    // Hotkey: T toggles Aiming / Targeting Mode
+    if (e.key === 't' || e.key === 'T') {
+        triggerAimMode();
+        return;
+    }
+
+    // Hotkey: F opens Spells & Feats modal
+    if (e.key === 'f' || e.key === 'F') {
+        openSpellsModal();
         return;
     }
 
@@ -954,19 +1558,12 @@ window.addEventListener('keydown', (e) => {
         return;
     }
 
-    // Hotkey: F triggers primary class feat
-    if (e.key === 'f' || e.key === 'F') {
-        usePrimaryFeat();
-        return;
-    }
-
     let dx = 0, dy = 0;
     if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') dy = -1;
     if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') dy = 1;
     if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') dx = -1;
     if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') dx = 1;
     if (e.key === ' ' || e.key === 'Spacebar') {
-        // Space = Wait / Rest Turn
         e.preventDefault();
         waitTurn();
         return;
@@ -978,7 +1575,7 @@ window.addEventListener('keydown', (e) => {
 });
 
 // ==========================================
-// 14. CHARACTER SHEET & PAPERDOLL RENDERER
+// 15. CHARACTER SHEET & PAPERDOLL RENDERER
 // ==========================================
 export function populateSheet() {
     const formatMod = (m) => m >= 0 ? `+${m}` : `${m}`;
@@ -1102,8 +1699,15 @@ export function populateSheet() {
                 cardName.innerText = `${item.icon} ${item.name}`;
                 cardSlot.innerText = `Equipped (${item.slot})`;
                 cardDesc.innerText = item.desc || 'Equipped gear';
+
+                let extraAimBtn = '';
+                if (item.delivery === 'RANGED' || item.delivery === 'AOE') {
+                    extraAimBtn = `<button class="btn-action-small" style="background:#2b2210; border-color:#ffcc00; color:#ffcc00;" onclick="window.closeSheetModal(); window.triggerAimMode();">🎯 Aim Weapon</button>`;
+                }
+
                 cardActions.innerHTML = `
-                    <button class="btn-action-small" onclick="window.unequipSelectedBodyItem()">🎒 Unequip to Backpack</button>
+                    <button class="btn-action-small" onclick="window.unequipSelectedBodyItem()">🎒 Unequip</button>
+                    ${extraAimBtn}
                 `;
             } else {
                 cardContent.style.display = 'none';
@@ -1115,11 +1719,18 @@ export function populateSheet() {
                 cardTitle.innerText = `Selected Backpack Item (Slot ${selectedSlot.id + 1}):`;
                 cardContent.style.display = 'block';
                 cardName.innerText = `${item.icon} ${item.name}`;
-                cardSlot.innerText = `Slot: ${item.slot.replace('_', ' ')}`;
+                cardSlot.innerText = `Slot: ${item.slot ? item.slot.replace('_', ' ') : 'Consumable'}`;
                 cardDesc.innerText = item.desc || 'Standard item';
+
+                let throwAimBtn = '';
+                if (item.delivery === 'RANGED' || item.delivery === 'AOE' || item.isConsumable) {
+                    throwAimBtn = `<button class="btn-action-small" style="background: #1b2e2d; border-color: #64d8cb; color: #64d8cb;" onclick="window.throwItemFromBackpack(${selectedSlot.id})">🎯 Aim & Throw / Fire</button>`;
+                }
+
                 cardActions.innerHTML = `
-                    <button class="btn-action-small" style="background: #193826; border-color: #55ff77; color: #aaffaa;" onclick="window.equipSelectedBackpackItem()">⚔️ Equip to ${item.slot.replace('_', ' ')}</button>
-                    <button class="btn-action-small" style="background: #381919; border-color: #ff6666; color: #ffaaaa;" onclick="window.dropSelectedBackpackItem()">🗑️ Drop Item</button>
+                    <button class="btn-action-small" style="background: #193826; border-color: #55ff77; color: #aaffaa;" onclick="window.equipSelectedBackpackItem()">⚔️ Equip</button>
+                    ${throwAimBtn}
+                    <button class="btn-action-small" style="background: #381919; border-color: #ff6666; color: #ffaaaa;" onclick="window.dropSelectedBackpackItem()">🗑️ Drop</button>
                 `;
             } else {
                 cardContent.style.display = 'none';
@@ -1127,7 +1738,7 @@ export function populateSheet() {
             }
         }
     } else {
-        cardTitle.innerText = 'Tap an item in your backpack to equip, or tap equipped gear to unequip:';
+        cardTitle.innerText = 'Tap an item in your backpack to equip/throw, or tap equipped gear to unequip:';
         cardContent.style.display = 'none';
     }
 
