@@ -23,8 +23,25 @@ export class PlayerCharacter {
         this.activeBuffs = [];
         this.statuses = [];
 
-        // Passive Health Regen Rate (Heal 1 HP every REGEN_RATE turns)
-        this.REGEN_RATE = 12;
+        // Skill Specializations (Ranks earned upon level milestones)
+        this.skills = {
+            athletics: 0,   // +2 Max HP and +1 Melee Strike Damage per rank
+            acrobatics: 0,  // +1 Dodge AC per rank
+            perception: 0,  // +2 Passive Perception Radar & Trap Detection per rank
+            arcana: 0,      // +2 Magic Damage & +1 Spell Range
+            medicine: 0     // Accelerates passive HP regen rate
+        };
+
+        // Complete Level-by-Level Progression History
+        this.progressionHistory = [
+            {
+                level: 1,
+                hpGain: 0,
+                choiceType: 'baseline',
+                choiceLabel: `Class Baseline (${this.characterClass.title})`,
+                unlockedAbilities: this.characterClass.abilities.filter(a => a.level === 1).map(a => a.name)
+            }
+        ];
 
         // Six Core RPG Attributes (Warrior default baseline)
         this.baseStr = 12;
@@ -96,31 +113,36 @@ export class PlayerCharacter {
     get wisMod() { return Math.floor((this.wis - 10) / 2); }
     get chaMod() { return Math.floor((this.cha - 10) / 2); }
 
-    // Perception Metric: (DEX + INT + WIS) / 3
+    // Perception Metric: (DEX + INT + WIS) / 3 + Skill bonus
     get per() {
-        return Math.floor((this.dex + this.int + this.wis) / 3);
+        return Math.floor((this.dex + this.int + this.wis) / 3) + ((this.skills?.perception || 0) * 2);
     }
     get perMod() {
         return Math.floor((this.per - 10) / 2);
     }
 
-    // Hit Points: Base 20 + CON modifier * 8 + Cumulative Level-Up Bonus HP
+    // Hit Points: Base 20 + CON modifier * 8 + Cumulative Level-Up Bonus HP + Athletics Skill Rank
     get maxHp() {
-        return 20 + (this.conMod * 8) + this.bonusHp;
+        return 20 + (this.conMod * 8) + this.bonusHp + ((this.skills?.athletics || 0) * 2);
     }
 
-    // Armor Class: 10 + Equipment AC + DEX Mod + Active Buffs + Status Modifiers (e.g. Clumsy -2, Blessed +2)
+    // Armor Class: 10 + Equipment AC + DEX Mod + Active Buffs + Status Modifiers + Acrobatics Skill Rank
     get ac() {
         const equipAc = this.getEquippedItems().reduce((sum, item) => sum + (item.ac || 0), 0);
         const buffAc = this.activeBuffs
             .filter(b => b.stat === 'ac')
             .reduce((sum, b) => sum + (b.value || 0), 0);
         const statusAc = EffectSystem.getStatusModifiers(this).acMod;
-        return Math.max(5, 10 + equipAc + this.dexMod + buffAc + statusAc);
+        const skillAcro = this.skills?.acrobatics || 0;
+        return Math.max(5, 10 + equipAc + this.dexMod + buffAc + statusAc + skillAcro);
+    }
+
+    get regenRate() {
+        return Math.max(4, 12 - ((this.skills?.medicine || 0) * 2));
     }
 
     get weapon() {
-        return this.equipment[ITEM_SLOTS.MAIN_HAND] || { name: 'Fists', delivery: 'ADJACENT', dice: 3, desc: '1d3 Unarmed' };
+        return this.equipment[ITEM_SLOTS.MAIN_HAND] || { name: 'Fists', delivery: 'ADJACENT', range: 1, dice: 3, desc: '1d3 Unarmed' };
     }
 
     get isStunned() {
@@ -226,6 +248,29 @@ export class PlayerCharacter {
         return true;
     }
 
+    boostSkill(skillId) {
+        if (!this.skills || this.skills[skillId] === undefined) return false;
+        this.skills[skillId]++;
+        if (skillId === 'athletics') {
+            this.hp = this.maxHp;
+        }
+        return true;
+    }
+
+    recordProgression(level, hpGain, choiceType, choiceLabel, unlockedAbilities = []) {
+        if (!this.progressionHistory) this.progressionHistory = [];
+        this.progressionHistory.push({
+            level,
+            hpGain,
+            choiceType,
+            choiceLabel,
+            unlockedAbilities: unlockedAbilities.map(a => typeof a === 'string' ? a : a.name),
+            skills: { ...this.skills },
+            totalHp: this.maxHp,
+            ac: this.ac
+        });
+    }
+
     // ==========================================
     // CLASS FEATS & ABILITIES
     // ==========================================
@@ -253,8 +298,8 @@ export class PlayerCharacter {
         this.turnCount++;
         let healed = false;
 
-        // Passive health regeneration
-        if (this.turnCount % this.REGEN_RATE === 0) {
+        // Passive health regeneration using dynamic regenRate
+        if (this.turnCount % this.regenRate === 0) {
             if (this.hp < this.maxHp) {
                 this.hp = Math.min(this.maxHp, this.hp + 1);
                 healed = true;

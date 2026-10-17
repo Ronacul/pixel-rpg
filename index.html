@@ -220,13 +220,13 @@
             border-radius: 6px;
             color: #f0f0ff;
             font-family: inherit;
-            font-size: 11px;
+            font-size: 10px;
             font-weight: bold;
-            padding: 8px 4px;
+            padding: 7px 2px;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 5px;
+            gap: 3px;
             cursor: pointer;
             touch-action: manipulation;
             box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
@@ -249,21 +249,49 @@
             background: #1a1a26;
         }
 
+        /* Modal Tabs */
+        .modal-tab {
+            flex: 1;
+            background: #121420;
+            border: 1px solid #2d334d;
+            border-radius: 4px;
+            color: #888ea6;
+            padding: 6px;
+            font-family: inherit;
+            font-size: 11px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .modal-tab.active {
+            background: #1f2538;
+            border-color: #ffcc00;
+            color: #ffcc00;
+            box-shadow: 0 0 8px rgba(255, 204, 0, 0.2);
+        }
+
         /* Visual Paperdoll Slots */
         .paperdoll-slot {
             flex: 1;
             background: #0c0d13;
-            border: 1px dashed #262938;
+            border: 1px dashed #222533;
             border-radius: 6px;
-            padding: 5px 4px;
+            padding: 4px 2px;
             text-align: center;
             min-width: 0;
+            min-height: 44px;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             cursor: pointer;
             transition: all 0.1s;
+        }
+
+        .paperdoll-slot.unequipped .slot-icon {
+            opacity: 0.28;
+            filter: grayscale(1);
         }
 
         .paperdoll-slot.equipped {
@@ -459,28 +487,33 @@
 
     <!-- Primary Action Controls Bar (Prominent on Mobile & Desktop) -->
     <div id="action-bar">
+        <button id="btn-auto-main" class="action-btn" title="Auto-Target & Attack Nearest Foe (Hotkey: Tab or Q)">
+            <span style="font-size: 13px;">🎯</span>
+            <span style="color: #ff5577;">Auto</span>
+        </button>
+
         <button id="btn-target-main" class="action-btn" title="Aim & Fire Equipped Weapon or Throw Item (Hotkey: T)">
-            <span style="font-size: 14px;">🎯</span>
+            <span style="font-size: 13px;">🏹</span>
             <span id="action-target-label" style="color: #64d8cb;">Aim</span>
         </button>
 
         <button id="btn-spells-main" class="action-btn" title="Cast Class Feats & Spells (Hotkey: F)">
-            <span style="font-size: 14px;" id="action-spells-icon">⚡</span>
+            <span style="font-size: 13px;" id="action-spells-icon">⚡</span>
             <span id="action-spells-name" style="color: #ffcc00;">Spells</span>
         </button>
 
         <button id="btn-sheet-main" class="action-btn action-btn-highlight" title="Open Character Paperdoll & Inventory (Hotkey: C)">
-            <span style="font-size: 14px;">👤</span>
+            <span style="font-size: 13px;">👤</span>
             <span style="color: #ffcc00;">Gear (25)</span>
         </button>
 
         <button id="btn-zoom-main" class="action-btn" title="Toggle Map Zoom: 1x, 1.5x, 2x (Hotkey: Z)">
-            <span style="font-size: 14px;">🔍</span>
+            <span style="font-size: 13px;">🔍</span>
             <span><strong id="action-zoom-label" style="color: #64d8cb;">1x</strong></span>
         </button>
 
         <button id="btn-wait-main" class="action-btn" title="Pass 1 turn / Rest & Heal (Hotkey: Space)">
-            <span style="font-size: 14px;">⏳</span>
+            <span style="font-size: 13px;">⏳</span>
             <span>Wait</span>
         </button>
     </div>
@@ -504,105 +537,133 @@
                 <div id="sheet-xp-bar" class="xp-bar-fill"></div>
             </div>
 
-            <!-- Milestone Points Banner (Hidden unless attributePoints > 0) -->
-            <div id="milestone-banner" style="display: none; background: #262111; border: 1px solid #ffcc00; border-radius: 4px; padding: 6px; font-size: 11px; color: #ffcc00; text-align: center;">
-                ⭐ Milestone Attribute Points Available: <strong id="milestone-points-count">0</strong>! Tap a [+] button below.
+            <!-- Modal Tab Navigation: Gear (25) vs Attributes & Progression Log -->
+            <div style="display: flex; gap: 6px; margin: 4px 0 8px 0;">
+                <button id="tab-btn-gear" class="modal-tab active" onclick="window.switchSheetTab('gear')">🎒 Equipment & Bag (25)</button>
+                <button id="tab-btn-stats" class="modal-tab" onclick="window.switchSheetTab('stats')">📊 Attributes & Level Log</button>
             </div>
 
-            <!-- Core Stats Grid with Boost Buttons -->
-            <div class="stat-grid">
-                <div class="stat-box">
-                    <span id="sheet-str">STR: 12</span>
-                    <div>
-                        <strong id="mod-str">+1</strong>
-                        <button class="btn-boost" id="btn-boost-str" onclick="boostStat('str')" style="display:none;">+</button>
+            <!-- PANE 1: EQUIPMENT & BAG (25 SLOTS) -->
+            <div id="sheet-gear-pane">
+                <!-- Item Selection & Action Card -->
+                <div id="item-action-card">
+                    <div style="font-size: 11px; color: #888;" id="item-card-title">Select an item below to equip, unequip, or inspect:</div>
+                    <div id="item-card-content" style="font-size: 11px; color: #e0e0e0; display: none;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span id="item-card-name" style="font-weight: bold; color: #64d8cb;">Item Name</span>
+                            <span id="item-card-slot" style="color: #aaa; font-size: 10px;">Slot</span>
+                        </div>
+                        <div id="item-card-desc" style="color: #ffcc00; font-size: 10px; margin: 2px 0;">Item stats</div>
+                        <div class="item-action-row" id="item-card-actions">
+                            <!-- Action buttons injected dynamically -->
+                        </div>
                     </div>
                 </div>
-                <div class="stat-box">
-                    <span id="sheet-dex">DEX: 10</span>
-                    <div>
-                        <strong id="mod-dex">+0</strong>
-                        <button class="btn-boost" id="btn-boost-dex" onclick="boostStat('dex')" style="display:none;">+</button>
-                    </div>
-                </div>
-                <div class="stat-box">
-                    <span id="sheet-con">CON: 12</span>
-                    <div>
-                        <strong id="mod-con">+1</strong>
-                        <button class="btn-boost" id="btn-boost-con" onclick="boostStat('con')" style="display:none;">+</button>
-                    </div>
-                </div>
-                <div class="stat-box">
-                    <span id="sheet-int">INT: 10</span>
-                    <div>
-                        <strong id="mod-int">+0</strong>
-                        <button class="btn-boost" id="btn-boost-int" onclick="boostStat('int')" style="display:none;">+</button>
-                    </div>
-                </div>
-                <div class="stat-box">
-                    <span id="sheet-wis">WIS: 10</span>
-                    <div>
-                        <strong id="mod-wis">+0</strong>
-                        <button class="btn-boost" id="btn-boost-wis" onclick="boostStat('wis')" style="display:none;">+</button>
-                    </div>
-                </div>
-                <div class="stat-box">
-                    <span id="sheet-cha">CHA: 10</span>
-                    <div>
-                        <strong id="mod-cha">+0</strong>
-                        <button class="btn-boost" id="btn-boost-cha" onclick="boostStat('cha')" style="display:none;">+</button>
-                    </div>
-                </div>
-            </div>
-            <div class="stat-grid" style="margin-top: 2px;">
-                <div class="stat-box" style="border-color: #ffcc00;"><span id="sheet-per">PER: 10 (+0)</span> <strong>Rad: 3</strong></div>
-                <div class="stat-box" style="border-color: #64d8cb;"><span>Armor Class:</span> <strong id="sheet-ac">12</strong></div>
-            </div>
-            <div class="stat-box" style="border-color: #ff5577; width: 100%;">
-                <span>Hit Points:</span> <strong id="sheet-hp" style="color: #ff7799;">28 / 28</strong>
-            </div>
 
-            <!-- Item Selection & Action Card -->
-            <div id="item-action-card">
-                <div style="font-size: 11px; color: #888;" id="item-card-title">Select an item below to equip, unequip, or inspect:</div>
-                <div id="item-card-content" style="font-size: 11px; color: #e0e0e0; display: none;">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span id="item-card-name" style="font-weight: bold; color: #64d8cb;">Item Name</span>
-                        <span id="item-card-slot" style="color: #aaa; font-size: 10px;">Slot</span>
-                    </div>
-                    <div id="item-card-desc" style="color: #ffcc00; font-size: 10px; margin: 2px 0;">Item stats</div>
-                    <div class="item-action-row" id="item-card-actions">
-                        <!-- Action buttons injected dynamically -->
-                    </div>
+                <!-- Visual Paperdoll Body Layout -->
+                <div style="font-size: 11px; color: #ffcc00; margin-top: 6px; font-weight: bold; display: flex; justify-content: space-between;">
+                    <span>👤 EQUIPPED ON BODY (10 SLOTS):</span>
+                    <span style="font-size: 10px; color: #888ea6;">Tap slot to inspect/unequip</span>
+                </div>
+                <div id="paperdoll-body" style="background: #090a0f; border: 1px solid #232535; border-radius: 6px; padding: 6px; margin-top: 2px;">
+                    <!-- Generated dynamically -->
+                </div>
+
+                <!-- 15 Backpack Slots -->
+                <div style="font-size: 11px; color: #888; margin-top: 6px; display: flex; justify-content: space-between;">
+                    <span>🎒 BACKPACK INVENTORY (15 SLOTS):</span>
+                    <span style="font-size: 10px; color: #666;">Tap item to equip/drop</span>
+                </div>
+                <div id="backpack-grid" style="margin-top: 2px;">
+                    <!-- Generated dynamically -->
                 </div>
             </div>
 
-            <!-- Visual Paperdoll Body Layout -->
-            <div style="font-size: 11px; color: #ffcc00; margin-top: 4px; font-weight: bold; display: flex; justify-content: space-between;">
-                <span>👤 EQUIPPED ON BODY (10 SLOTS):</span>
-                <span style="font-size: 10px; color: #888ea6;">Tap slot to inspect/unequip</span>
-            </div>
-            <div id="paperdoll-body" style="background: #090a0f; border: 1px solid #232535; border-radius: 6px; padding: 6px;">
-                <!-- Generated dynamically -->
+            <!-- PANE 2: CORE ATTRIBUTES, SKILLS & LEVEL-BY-LEVEL PROGRESSION LOG -->
+            <div id="sheet-stats-pane" style="display: none; flex-direction: column; gap: 8px;">
+                <!-- Milestone Points Banner (Hidden unless attributePoints > 0) -->
+                <div id="milestone-banner" style="display: none; background: #262111; border: 1px solid #ffcc00; border-radius: 4px; padding: 6px; font-size: 11px; color: #ffcc00; text-align: center;">
+                    ⭐ Milestone Attribute Points Available: <strong id="milestone-points-count">0</strong>! Tap a [+] button below.
+                </div>
+
+                <!-- Core Stats Grid with Boost Buttons -->
+                <div class="stat-grid">
+                    <div class="stat-box">
+                        <span id="sheet-str">STR: 12</span>
+                        <div>
+                            <strong id="mod-str">+1</strong>
+                            <button class="btn-boost" id="btn-boost-str" onclick="boostStat('str')" style="display:none;">+</button>
+                        </div>
+                    </div>
+                    <div class="stat-box">
+                        <span id="sheet-dex">DEX: 10</span>
+                        <div>
+                            <strong id="mod-dex">+0</strong>
+                            <button class="btn-boost" id="btn-boost-dex" onclick="boostStat('dex')" style="display:none;">+</button>
+                        </div>
+                    </div>
+                    <div class="stat-box">
+                        <span id="sheet-con">CON: 12</span>
+                        <div>
+                            <strong id="mod-con">+1</strong>
+                            <button class="btn-boost" id="btn-boost-con" onclick="boostStat('con')" style="display:none;">+</button>
+                        </div>
+                    </div>
+                    <div class="stat-box">
+                        <span id="sheet-int">INT: 10</span>
+                        <div>
+                            <strong id="mod-int">+0</strong>
+                            <button class="btn-boost" id="btn-boost-int" onclick="boostStat('int')" style="display:none;">+</button>
+                        </div>
+                    </div>
+                    <div class="stat-box">
+                        <span id="sheet-wis">WIS: 10</span>
+                        <div>
+                            <strong id="mod-wis">+0</strong>
+                            <button class="btn-boost" id="btn-boost-wis" onclick="boostStat('wis')" style="display:none;">+</button>
+                        </div>
+                    </div>
+                    <div class="stat-box">
+                        <span id="sheet-cha">CHA: 10</span>
+                        <div>
+                            <strong id="mod-cha">+0</strong>
+                            <button class="btn-boost" id="btn-boost-cha" onclick="boostStat('cha')" style="display:none;">+</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="stat-grid" style="margin-top: 2px;">
+                    <div class="stat-box" style="border-color: #ffcc00;"><span id="sheet-per">PER: 10 (+0)</span> <strong>Rad: 3</strong></div>
+                    <div class="stat-box" style="border-color: #64d8cb;"><span>Armor Class:</span> <strong id="sheet-ac">12</strong></div>
+                </div>
+                <div class="stat-box" style="border-color: #ff5577; width: 100%;">
+                    <span>Hit Points:</span> <strong id="sheet-hp" style="color: #ff7799;">28 / 28</strong>
+                </div>
+
+                <!-- Modular Skills Specialization Grid -->
+                <div style="background: #090a12; border: 1px solid #23283c; border-radius: 6px; padding: 6px;">
+                    <div style="font-size: 11px; font-weight: bold; color: #64d8cb; margin-bottom: 4px;">🎯 SKILL SPECIALIZATIONS:</div>
+                    <div id="sheet-skills-list" style="display: flex; flex-direction: column; gap: 4px; font-size: 10px;">
+                        <!-- Generated dynamically -->
+                    </div>
+                </div>
+
+                <!-- Level-by-Level Progression History Timeline -->
+                <div style="background: #090a12; border: 1px solid #23283c; border-radius: 6px; padding: 6px;">
+                    <div style="font-size: 11px; font-weight: bold; color: #ffcc00; margin-bottom: 4px;">📜 LEVEL PROGRESSION HISTORY LOG:</div>
+                    <div id="sheet-progression-history" style="max-height: 140px; overflow-y: auto; font-size: 10px; color: #ccc;">
+                        <!-- Generated dynamically -->
+                    </div>
+                </div>
+
+                <!-- Class Proficiencies & Feats Info -->
+                <div style="background: #0d0f17; border: 1px solid #222638; border-radius: 6px; padding: 8px; font-size: 11px; line-height: 1.4;">
+                    <div style="color: #ffcc00; font-weight: bold; margin-bottom: 2px;">⚡ CLASS PROFICIENCIES & FEATS:</div>
+                    <div id="sheet-proficiencies" style="color: #aaa; font-size: 10px;">Proficiencies: Armor, Weapons, Skills</div>
+                    <div id="sheet-abilities" style="margin-top: 4px; font-size: 10px; color: #64d8cb;">Class Abilities: Ready</div>
+                </div>
             </div>
 
-            <!-- 15 Backpack Slots -->
-            <div style="font-size: 11px; color: #888; margin-top: 2px; display: flex; justify-content: space-between;">
-                <span>🎒 BACKPACK INVENTORY (15 SLOTS):</span>
-                <span style="font-size: 10px; color: #666;">Tap item to equip/drop</span>
-            </div>
-            <div id="backpack-grid">
-                <!-- Generated dynamically -->
-            </div>
-
-            <!-- Class Proficiencies & Feats Info -->
-            <div style="background: #0d0f17; border: 1px solid #222638; border-radius: 6px; padding: 8px; font-size: 11px; line-height: 1.4;">
-                <div style="color: #ffcc00; font-weight: bold; margin-bottom: 2px;">⚡ CLASS PROFICIENCIES & FEATS:</div>
-                <div id="sheet-proficiencies" style="color: #aaa; font-size: 10px;">Proficiencies: Armor, Weapons, Skills</div>
-                <div id="sheet-abilities" style="margin-top: 4px; font-size: 10px; color: #64d8cb;">Class Abilities: Ready</div>
-            </div>
-
-            <button class="modal-btn" onclick="closeSheetModal()">Close Character Sheet</button>
+            <button class="modal-btn" style="margin-top: 8px;" onclick="closeSheetModal()">Close Character Sheet</button>
         </div>
     </div>
 
@@ -643,31 +704,72 @@
 
     <!-- 4. Level-Up Milestone Modal -->
     <div id="levelup-modal" class="modal-overlay">
-        <div class="modal-card" style="text-align: center; border-color: #ffcc00;">
-            <div style="font-size: 38px; margin-top: 4px;">⭐</div>
-            <div style="font-size: 20px; font-weight: bold; color: #ffcc00; letter-spacing: 2px;">LEVEL UP!</div>
-            <div id="levelup-subtitle" style="font-size: 13px; color: #64d8cb; margin-top: 2px;">You reached Level 2!</div>
+        <div class="modal-card" style="text-align: center; border-color: #ffcc00; max-height: 88vh; overflow-y: auto;">
+            <div style="font-size: 36px; margin-top: 2px;">⭐</div>
+            <div style="font-size: 19px; font-weight: bold; color: #ffcc00; letter-spacing: 2px;">LEVEL UP!</div>
+            <div id="levelup-subtitle" style="font-size: 13px; color: #64d8cb; margin-top: 1px;">You reached Level 2!</div>
 
-            <div style="background: #0e101a; border: 1px solid #2d334d; border-radius: 6px; padding: 10px; margin: 8px 0; text-align: left; font-size: 12px; line-height: 1.6;">
-                <div>❤️ <strong id="levelup-hp-gain">+6 Max HP</strong> (Full HP restored!)</div>
-                <div id="levelup-feat-section" style="margin-top: 6px; display: none;">
-                    <div style="color: #ffcc00; font-weight: bold;">✨ New Feat Unlocked:</div>
-                    <div id="levelup-feat-desc" style="color: #ddd;"></div>
+            <div style="background: #0e101a; border: 1px solid #2d334d; border-radius: 6px; padding: 10px; margin: 8px 0; text-align: left; font-size: 12px; line-height: 1.5;">
+                <div style="color: #55ff77; font-weight: bold; font-size: 13px;">❤️ <span id="levelup-hp-gain">+6 Max HP</span> (Full HP Restored!)</div>
+                
+                <div id="levelup-feat-section" style="margin-top: 8px; display: none; background: #131722; border: 1px solid #2e3b52; border-radius: 4px; padding: 6px;">
+                    <div style="color: #ffcc00; font-weight: bold; font-size: 11px;">✨ Class Feats Unlocked at this Level:</div>
+                    <div id="levelup-feat-desc" style="color: #ddd; font-size: 11px; margin-top: 2px;"></div>
                 </div>
-                <div id="levelup-milestone-section" style="margin-top: 6px; display: none;">
-                    <div style="color: #ffcc00; font-weight: bold;">🌟 Milestone Attribute Boost (+1 Stat):</div>
-                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 6px;">
-                        <button class="modal-btn" style="padding: 4px;" onclick="chooseMilestoneStat('str')">+1 STR</button>
-                        <button class="modal-btn" style="padding: 4px;" onclick="chooseMilestoneStat('dex')">+1 DEX</button>
-                        <button class="modal-btn" style="padding: 4px;" onclick="chooseMilestoneStat('con')">+1 CON</button>
-                        <button class="modal-btn" style="padding: 4px;" onclick="chooseMilestoneStat('int')">+1 INT</button>
-                        <button class="modal-btn" style="padding: 4px;" onclick="chooseMilestoneStat('wis')">+1 WIS</button>
-                        <button class="modal-btn" style="padding: 4px;" onclick="chooseMilestoneStat('cha')">+1 CHA</button>
+
+                <div style="margin-top: 10px; border-top: 1px solid #252a3d; padding-top: 8px;">
+                    <div style="color: #ffcc00; font-weight: bold; font-size: 12px; margin-bottom: 3px;">🌟 CHOOSE YOUR LEVEL ADVANCEMENT:</div>
+                    <div style="font-size: 10px; color: #888ea6; margin-bottom: 8px;">Select 1 bonus to empower your hero for this level:</div>
+
+                    <!-- Option A: Attribute (+1 Stat) -->
+                    <div style="background: #11131c; border: 1px solid #292d3f; border-radius: 6px; padding: 6px; margin-bottom: 6px;">
+                        <div style="font-size: 10px; font-weight: bold; color: #64d8cb;">Option A: Boost an Attribute (+1 Stat)</div>
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 4px;">
+                            <button class="modal-btn" style="padding: 4px 2px; font-size: 10px;" onclick="window.chooseLevelUpAdvancement('attribute', 'str')">+1 STR (Melee)</button>
+                            <button class="modal-btn" style="padding: 4px 2px; font-size: 10px;" onclick="window.chooseLevelUpAdvancement('attribute', 'dex')">+1 DEX (Range/AC)</button>
+                            <button class="modal-btn" style="padding: 4px 2px; font-size: 10px;" onclick="window.chooseLevelUpAdvancement('attribute', 'con')">+1 CON (HP)</button>
+                            <button class="modal-btn" style="padding: 4px 2px; font-size: 10px;" onclick="window.chooseLevelUpAdvancement('attribute', 'int')">+1 INT (Spells)</button>
+                            <button class="modal-btn" style="padding: 4px 2px; font-size: 10px;" onclick="window.chooseLevelUpAdvancement('attribute', 'wis')">+1 WIS (Healing)</button>
+                            <button class="modal-btn" style="padding: 4px 2px; font-size: 10px;" onclick="window.chooseLevelUpAdvancement('attribute', 'cha')">+1 CHA (Buffs)</button>
+                        </div>
+                    </div>
+
+                    <!-- Option B: Skill Rank (+1 Rank) -->
+                    <div style="background: #11131c; border: 1px solid #292d3f; border-radius: 6px; padding: 6px; margin-bottom: 6px;">
+                        <div style="font-size: 10px; font-weight: bold; color: #ffcc00;">Option B: Train a Skill (+1 Rank)</div>
+                        <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 4px;">
+                            <button class="modal-btn" style="padding: 5px 6px; font-size: 10px; text-align: left; display: flex; justify-content: space-between;" onclick="window.chooseLevelUpAdvancement('skill', 'athletics')">
+                                <span>🏋️ <strong>Athletics</strong></span>
+                                <span style="color: #ffcc00; font-size: 9px;">+2 Max HP, +1 Melee Strike Dmg</span>
+                            </button>
+                            <button class="modal-btn" style="padding: 5px 6px; font-size: 10px; text-align: left; display: flex; justify-content: space-between;" onclick="window.chooseLevelUpAdvancement('skill', 'acrobatics')">
+                                <span>🤸 <strong>Acrobatics</strong></span>
+                                <span style="color: #64d8cb; font-size: 9px;">+1 Dodge Armor Class (AC)</span>
+                            </button>
+                            <button class="modal-btn" style="padding: 5px 6px; font-size: 10px; text-align: left; display: flex; justify-content: space-between;" onclick="window.chooseLevelUpAdvancement('skill', 'perception')">
+                                <span>👁️ <strong>Perception</strong></span>
+                                <span style="color: #ff9944; font-size: 9px;">+1 Sight Radar & Trap Detection</span>
+                            </button>
+                            <button class="modal-btn" style="padding: 5px 6px; font-size: 10px; text-align: left; display: flex; justify-content: space-between;" onclick="window.chooseLevelUpAdvancement('skill', 'arcana')">
+                                <span>🔮 <strong>Arcana</strong></span>
+                                <span style="color: #bd93f9; font-size: 9px;">+2 Magic Damage & +1 Range</span>
+                            </button>
+                            <button class="modal-btn" style="padding: 5px 6px; font-size: 10px; text-align: left; display: flex; justify-content: space-between;" onclick="window.chooseLevelUpAdvancement('skill', 'medicine')">
+                                <span>🩹 <strong>Medicine</strong></span>
+                                <span style="color: #55ff77; font-size: 9px;">Accelerate Passive HP Regen</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Option C: Heroic Reserve Feat -->
+                    <div style="background: #11131c; border: 1px solid #292d3f; border-radius: 6px; padding: 6px;">
+                        <div style="font-size: 10px; font-weight: bold; color: #ff7788;">Option C: Heroic Mastery & Reserve</div>
+                        <button class="modal-btn" style="width: 100%; margin-top: 4px; padding: 6px; font-size: 10px; background: #2b181e; border-color: #7a2d3f; color: #ff99aa;" onclick="window.chooseLevelUpAdvancement('feat', 'mastery')">
+                            ⚡ <strong>Heroic Mastery:</strong> +4 Max HP & Reset all ability cooldowns!
+                        </button>
                     </div>
                 </div>
             </div>
-
-            <button class="modal-btn" id="btn-levelup-confirm" onclick="closeLevelUpModal()">⚔️ Continue Adventure</button>
         </div>
     </div>
 
@@ -697,6 +799,9 @@
             cycleZoom,
             waitTurn,
             triggerAimMode,
+            autoTargetAndAttack,
+            switchSheetTab,
+            chooseLevelUpAdvancement,
             openSpellsModal,
             closeSpellsModal,
             useAbilityById,
@@ -707,8 +812,8 @@
             unequipSelectedBodyItem,
             dropSelectedBackpackItem,
             boostStat
-        } from './src/main.js?v=6.0';
-        import { PRNG } from './src/core/RNG.js?v=6.0';
+        } from './src/main.js?v=7.0';
+        import { PRNG } from './src/core/RNG.js?v=7.0';
 
         window.openSheetModal = function() {
             populateSheet();
@@ -726,6 +831,10 @@
         window.closeLevelUpModal = function() {
             document.getElementById('levelup-modal').classList.remove('active');
         };
+
+        window.switchSheetTab = switchSheetTab;
+        window.chooseLevelUpAdvancement = chooseLevelUpAdvancement;
+        window.autoTargetAndAttack = autoTargetAndAttack;
 
         window.openSpellsModal = openSpellsModal;
         window.closeSpellsModal = closeSpellsModal;
@@ -747,10 +856,11 @@
         // Connect Header & Action Bar buttons
         document.getElementById('btn-sheet-open').addEventListener('click', window.openSheetModal);
         document.getElementById('btn-sheet-main').addEventListener('click', window.openSheetModal);
-        document.getElementById('btn-zoom-main').addEventListener('click', cycleZoom);
-        document.getElementById('btn-wait-main').addEventListener('click', waitTurn);
+        document.getElementById('btn-auto-main').addEventListener('click', autoTargetAndAttack);
         document.getElementById('btn-target-main').addEventListener('click', triggerAimMode);
         document.getElementById('btn-spells-main').addEventListener('click', openSpellsModal);
+        document.getElementById('btn-zoom-main').addEventListener('click', cycleZoom);
+        document.getElementById('btn-wait-main').addEventListener('click', waitTurn);
         document.getElementById('btn-cancel-target').addEventListener('click', cancelTargeting);
 
         document.getElementById('btn-reroll').addEventListener('click', () => {

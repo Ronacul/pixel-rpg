@@ -15,20 +15,34 @@ export const ITEM_SLOTS = {
 };
 
 export const BASE_ITEMS = [
-    // Standard Melee Weapons
-    { name: 'Dagger', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'ADJACENT', dice: 4, icon: '🗡️' },
-    { name: 'Shortsword', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'ADJACENT', dice: 6, icon: '⚔️' },
-    { name: 'Broadsword', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'ADJACENT', dice: 8, icon: '🗡️' },
-    { name: 'Warhammer', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'ADJACENT', dice: 10, icon: '🔨' },
+    // Standard Melee Weapons (Adjacent, 1 Tile)
+    { name: 'Dagger', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'ADJACENT', range: 1, dice: 4, icon: '🗡️' },
+    { name: 'Shortsword', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'ADJACENT', range: 1, dice: 6, icon: '⚔️' },
+    { name: 'Broadsword', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'ADJACENT', range: 1, dice: 8, icon: '🗡️' },
+    { name: 'Warhammer', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'ADJACENT', range: 1, dice: 10, icon: '🔨' },
+
+    // Reach Melee Weapons (2 Spots / Reach over hazards)
+    { name: 'Hunting Spear', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'RANGED', range: 2, isReach: true, dice: 6, icon: '🗡️' },
+    { name: 'Dungeon Halberd', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'RANGED', range: 2, isReach: true, dice: 10, icon: '🪓' },
+    { name: 'War Pike', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'RANGED', range: 2, isReach: true, dice: 8, icon: '🔱' },
 
     // Status-Inflicting Melee Weapons
-    { name: 'Poisoned Stiletto', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'ADJACENT', dice: 4, statusOnHit: 'POISONED', statusDuration: 4, icon: '🗡️' },
-    { name: 'Jagged Flail', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'ADJACENT', dice: 8, statusOnHit: 'BLEEDING', statusDuration: 4, icon: '⛓️' },
+    { name: 'Poisoned Stiletto', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'ADJACENT', range: 1, dice: 4, statusOnHit: 'POISONED', statusDuration: 4, icon: '🗡️' },
+    { name: 'Jagged Flail', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'ADJACENT', range: 1, dice: 8, statusOnHit: 'BLEEDING', statusDuration: 4, icon: '⛓️' },
 
-    // Distance Ranged Weapons (Equipped in Main Hand, fired across line-of-sight)
-    { name: 'Hunting Bow', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'RANGED', range: 6, dice: 6, icon: '🏹' },
+    // Short Range Weapons (4-5 Spots)
+    { name: 'Throwing Daggers', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'RANGED', range: 4, dice: 4, statusOnHit: 'BLEEDING', statusDuration: 3, icon: '🗡️' },
+    { name: 'Hunting Sling', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'RANGED', range: 5, dice: 4, bonusFlat: 1, icon: '🪨' },
+
+    // Medium Range Weapons (6-7 Spots)
+    { name: 'Shortbow', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'RANGED', range: 6, dice: 6, icon: '🏹' },
+    { name: 'Hand Crossbow', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'RANGED', range: 6, dice: 6, bonusFlat: 1, icon: '🏹' },
+    { name: 'Composite Bow', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'RANGED', range: 7, dice: 8, icon: '🏹' },
+
+    // Long Range Weapons (8-10 Spots)
     { name: 'Heavy Crossbow', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'RANGED', range: 8, dice: 10, icon: '🏹' },
-    { name: 'Throwing Daggers', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'RANGED', range: 5, dice: 4, statusOnHit: 'BLEEDING', statusDuration: 3, icon: '🗡️' },
+    { name: 'Elven Longbow', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'RANGED', range: 9, dice: 8, icon: '🏹' },
+    { name: 'Sniper Arbalest', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'RANGED', range: 10, dice: 12, icon: '🏹' },
 
     // Tactical Thrown Flasks / Bombs (Can be equipped or thrown from backpack)
     { 
@@ -125,6 +139,8 @@ export function generateLootItem(prng, floorLevel = 1) {
         icon: base.icon,
         delivery: base.delivery || 'ADJACENT',
         range: base.range || 0,
+        isReach: !!base.isReach,
+        bonusFlat: base.bonusFlat || 0,
         radius: base.radius || 0,
         isPositive: !!base.isPositive,
         isConsumable: !!base.isConsumable,
@@ -144,9 +160,10 @@ export function generateLootItem(prng, floorLevel = 1) {
     };
 
     const stats = [];
-    if (item.delivery === 'RANGED') stats.push(`Ranged (${item.range}t)`);
+    if (item.isReach) stats.push(`Reach (2t)`);
+    else if (item.delivery === 'RANGED') stats.push(`Ranged (${item.range}t)`);
     if (item.delivery === 'AOE') stats.push(`AoE (${item.radius}r, ${item.range}t)`);
-    if (item.dice) stats.push(`${item.diceCount > 1 ? item.diceCount : ''}1d${item.dice} Dmg`);
+    if (item.dice) stats.push(`${item.diceCount > 1 ? item.diceCount : ''}1d${item.dice}${item.bonusFlat ? `+${item.bonusFlat}` : ''} Dmg`);
     if (item.statusOnHit) stats.push(`Inflicts ${item.statusOnHit}`);
     if (item.zoneType) stats.push(`Leaves ${item.zoneType} field`);
     if (item.healPotency) stats.push(`Heals +${item.healPotency} HP`);

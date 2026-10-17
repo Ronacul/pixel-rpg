@@ -11,7 +11,7 @@ import { PerceptionSystem } from './systems/Perception.js';
 import { CombatSystem } from './systems/Combat.js';
 import { findPath } from './systems/Pathfinding.js';
 import { ITEM_SLOTS, generateLootItem } from './data/Items.js';
-import { CLASSES, XP_TABLE, isAttributeMilestone } from './data/Classes.js';
+import { CLASSES, XP_TABLE, SKILLS, ClassManager, isAttributeMilestone } from './data/Classes.js';
 import { EffectSystem, STATUS_TYPES, ZONE_TYPES, DELIVERY_TYPES } from './systems/Effects.js';
 
 // Viewport Camera & Zoom Settings
@@ -51,6 +51,9 @@ export function startPlaythrough(seedString) {
     walkTimer = null;
     targetCursor = null;
     cancelTargeting();
+    levelUpQueue = [];
+    currentLevelUpData = null;
+    currentSheetTab = 'gear';
 
     prng = new PRNG(seedString);
     dungeonManager = new DungeonManager(seedString);
@@ -886,8 +889,111 @@ function resolveCombatTurn(monster, attackSource = null) {
 }
 
 // ==========================================
-// 9. TARGETING MODE & DISTANCE / AOE ATTACKS
+// 9. AUTO-TARGET & MANUAL AIMING MODES
 // ==========================================
+export function autoTargetAndAttack() {
+    if (!player || !player.alive) return;
+    if (targetingMode) {
+        cancelTargeting();
+    }
+
+    const { monsters, terrain, visibility } = currentFloorData;
+    const visibleMonsters = monsters.filter(m => m.alive && visibility[m.y * MAP_WIDTH + m.x] === VISIBILITY.VISIBLE);
+
+    if (visibleMonsters.length === 0) {
+        postMessage('👁️ No visible foes in sight to auto-target.', 'msg-miss');
+        return;
+    }
+
+    // Sort visible monsters by distance to player
+    visibleMonsters.sort((a, b) => Math.hypot(a.x - player.x, a.y - player.y) - Math.hypot(b.x - player.x, b.y - player.y));
+
+    // Determine equipped weapon reach & range
+    const weapon = player.weapon;
+    let weaponRange = 1.5;
+    if (weapon.isReach) {
+        weaponRange = 2.1; // Reach weapons (Spear, Halberd, Pike) reach 2 tiles
+    } else if (weapon.delivery === 'RANGED') {
+        weaponRange = weapon.range || 6;
+    } else if (weapon.delivery === 'AOE') {
+        weaponRange = weapon.range || 5;
+    }
+
+    // Find closest visible monster with unblocked line of sight
+    let target = null;
+    let targetDist = Infinity;
+    for (const m of visibleMonsters) {
+        const d = Math.hypot(m.x - player.x, m.y - player.y);
+        const ray = EffectSystem.bresenhamRaycast(player.x, player.y, m.x, m.y, terrain);
+        if (ray.clear) {
+            target = m;
+            targetDist = d;
+            break;
+        }
+    }
+
+    if (!target) {
+        postMessage('🚫 Visible foes are behind solid walls or stone pillars!', 'msg-miss');
+        return;
+    }
+
+    // If within equipped weapon reach/range: strike immediately!
+    if (targetDist <= weaponRange) {
+        if (targetDist <= 1.5) {
+            resolveCombatTurn(target, weapon);
+            endTurn();
+        } else {
+            const res = CombatSystem.resolvePlayerAttack(prng, player, target, false, terrain, weapon);
+            if (res.isHit) {
+                addBlood(target.x, target.y);
+                const coverText = res.hasCover ? ' (Pillar Cover applied)' : '';
+                let hitText = `🎯 Auto-Strike! ${weapon.name} hit ${target.name} for ${res.damage} dmg!${coverText}`;
+                if (res.appliedStatus) hitText += ` [Inflicted ${res.appliedStatus}!]`;
+                postMessage(hitText, 'msg-victory');
+
+                if (res.monsterDied) {
+                    const xp = 15 * currentFloorData.floorLevel + Math.max(10, target.maxHp * 2);
+                    const lvs = player.gainXp(xp);
+                    postMessage(`🏆 Defeated ${target.name}! +${xp} XP`, 'msg-victory');
+                    if (lvs.length > 0) handleLevelUps(lvs);
+                }
+            } else {
+                const coverText = res.hasCover ? ' (Protected by Pillar Cover!)' : '';
+                postMessage(`🛡️ Auto-Strike missed ${target.name}${coverText}. (Rolled ${res.attackTotal} vs AC ${res.targetAC})`, 'msg-miss');
+            }
+            endTurn();
+        }
+        updateHUD();
+        draw();
+        return;
+    }
+
+    // If weapon is melee/short and target is further, check if player has a ready ranged ability
+    const readyRangedAbil = player.getAvailableAbilities().find(a => 
+        (a.delivery === 'RANGED' || a.delivery === 'AOE' || a.delivery === 'ZONE') && 
+        player.canUseAbility(a.id) && 
+        (a.range || 6) >= targetDist
+    );
+
+    if (readyRangedAbil) {
+        startTargeting(readyRangedAbil);
+        fireTargetedAction(target.x, target.y);
+        return;
+    }
+
+    // Otherwise inform player of distance, weapon reach, and highlight foe
+    const reachDesc = weapon.isReach ? '2 tiles (Reach)' : (weapon.delivery === 'RANGED' ? `${weapon.range} tiles` : '1 tile (Melee)');
+    postMessage(`🎯 Closest foe (${target.name}) is ${targetDist.toFixed(1)}t away (Your ${weapon.name} reach: ${reachDesc}). Step closer or equip a bow!`, 'msg-info');
+    targetCursor = { x: target.x, y: target.y };
+    draw();
+    setTimeout(() => {
+        if (targetCursor && targetCursor.x === target.x && targetCursor.y === target.y) {
+            targetCursor = null;
+            draw();
+        }
+    }, 1200);
+}
+
 export function triggerAimMode() {
     if (targetingMode) {
         cancelTargeting();
@@ -1415,39 +1521,100 @@ export function waitTurn() {
 }
 
 // ==========================================
-// 13. LEVEL UP & MILESTONES
+// 13. LEVEL UP & PROGRESSION ADVANCEMENT
 // ==========================================
+let levelUpQueue = [];
+let currentLevelUpData = null;
+
 export function handleLevelUps(levelUps) {
     if (!levelUps || levelUps.length === 0) return;
-    const latest = levelUps[levelUps.length - 1];
-    const totalHpGain = levelUps.reduce((sum, l) => sum + l.hpGain, 0);
+    levelUpQueue.push(...levelUps);
+    if (!currentLevelUpData) {
+        showNextLevelUp();
+    }
+}
+
+function showNextLevelUp() {
+    if (levelUpQueue.length === 0) {
+        currentLevelUpData = null;
+        return;
+    }
+    currentLevelUpData = levelUpQueue[0];
+    const { level, hpGain, unlockedAbilities } = currentLevelUpData;
 
     const modal = document.getElementById('levelup-modal');
     if (modal) {
-        document.getElementById('levelup-subtitle').innerText = `You reached Level ${latest.level} (${player.characterClass.title})!`;
-        document.getElementById('levelup-hp-gain').innerText = `+${totalHpGain} Max HP (Full HP Restored!)`;
+        document.getElementById('levelup-subtitle').innerText = `You reached Level ${level} (${player.characterClass.title})!`;
+        document.getElementById('levelup-hp-gain').innerText = `+${hpGain} Max HP (Full HP Restored!)`;
 
         const featSec = document.getElementById('levelup-feat-section');
-        const allUnlocked = levelUps.flatMap(l => l.unlockedAbilities);
-        if (allUnlocked.length > 0) {
+        if (unlockedAbilities && unlockedAbilities.length > 0) {
             featSec.style.display = 'block';
-            document.getElementById('levelup-feat-desc').innerHTML = allUnlocked
+            document.getElementById('levelup-feat-desc').innerHTML = unlockedAbilities
                 .map(a => `<strong>${a.icon} ${a.name}:</strong> ${a.desc}`)
                 .join('<br>');
         } else {
             featSec.style.display = 'none';
         }
 
-        const msSec = document.getElementById('levelup-milestone-section');
-        if (player.attributePoints > 0) {
-            msSec.style.display = 'block';
-        } else {
-            msSec.style.display = 'none';
-        }
-
         modal.classList.add('active');
     }
     updateHUD();
+}
+
+export function chooseLevelUpAdvancement(type, id) {
+    if (!currentLevelUpData) {
+        const modal = document.getElementById('levelup-modal');
+        if (modal) modal.classList.remove('active');
+        return;
+    }
+
+    const { level, hpGain, unlockedAbilities } = currentLevelUpData;
+    let choiceLabel = '';
+
+    if (type === 'attribute') {
+        const statName = id.toUpperCase();
+        switch (id.toLowerCase()) {
+            case 'str': player.baseStr++; break;
+            case 'dex': player.baseDex++; break;
+            case 'con': player.baseCon++; player.hp = player.maxHp; break;
+            case 'int': player.baseInt++; break;
+            case 'wis': player.baseWis++; break;
+            case 'cha': player.baseCha++; break;
+        }
+        choiceLabel = `+1 ${statName}`;
+        postMessage(`⭐ Level ${level} Milestone! Increased ${statName} by +1!`, 'msg-victory');
+    } else if (type === 'skill') {
+        player.boostSkill(id);
+        const skillName = id.charAt(0).toUpperCase() + id.slice(1);
+        choiceLabel = `+1 ${skillName} Rank (Rank ${player.skills[id]})`;
+        postMessage(`⭐ Level ${level} Milestone! Trained ${skillName} to Rank ${player.skills[id]}!`, 'msg-victory');
+    } else if (type === 'feat') {
+        player.bonusHp += 4;
+        player.hp = player.maxHp;
+        for (const k in player.cooldowns) {
+            player.cooldowns[k] = 0;
+        }
+        choiceLabel = `Heroic Reserve (+4 Max HP & Cooldowns Reset)`;
+        postMessage(`⭐ Level ${level} Milestone! Gained Heroic Reserve (+4 Max HP & Cooldowns Reset)!`, 'msg-victory');
+    }
+
+    // Record into progression history
+    player.recordProgression(level, hpGain, type, choiceLabel, unlockedAbilities || []);
+
+    // Pop current level-up from queue
+    levelUpQueue.shift();
+    if (levelUpQueue.length > 0) {
+        showNextLevelUp();
+    } else {
+        currentLevelUpData = null;
+        const modal = document.getElementById('levelup-modal');
+        if (modal) modal.classList.remove('active');
+    }
+
+    updateHUD();
+    populateSheet();
+    draw();
 }
 
 export function boostStat(stat) {
@@ -1558,6 +1725,13 @@ window.addEventListener('keydown', (e) => {
         return;
     }
 
+    // Hotkey: Tab or Q triggers Auto-Target & Attack on closest visible foe
+    if (e.key === 'Tab' || e.key === 'q' || e.key === 'Q') {
+        e.preventDefault();
+        autoTargetAndAttack();
+        return;
+    }
+
     let dx = 0, dy = 0;
     if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') dy = -1;
     if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') dy = 1;
@@ -1631,18 +1805,19 @@ export function populateSheet() {
     const slotCard = (slotName, slotKey, iconPlaceholder) => {
         const item = eq[slotKey];
         const isSel = isBodySelected(slotKey);
+        const isEquipped = !!item;
         return `
-            <div class="paperdoll-slot ${item ? 'equipped' : ''} ${isSel ? 'selected' : ''}" 
+            <div class="paperdoll-slot ${isEquipped ? 'equipped' : 'unequipped'} ${isSel ? 'selected' : ''}" 
                  onclick="window.selectSlot('body', '${slotKey}')"
-                 title="${slotName}: ${item ? item.name : 'Empty'}">
+                 title="${slotName}: ${isEquipped ? item.name : 'Unequipped (Tap to inspect)'}">
                 <div class="slot-label">${slotName}</div>
-                <div class="slot-icon">${item ? item.icon : iconPlaceholder}</div>
-                <div class="slot-name">
-                    ${item ? item.name : '<span style="color:#4a5068">Empty</span>'}
-                </div>
-                <div class="slot-stat">
-                    ${item && item.desc ? item.desc : ''}
-                </div>
+                <div class="slot-icon">${isEquipped ? item.icon : iconPlaceholder}</div>
+                ${isEquipped ? `
+                    <div class="slot-name">${item.name}</div>
+                    <div class="slot-stat">${item.desc || ''}</div>
+                ` : `
+                    <div class="slot-stat" style="color: #4a5068; font-size: 8px;">-</div>
+                `}
             </div>
         `;
     };
@@ -1757,6 +1932,62 @@ export function populateSheet() {
             return `<div>${a.icon} <strong>${a.name}</strong> ${status}: ${a.desc}</div>`;
         }).join('');
     }
+
+    // Render Modular Skills Specializations
+    const skillsListEl = document.getElementById('sheet-skills-list');
+    if (skillsListEl && player.skills) {
+        skillsListEl.innerHTML = Object.entries(SKILLS).map(([key, s]) => {
+            const rank = player.skills[s.id] || 0;
+            return `
+                <div style="display: flex; justify-content: space-between; align-items: center; background: #111420; padding: 4px 6px; border-radius: 4px; border: 1px solid #252b3d;">
+                    <div>
+                        <strong style="color: #ffcc00;">${s.icon} ${s.name}</strong>
+                        <div style="color: #888ea6; font-size: 9px;">${s.desc}</div>
+                    </div>
+                    <div style="font-weight: bold; color: ${rank > 0 ? '#64d8cb' : '#555'}; font-size: 11px;">
+                        Rank ${rank}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    // Render Level-by-Level Progression History Timeline
+    const historyEl = document.getElementById('sheet-progression-history');
+    if (historyEl && player.progressionHistory) {
+        historyEl.innerHTML = player.progressionHistory.map(h => {
+            const featsUnlocked = h.unlockedAbilities?.length > 0 ? ` • Unlocked: ${h.unlockedAbilities.join(', ')}` : '';
+            return `
+                <div style="padding: 4px 6px; border-bottom: 1px solid #1c2132; display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <strong style="color: #64d8cb;">Level ${h.level}:</strong>
+                        <span style="color: #ddd;">${h.choiceLabel}</span>
+                        ${h.hpGain ? `<span style="color: #ff5577;"> (+${h.hpGain} HP)</span>` : ''}
+                        <div style="color: #888; font-size: 9px;">${featsUnlocked}</div>
+                    </div>
+                    ${h.totalHp ? `<span style="color: #888ea6; font-size: 9px;">HP ${h.totalHp} | AC ${h.ac}</span>` : ''}
+                </div>
+            `;
+        }).join('');
+    }
+}
+
+let currentSheetTab = 'gear'; // 'gear' | 'stats'
+
+export function switchSheetTab(tabId) {
+    currentSheetTab = tabId;
+    const gearBtn = document.getElementById('tab-btn-gear');
+    const statsBtn = document.getElementById('tab-btn-stats');
+    const gearPane = document.getElementById('sheet-gear-pane');
+    const statsPane = document.getElementById('sheet-stats-pane');
+
+    if (gearBtn) gearBtn.className = `modal-tab ${tabId === 'gear' ? 'active' : ''}`;
+    if (statsBtn) statsBtn.className = `modal-tab ${tabId === 'stats' ? 'active' : ''}`;
+
+    if (gearPane) gearPane.style.display = tabId === 'gear' ? 'block' : 'none';
+    if (statsPane) statsPane.style.display = tabId === 'stats' ? 'flex' : 'none';
+
+    populateSheet();
 }
 
 // Initial launch

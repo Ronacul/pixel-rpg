@@ -305,34 +305,120 @@ export const CLASSES = {
                 desc: 'Hypnotic melody: puts all foes in a 3x3 area into deep slumber (Stunned for 3 turns).'
             }
         ]
+    },
+    RANGER: {
+        id: 'ranger',
+        name: 'Ranger',
+        title: 'Wilderness Scout',
+        icon: '🏹',
+        desc: 'Master of line-of-sight marksmanship, beast tracking, and snare traps.',
+        hitDie: 8,
+        primaryStat: 'dex',
+        proficiencies: {
+            armor: ['Light', 'Medium'],
+            weapons: ['Simple', 'Martial', 'Bows', 'Crossbows', 'Spears'],
+            skills: ['Perception', 'Survival', 'Stealth']
+        },
+        abilities: [
+            {
+                id: 'aimed_shot',
+                name: 'Aimed Shot',
+                level: 1,
+                icon: '🎯',
+                delivery: 'RANGED',
+                range: 8,
+                type: 'ranged_damage',
+                dice: 8,
+                diceCount: 1,
+                bonusFlat: 3,
+                cooldown: 8,
+                desc: 'Carefully sighted sniper shot dealing 1d8+DEX+3 damage with critical accuracy.'
+            },
+            {
+                id: 'snare_trap',
+                name: 'Snare Trap',
+                level: 2,
+                icon: '🕸️',
+                delivery: 'ZONE',
+                range: 4,
+                radius: 1,
+                type: 'zone',
+                cooldown: 16,
+                zoneEffect: { type: 'WEB_ZONE', duration: 5 },
+                desc: 'Toss a spiked net creating an entangling web that roots and slows foes.'
+            },
+            {
+                id: 'rain_of_arrows',
+                name: 'Volley of Arrows',
+                level: 4,
+                icon: '🏹',
+                delivery: 'AOE',
+                range: 7,
+                radius: 2,
+                type: 'aoe_range',
+                dice: 6,
+                diceCount: 2,
+                cooldown: 22,
+                statusEffect: { type: 'BLEEDING', duration: 3 },
+                desc: 'Rain piercing arrows in a 5x5 area: deals 2d6 physical damage and causes bleeding.'
+            }
+        ]
     }
 };
+
+// Skill Ranks and Progression Benefits
+export const SKILLS = {
+    ATHLETICS: { id: 'athletics', name: 'Athletics', icon: '🏋️', desc: '+2 Max HP and +1 Melee Strike Damage per rank' },
+    ACROBATICS: { id: 'acrobatics', name: 'Acrobatics', icon: '🤸', desc: '+1 Dodge Armor Class (AC) per rank' },
+    PERCEPTION: { id: 'perception', name: 'Perception Radar', icon: '👁️', desc: '+1 Sight Radius & +2 Secret/Trap Detection DC' },
+    ARCANA: { id: 'arcana', name: 'Arcana & Spellcraft', icon: '🔮', desc: '+2 Magic Damage and +1 Range to all spells' },
+    MEDICINE: { id: 'medicine', name: 'Medicine & Survival', icon: '🩹', desc: 'Accelerates passive health regeneration rate by 2 turns' }
+};
+
+// Extensible Class Management Architecture
+export class ClassManager {
+    static registerClass(classDef) {
+        if (!classDef || !classDef.id) return false;
+        const key = classDef.id.toUpperCase();
+        CLASSES[key] = classDef;
+        return true;
+    }
+
+    static getClass(id) {
+        if (!id) return CLASSES.WARRIOR;
+        const key = id.toUpperCase();
+        return CLASSES[key] || Object.values(CLASSES).find(c => c.id.toLowerCase() === id.toLowerCase()) || CLASSES.WARRIOR;
+    }
+
+    static getAllClasses() {
+        return Object.values(CLASSES);
+    }
+}
 
 // Experience Point Thresholds (Levels 1 to 20)
 export const XP_TABLE = [
     0,      // Level 1
     100,    // Level 2
     250,    // Level 3
-    500,    // Level 4 (Attribute Milestone 1)
+    500,    // Level 4 (Milestone Boost)
     900,    // Level 5 (Special Feat Tier)
     1400,   // Level 6
     2000,   // Level 7
-    2800,   // Level 8 (Attribute Milestone 2)
+    2800,   // Level 8 (Milestone Boost)
     3800,   // Level 9
     5000,   // Level 10 (Mastery Milestone)
     6500,   // Level 11
-    8200,   // Level 12 (Attribute Milestone 3)
+    8200,   // Level 12 (Milestone Boost)
     10200,  // Level 13
     12500,  // Level 14
     15000,  // Level 15
-    18000,  // Level 16 (Attribute Milestone 4)
+    18000,  // Level 16 (Milestone Boost)
     21500,  // Level 17
     25500,  // Level 18
-    30000,  // Level 19 (Attribute Milestone 5)
+    30000,  // Level 19 (Milestone Boost)
     35000   // Level 20
 ];
 
-// Check if a level is an attribute boost milestone
 export function isAttributeMilestone(level) {
     return [4, 8, 12, 16, 19].includes(level);
 }

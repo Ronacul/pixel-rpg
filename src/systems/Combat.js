@@ -60,7 +60,14 @@ export class CombatSystem {
             }
 
             const holyBonus = playerStatusMods.bonusDmg; // Blessed buff bonus
-            damage = Math.max(1, rollDmg + statMod + featBonusDmg + holyBonus + (weapon.bonusFlat || 0));
+            let skillBonusDmg = 0;
+            if (player.skills) {
+                if (!isRanged) skillBonusDmg += (player.skills.athletics || 0); // Athletics: +1 Melee Strike Dmg
+                if (weapon.damageType === 'ARCANE' || weapon.damageType === 'COLD' || weapon.damageType === 'FIRE' || weapon.damageType === 'HOLY') {
+                    skillBonusDmg += (player.skills.arcana || 0) * 2; // Arcana: +2 Magic Dmg
+                }
+            }
+            damage = Math.max(1, rollDmg + statMod + featBonusDmg + holyBonus + (weapon.bonusFlat || 0) + skillBonusDmg);
             monster.hp = Math.max(0, monster.hp - damage);
             if (monster.hp <= 0) monster.alive = false;
 
@@ -192,7 +199,11 @@ export class CombatSystem {
                 for (let d = 0; d < diceCount; d++) dmg += prng.nextInt(1, dice);
 
                 const statMod = caster.intMod || caster.wisMod || caster.strMod || 0;
-                dmg = Math.max(1, dmg + statMod + (actionDef.bonusFlat || 0));
+                let arcanaBonus = 0;
+                if (caster.skills && (actionDef.damageType === 'ARCANE' || actionDef.damageType === 'FIRE' || actionDef.damageType === 'COLD' || actionDef.damageType === 'SONIC' || actionDef.damageType === 'HOLY')) {
+                    arcanaBonus = (caster.skills.arcana || 0) * 2;
+                }
+                dmg = Math.max(1, dmg + statMod + (actionDef.bonusFlat || 0) + arcanaBonus);
 
                 m.hp = Math.max(0, m.hp - dmg);
                 totalDamage += dmg;
