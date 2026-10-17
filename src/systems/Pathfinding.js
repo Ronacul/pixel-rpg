@@ -77,3 +77,4 @@ export function findPath(startX, startY, endX, endY, terrain, monsters, maxRadiu
     }
     return path;
 }
+

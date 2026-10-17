@@ -1,4 +1,4 @@
-// Player Character Model with 6 Core Attributes, Perception Metric, and Dynamic Getters
+// Player Character Model with 6 Core Attributes, Perception Metric, and 25-Slot Paperdoll System
 
 import { ITEM_SLOTS } from '../data/Items.js';
 
@@ -7,6 +7,11 @@ export class PlayerCharacter {
         this.x = 0;
         this.y = 0;
         this.level = 1;
+        this.turnCount = 0;
+        this.alive = true;
+
+        // Tunable Passive Health Regen Rate (Heal 1 HP every REGEN_RATE turns)
+        this.REGEN_RATE = 12;
 
         // Six Core RPG Attributes
         this.baseStr = 12;
@@ -16,22 +21,25 @@ export class PlayerCharacter {
         this.baseWis = 10;
         this.baseCha = 10;
 
-        // Categorized Equipment Slots (10 active slots)
+        // Categorized Equipment Slots (10 Active Paperdoll Slots)
         this.equipment = {
-            [ITEM_SLOTS.MAIN_HAND]: { name: 'Iron Blade', slot: ITEM_SLOTS.MAIN_HAND, dice: 6, str: 0, dex: 0, icon: '⚔️', desc: '1d6 Dmg' },
-            [ITEM_SLOTS.OFF_HAND]: null,
-            [ITEM_SLOTS.ARMOR]: { name: 'Padded Vest', slot: ITEM_SLOTS.ARMOR, ac: 1, icon: '🦺', desc: '+1 AC' },
             [ITEM_SLOTS.HELM]: null,
+            [ITEM_SLOTS.AMULET]: null,
+            [ITEM_SLOTS.ARMOR]: { name: 'Padded Vest', slot: ITEM_SLOTS.ARMOR, ac: 1, icon: '🦺', desc: '+1 AC' },
+            [ITEM_SLOTS.CLOAK]: null,
+            [ITEM_SLOTS.MAIN_HAND]: { name: 'Iron Blade', slot: ITEM_SLOTS.MAIN_HAND, dice: 6, str: 0, dex: 0, icon: '⚔️', desc: '1d6 Dmg' },
+            [ITEM_SLOTS.OFF_HAND]: { name: 'Buckler', slot: ITEM_SLOTS.OFF_HAND, ac: 1, icon: '🛡️', desc: '+1 AC' },
             [ITEM_SLOTS.GAUNTLETS]: null,
             [ITEM_SLOTS.BOOTS]: null,
             [ITEM_SLOTS.RING_LEFT]: null,
-            [ITEM_SLOTS.RING_RIGHT]: null,
-            [ITEM_SLOTS.AMULET]: null,
-            [ITEM_SLOTS.CLOAK]: null
+            [ITEM_SLOTS.RING_RIGHT]: null
         };
 
-        // Backpack (15 slots) -> 10 + 15 = 25 total slots
+        // Backpack (15 slots) -> 10 equipped + 15 bag = 25 total slots
         this.backpack = [];
+        for (let i = 0; i < 15; i++) {
+            this.backpack.push(null);
+        }
 
         this.hp = this.maxHp;
     }
@@ -65,7 +73,7 @@ export class PlayerCharacter {
         return this.baseCha + this.getEquippedItems().reduce((sum, item) => sum + (item.cha || 0), 0);
     }
 
-    // Stat Modifiers (D&D 5e / d20 standard)
+    // Stat Modifiers
     get strMod() { return Math.floor((this.str - 10) / 2); }
     get dexMod() { return Math.floor((this.dex - 10) / 2); }
     get conMod() { return Math.floor((this.con - 10) / 2); }
@@ -73,7 +81,7 @@ export class PlayerCharacter {
     get wisMod() { return Math.floor((this.wis - 10) / 2); }
     get chaMod() { return Math.floor((this.cha - 10) / 2); }
 
-    // Phase 2 Perception Metric: (DEX + INT + WIS) / 3
+    // Perception Metric: (DEX + INT + WIS) / 3
     get per() {
         return Math.floor((this.dex + this.int + this.wis) / 3);
     }
@@ -101,5 +109,18 @@ export class PlayerCharacter {
         const old = this.equipment[item.slot];
         this.equipment[item.slot] = item;
         return old;
+    }
+
+    // Time & Turn Progression with Passive Regen
+    advanceTurn() {
+        this.turnCount++;
+        let healed = false;
+        if (this.turnCount % this.REGEN_RATE === 0) {
+            if (this.hp < this.maxHp) {
+                this.hp = Math.min(this.maxHp, this.hp + 1);
+                healed = true;
+            }
+        }
+        return { turn: this.turnCount, healed };
     }
 }

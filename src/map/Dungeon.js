@@ -44,3 +44,4 @@ export class DungeonManager {
         this.floorCache.set(this.getFloorKey(floorNum), floorData);
     }
 }
+

@@ -92,3 +92,4 @@ export function getBiomeForFloor(floorNumber) {
     const clamped = Math.max(1, Math.min(25, floorNumber));
     return BIOMES.find(b => clamped >= b.floorMin && clamped <= b.floorMax) || BIOMES[0];
 }
+

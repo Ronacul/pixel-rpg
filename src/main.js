@@ -1,5 +1,5 @@
 // Pixel RPG Main Engine Orchestrator
-// 200x200 Map | 25 Floors | Perception Fog of War | Secret Doors | Surprise Advantage
+// 200x200 Map | 25 Floors | Perception Fog | Monster Pursuit AI | Blood Stains | Zoom & Paperdoll
 
 import { PRNG } from './core/RNG.js';
 import { MAP_WIDTH, MAP_HEIGHT, TILES, VISIBILITY, DungeonManager } from './map/Dungeon.js';
@@ -10,14 +10,22 @@ import { CombatSystem } from './systems/Combat.js';
 import { findPath } from './systems/Pathfinding.js';
 import { ITEM_SLOTS } from './data/Items.js';
 
-// Setup Canvas Viewport (11x11 Camera Culling Window)
+// Viewport Camera & Zoom Settings
+const ZOOM_LEVELS = [
+    { label: '1x', cols: 11, rows: 11, size: 32 },
+    { label: '1.5x', cols: 17, rows: 17, size: 21 },
+    { label: '2x', cols: 25, rows: 25, size: 15 }
+];
+let currentZoomIndex = 0;
+
 const canvas = document.getElementById('stage');
 const ctx = canvas.getContext('2d');
-const VIEW_COLS = 11;
-const VIEW_ROWS = 11;
-const TILE_SIZE = 32;
-canvas.width = VIEW_COLS * TILE_SIZE; // 352
-canvas.height = VIEW_ROWS * TILE_SIZE; // 352
+
+let VIEW_COLS = ZOOM_LEVELS[0].cols;
+let VIEW_ROWS = ZOOM_LEVELS[0].rows;
+let TILE_SIZE = ZOOM_LEVELS[0].size;
+canvas.width = VIEW_COLS * TILE_SIZE;
+canvas.height = VIEW_ROWS * TILE_SIZE;
 
 let dungeonManager = null;
 let currentFloorData = null;
@@ -44,10 +52,13 @@ export function startPlaythrough(seedString) {
     draw();
 }
 
+export function restartSameSeed() {
+    startPlaythrough(dungeonManager.baseSeedString);
+}
+
 function loadFloor(floorNum, enterFromAbove = true) {
     dungeonManager.currentFloor = floorNum;
 
-    // Check bi-directional floor cache
     if (!dungeonManager.hasFloor(floorNum)) {
         const newFloor = generateFloor(dungeonManager.baseSeedString, floorNum);
         dungeonManager.storeFloor(floorNum, newFloor);
@@ -55,7 +66,6 @@ function loadFloor(floorNum, enterFromAbove = true) {
 
     currentFloorData = dungeonManager.getFloor(floorNum);
 
-    // Place player at Stairs Up if entering from above, or Stairs Down if coming back up
     if (enterFromAbove) {
         player.x = currentFloorData.stairsUpPos.x;
         player.y = currentFloorData.stairsUpPos.y;
@@ -64,16 +74,13 @@ function loadFloor(floorNum, enterFromAbove = true) {
         player.y = currentFloorData.stairsDownPos.y;
     }
 
-    // Refresh Perception Fog of War
     PerceptionSystem.updateVisibility(
         currentFloorData,
         player.x,
         player.y,
         player.per,
         player.perMod,
-        (sx, sy) => {
-            postMessage(`👁️ Secret Door spotted at (${sx}, ${sy})!`, 'msg-loot');
-        }
+        (sx, sy) => postMessage(`👁️ Secret Door spotted at (${sx}, ${sy})!`, 'msg-loot')
     );
 
     postMessage(`Floor ${floorNum}: ${currentFloorData.biome.name}`, 'msg-info');
@@ -81,7 +88,23 @@ function loadFloor(floorNum, enterFromAbove = true) {
 }
 
 // ==========================================
-// 2. HUD & UI MANAGEMENT
+// 2. ZOOM SYSTEM
+// ==========================================
+export function cycleZoom() {
+    currentZoomIndex = (currentZoomIndex + 1) % ZOOM_LEVELS.length;
+    const z = ZOOM_LEVELS[currentZoomIndex];
+    VIEW_COLS = z.cols;
+    VIEW_ROWS = z.rows;
+    TILE_SIZE = z.size;
+    canvas.width = VIEW_COLS * TILE_SIZE;
+    canvas.height = VIEW_ROWS * TILE_SIZE;
+
+    document.getElementById('hud-zoom').innerText = z.label;
+    draw();
+}
+
+// ==========================================
+// 3. HUD & MESSAGING
 // ==========================================
 function updateHUD() {
     document.getElementById('seed-display').innerText = dungeonManager.baseSeedString;
@@ -90,7 +113,6 @@ function updateHUD() {
     document.getElementById('hud-max-hp').innerText = player.maxHp;
     document.getElementById('hud-ac').innerText = player.ac;
 
-    // Sync URL for easy sharing
     const url = new URL(window.location);
     url.searchParams.set('seed', dungeonManager.baseSeedString);
     window.history.replaceState({}, '', url);
@@ -103,7 +125,7 @@ function postMessage(text, className = '') {
 }
 
 // ==========================================
-// 3. CAMERA & RENDERING (VIEWPORT CULLING)
+// 4. RENDERING LOOP (BLOOD POOLS & CULLING)
 // ==========================================
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -111,7 +133,7 @@ function draw() {
     const camX = player.x - Math.floor(VIEW_COLS / 2);
     const camY = player.y - Math.floor(VIEW_ROWS / 2);
 
-    const { terrain, visibility, biome, monsters, chests } = currentFloorData;
+    const { terrain, visibility, biome, monsters, chests, bloodStains } = currentFloorData;
 
     for (let ry = 0; ry < VIEW_ROWS; ry++) {
         for (let rx = 0; rx < VIEW_COLS; rx++) {
@@ -131,56 +153,63 @@ function draw() {
             const tile = terrain[idx];
 
             if (vis === VISIBILITY.UNEXPLORED) {
-                // Pitch black
-                ctx.fillStyle = '#06070a';
+                ctx.fillStyle = '#050608';
                 ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
                 continue;
             }
 
             const isDim = (vis === VISIBILITY.EXPLORED);
 
-            // Render Base Terrain
+            // Terrain Base
             if (tile === TILES.WALL || tile === TILES.SECRET_DOOR) {
                 ctx.fillStyle = isDim ? '#1d1f28' : biome.wallColor;
                 ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
                 ctx.strokeStyle = isDim ? '#14151b' : biome.borderColor;
                 ctx.strokeRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
             } else if (tile === TILES.DOOR_CLOSED) {
-                ctx.fillStyle = isDim ? '#1a1b24' : biome.floorColor;
+                ctx.fillStyle = isDim ? '#181922' : biome.floorColor;
                 ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
                 drawGlyph('🚪', screenX, screenY, isDim ? 0.4 : 1.0);
             } else if (tile === TILES.DOOR_OPEN) {
-                ctx.fillStyle = isDim ? '#1a1b24' : biome.floorColor;
+                ctx.fillStyle = isDim ? '#181922' : biome.floorColor;
                 ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
                 ctx.strokeStyle = '#3e2e1e';
-                ctx.strokeRect(screenX + 4, screenY + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+                ctx.strokeRect(screenX + 3, screenY + 3, TILE_SIZE - 6, TILE_SIZE - 6);
             } else if (tile === TILES.STAIRS_DOWN) {
-                ctx.fillStyle = isDim ? '#1a1b24' : biome.floorColor;
+                ctx.fillStyle = isDim ? '#181922' : biome.floorColor;
                 ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
                 drawGlyph('🪜', screenX, screenY, isDim ? 0.5 : 1.0);
             } else if (tile === TILES.STAIRS_UP) {
-                ctx.fillStyle = isDim ? '#1a1b24' : biome.floorColor;
+                ctx.fillStyle = isDim ? '#181922' : biome.floorColor;
                 ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
                 drawGlyph('⛺', screenX, screenY, isDim ? 0.5 : 1.0);
             } else if (tile === TILES.RUBBLE) {
-                ctx.fillStyle = isDim ? '#1a1b24' : biome.floorColor;
+                ctx.fillStyle = isDim ? '#181922' : biome.floorColor;
                 ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
                 drawGlyph('🪨', screenX, screenY, isDim ? 0.4 : 1.0);
             } else {
-                // Open Floor
-                ctx.fillStyle = isDim ? '#101117' : biome.floorColor;
+                ctx.fillStyle = isDim ? '#0f1016' : biome.floorColor;
                 ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
-                ctx.strokeStyle = isDim ? '#0b0c10' : '#1d1f2b';
+                ctx.strokeStyle = isDim ? '#090a0e' : '#1b1d28';
                 ctx.strokeRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
             }
 
-            // Render Chests (visible or remembered if opened)
+            // Blood Pool Decals on Floor
+            const blood = bloodStains.find(b => b.x === worldX && b.y === worldY);
+            if (blood) {
+                ctx.fillStyle = isDim ? 'rgba(110, 15, 20, 0.4)' : 'rgba(180, 20, 30, 0.85)';
+                ctx.beginPath();
+                ctx.arc(screenX + TILE_SIZE / 2, screenY + TILE_SIZE / 2, Math.min(TILE_SIZE / 2 - 2, blood.size * (TILE_SIZE / 32)), 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Chests
             const chest = chests.find(c => c.x === worldX && c.y === worldY);
             if (chest && (vis === VISIBILITY.VISIBLE || chest.opened)) {
                 drawGlyph(chest.opened ? '📭' : '📦', screenX, screenY, isDim ? 0.5 : 1.0);
             }
 
-            // Render Monsters (ONLY in active VISIBILITY.VISIBLE!)
+            // Monsters (Only in active visibility)
             if (vis === VISIBILITY.VISIBLE) {
                 const monster = monsters.find(m => m.alive && m.x === worldX && m.y === worldY);
                 if (monster) {
@@ -198,10 +227,12 @@ function draw() {
         }
     }
 
-    // Render Player at Viewport Center
-    const centerScreenX = Math.floor(VIEW_COLS / 2) * TILE_SIZE;
-    const centerScreenY = Math.floor(VIEW_ROWS / 2) * TILE_SIZE;
-    drawGlyph('🛡️', centerScreenX, centerScreenY, 1.0);
+    // Render Player at Viewport Center (if alive)
+    if (player.alive) {
+        const centerScreenX = Math.floor(VIEW_COLS / 2) * TILE_SIZE;
+        const centerScreenY = Math.floor(VIEW_ROWS / 2) * TILE_SIZE;
+        drawGlyph('🛡️', centerScreenX, centerScreenY, 1.0);
+    }
 }
 
 function drawGlyph(glyph, x, y, opacity = 1.0) {
@@ -209,13 +240,147 @@ function drawGlyph(glyph, x, y, opacity = 1.0) {
     ctx.globalAlpha = opacity;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = '20px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+    ctx.font = `${Math.floor(TILE_SIZE * 0.65)}px "Segoe UI Emoji", "Apple Color Emoji", sans-serif`;
     ctx.fillText(glyph, x + TILE_SIZE / 2, y + TILE_SIZE / 2 + 1);
     ctx.restore();
 }
 
+// Spawn blood pool on tile
+function addBlood(x, y) {
+    const { bloodStains } = currentFloorData;
+    const existing = bloodStains.find(b => b.x === x && b.y === y);
+    if (existing) {
+        existing.size = Math.min(14, existing.size + 2);
+    } else {
+        bloodStains.push({ x, y, size: Math.random() * 3 + 6 });
+    }
+}
+
 // ==========================================
-// 4. MOVEMENT & PATHFINDING
+// 5. TURN CYCLE & MONSTER PURSUIT AI
+// ==========================================
+function endTurn() {
+    if (!player.alive) return;
+
+    // 1. Passive Regen Check
+    const { healed } = player.advanceTurn();
+    if (healed) {
+        postMessage(`💖 Resting: Natural regeneration healed 1 HP! (${player.hp}/${player.maxHp})`, 'msg-loot');
+        updateHUD();
+    }
+
+    // 2. Monster Pursuit AI Loop
+    const { monsters, terrain } = currentFloorData;
+    let pursuing = false;
+
+    for (const m of monsters) {
+        if (!m.alive) continue;
+
+        // Wake up monster if in player's current line-of-sight
+        const mIdx = m.y * MAP_WIDTH + m.x;
+        if (currentFloorData.visibility[mIdx] === VISIBILITY.VISIBLE) {
+            m.alert = true;
+        }
+
+        if (m.alert) {
+            const dist = Math.hypot(player.x - m.x, player.y - m.y);
+
+            // Adjacent -> Attack player!
+            if (dist <= 1.5) {
+                const roll = prng.nextInt(1, 20) + 1;
+                if (roll >= player.ac) {
+                    const dmg = prng.nextInt(1, m.dice || 4);
+                    player.hp = Math.max(0, player.hp - dmg);
+                    addBlood(player.x, player.y);
+                    postMessage(`🩸 ${m.name} struck you for ${dmg} dmg! (${player.hp}/${player.maxHp} HP)`, 'msg-miss');
+                    updateHUD();
+
+                    if (player.hp <= 0) {
+                        handlePlayerDeath(m.name);
+                        return;
+                    }
+                } else {
+                    postMessage(`🛡️ Blocked ${m.name}'s attack (Roll ${roll} vs AC ${player.ac}).`);
+                }
+            } else if (dist <= 12) {
+                // Pursue player along open tiles
+                const step = getStepTowards(m.x, m.y, player.x, player.y, terrain, monsters);
+                if (step) {
+                    m.x = step.x;
+                    m.y = step.y;
+                    pursuing = true;
+                }
+            }
+        }
+    }
+
+    if (pursuing) {
+        // Redraw to show moving monsters in sight
+        draw();
+    }
+}
+
+// BFS single-step direction for monster pursuit
+function getStepTowards(sx, sy, tx, ty, terrain, monsters) {
+    const queue = [[sx, sy]];
+    const visited = new Set([`${sx},${sy}`]);
+    const firstStep = new Map();
+
+    const dirs = [
+        { dx: 0, dy: -1 },
+        { dx: 0, dy: 1 },
+        { dx: -1, dy: 0 },
+        { dx: 1, dy: 0 }
+    ];
+
+    while (queue.length > 0) {
+        const [cx, cy] = queue.shift();
+        if (cx === tx && cy === ty) {
+            return firstStep.get(`${cx},${cy}`);
+        }
+
+        for (const d of dirs) {
+            const nx = cx + d.dx;
+            const ny = cy + d.dy;
+            const k = `${nx},${ny}`;
+
+            if (nx < 0 || nx >= MAP_WIDTH || ny < 0 || ny >= MAP_HEIGHT) continue;
+            if (visited.has(k)) continue;
+
+            const t = terrain[ny * MAP_WIDTH + nx];
+            // Monsters can walk through open floors and doors
+            const passable = (t === TILES.FLOOR || t === TILES.DOOR_OPEN || (nx === tx && ny === ty));
+            const occupied = monsters.some(m => m.alive && m.x === nx && m.y === ny);
+
+            if (passable && !occupied) {
+                visited.add(k);
+                const step = (cx === sx && cy === sy) ? { x: nx, y: ny } : firstStep.get(`${cx},${cy}`);
+                firstStep.set(k, step);
+                queue.push([nx, ny]);
+            }
+        }
+    }
+    return null;
+}
+
+// ==========================================
+// 6. PERMADEATH & GAME OVER
+// ==========================================
+function handlePlayerDeath(slainBy) {
+    player.alive = false;
+    cancelWalking();
+
+    document.getElementById('death-floor').innerText = `Floor ${dungeonManager.currentFloor}`;
+    document.getElementById('death-slain-by').innerText = `Slain by: ${slainBy}`;
+    document.getElementById('death-turns').innerText = `Turns Survived: ${player.turnCount}`;
+    document.getElementById('death-modal').classList.add('active');
+
+    postMessage(`💀 YOU DIED on Floor ${dungeonManager.currentFloor}.`, 'msg-miss');
+    draw();
+}
+
+// ==========================================
+// 7. MOVEMENT & PATH STEPPING
 // ==========================================
 function cancelWalking() {
     if (walkTimer) {
@@ -226,7 +391,16 @@ function cancelWalking() {
 }
 
 function handleTap(targetWorldX, targetWorldY) {
+    if (!player.alive) return;
     if (targetWorldX < 0 || targetWorldX >= MAP_WIDTH || targetWorldY < 0 || targetWorldY >= MAP_HEIGHT) return;
+
+    // Tap on self = Wait / Rest 1 Turn
+    if (player.x === targetWorldX && player.y === targetWorldY) {
+        cancelWalking();
+        endTurn();
+        draw();
+        return;
+    }
 
     cancelWalking();
     targetCursor = { x: targetWorldX, y: targetWorldY };
@@ -244,7 +418,7 @@ function handleTap(targetWorldX, targetWorldY) {
 }
 
 function stepPath(path) {
-    if (path.length === 0) {
+    if (!player.alive || path.length === 0) {
         cancelWalking();
         draw();
         return;
@@ -255,57 +429,56 @@ function stepPath(path) {
     const targetIdx = nextY * MAP_WIDTH + nextX;
     const tile = terrain[targetIdx];
 
-    // 1. Check Door interaction
+    // Door Breach
     if (tile === TILES.DOOR_CLOSED) {
         terrain[targetIdx] = TILES.DOOR_OPEN;
         cancelWalking();
-        postMessage('🚪 Opened door. Checking room beyond...', 'msg-info');
-
-        // Check if monster was right behind door -> surprise advantage opportunity!
+        postMessage('🚪 Breached door! Checking room beyond...', 'msg-info');
         PerceptionSystem.updateVisibility(currentFloorData, player.x, player.y, player.per, player.perMod);
+        endTurn();
         draw();
         return;
     }
 
-    // 2. Check Monster combat
+    // Monster Attack
     const targetMonster = monsters.find(m => m.alive && m.x === nextX && m.y === nextY);
     if (targetMonster) {
         cancelWalking();
         resolveCombatTurn(targetMonster);
+        endTurn();
         return;
     }
 
-    // 3. Move player
+    // Step to tile
     player.x = nextX;
     player.y = nextY;
 
-    // 4. Update Fog of War
+    // Fog update
     PerceptionSystem.updateVisibility(
         currentFloorData,
         player.x,
         player.y,
         player.per,
         player.perMod,
-        (sx, sy) => postMessage(`👁️ Perception Check: Secret Door revealed at (${sx}, ${sy})!`, 'msg-loot')
+        (sx, sy) => postMessage(`👁️ Secret Door revealed at (${sx}, ${sy})!`, 'msg-loot')
     );
 
-    // 5. Check Chest Loot
+    // Loot Chest
     const chest = chests.find(c => !c.opened && c.x === nextX && c.y === nextY);
     if (chest) {
         chest.opened = true;
-        const item = chest.item;
-        player.equip(item);
-        postMessage(`🎁 Found & Equipped: ${item.name} (${item.desc})!`, 'msg-loot');
+        player.equip(chest.item);
+        postMessage(`🎁 Found & Equipped: ${chest.item.name}!`, 'msg-loot');
         updateHUD();
     }
 
-    // 6. Check Stairs
+    // Stairs
     if (tile === TILES.STAIRS_DOWN) {
         cancelWalking();
         if (dungeonManager.currentFloor < 25) {
             loadFloor(dungeonManager.currentFloor + 1, true);
         } else {
-            postMessage('🏆 You have reached the final depths of Floor 25!', 'msg-victory');
+            postMessage('🏆 You reached the final 25th floor depths!', 'msg-victory');
         }
         draw();
         return;
@@ -318,9 +491,10 @@ function stepPath(path) {
         return;
     }
 
+    endTurn();
     draw();
 
-    if (path.length > 0) {
+    if (path.length > 0 && player.alive) {
         walkTimer = setTimeout(() => stepPath(path), 110);
     } else {
         cancelWalking();
@@ -329,19 +503,22 @@ function stepPath(path) {
 }
 
 // ==========================================
-// 5. COMBAT (WITH SURPRISE ADVANTAGE)
+// 8. COMBAT RESOLUTION (WITH BLOOD SPLATTERS)
 // ==========================================
 function resolveCombatTurn(monster) {
-    // Check surprise condition: monster is unaware (e.g. attacked from behind door / blindspot)
     const isSurprise = monster.unaware === true;
-    monster.unaware = false; // loses unaware state after first strike
+    monster.unaware = false;
+    monster.alert = true;
 
     const result = CombatSystem.resolvePlayerAttack(prng, player, monster, isSurprise);
 
-    if (result.isSurprise) {
-        postMessage(`⚡ SURPRISE ATTACK! Rolled 2d20(${result.roll1}, ${result.roll2}) -> ${result.d20}. Target denied DEX AC! Dealt ${result.damage} dmg!`, 'msg-victory');
-    } else if (result.isHit) {
-        postMessage(`💥 Hit ${monster.name} for ${result.damage} dmg! (${monster.hp}/${monster.maxHp} HP left)`, 'msg-hit');
+    if (result.isHit) {
+        addBlood(monster.x, monster.y);
+        if (result.isSurprise) {
+            postMessage(`⚡ SURPRISE STRIKE! Rolled 2d20(${result.roll1}, ${result.roll2}) -> ${result.d20}. Dealt ${result.damage} dmg!`, 'msg-victory');
+        } else {
+            postMessage(`💥 Hit ${monster.name} for ${result.damage} dmg! (${monster.hp}/${monster.maxHp} HP)`, 'msg-hit');
+        }
     } else {
         postMessage(`🛡️ Missed ${monster.name} (Rolled ${result.attackTotal} vs AC ${result.targetAC}).`, 'msg-miss');
     }
@@ -349,10 +526,12 @@ function resolveCombatTurn(monster) {
     if (result.monsterDied) {
         postMessage(`🏆 Defeated ${monster.name}!`, 'msg-victory');
     } else if (result.monsterCounter?.isHit) {
+        addBlood(player.x, player.y);
         setTimeout(() => {
-            postMessage(`🩸 ${monster.name} counter-attacked for ${result.monsterCounter.damage} dmg! (${player.hp}/${player.maxHp} HP)`, 'msg-miss');
+            postMessage(`🩸 ${monster.name} bit back for ${result.monsterCounter.damage} dmg! (${player.hp}/${player.maxHp} HP)`, 'msg-miss');
             updateHUD();
-        }, 350);
+            if (player.hp <= 0) handlePlayerDeath(monster.name);
+        }, 300);
     }
 
     updateHUD();
@@ -360,7 +539,7 @@ function resolveCombatTurn(monster) {
 }
 
 // ==========================================
-// 6. QUERY & INSPECT SYSTEM
+// 9. QUERY & INSPECT
 // ==========================================
 export function inspectTileAt(worldX, worldY) {
     if (worldX < 0 || worldX >= MAP_WIDTH || worldY < 0 || worldY >= MAP_HEIGHT) return;
@@ -376,12 +555,12 @@ export function inspectTileAt(worldX, worldY) {
         data = {
             icon: '🛡️',
             name: 'Hero (Human Warrior)',
-            desc: `Floor ${dungeonManager.currentFloor} Adventurer.`,
+            desc: `Level ${player.level} • Floor ${dungeonManager.currentFloor}.`,
             details: `
                 <strong>HP:</strong> ${player.hp} / ${player.maxHp}<br>
                 <strong>AC:</strong> ${player.ac}<br>
                 <strong>Perception:</strong> ${player.per} (+${player.perMod})<br>
-                <strong>Stats:</strong> STR ${player.str} | DEX ${player.dex} | CON ${player.con}
+                <strong>Regen:</strong> 1 HP every ${player.REGEN_RATE} turns
             `
         };
     } else if (vis === VISIBILITY.VISIBLE && monsters.some(m => m.alive && m.x === worldX && m.y === worldY)) {
@@ -392,9 +571,9 @@ export function inspectTileAt(worldX, worldY) {
             desc: m.desc,
             details: `
                 <strong>HP:</strong> ${m.hp} / ${m.maxHp}<br>
-                <strong>AC:</strong> ${m.ac} (Denies DEX if surprised)<br>
-                <strong>Attack:</strong> 1d${m.dice} Damage<br>
-                <strong>Alertness:</strong> ${m.unaware ? 'Unaware (Vulnerable to Surprise!)' : 'Alert'}
+                <strong>AC:</strong> ${m.ac} (denied DEX if surprised)<br>
+                <strong>Damage:</strong> 1d${m.dice}<br>
+                <strong>State:</strong> ${m.alert ? 'Alert & Pursuing' : 'Unaware (Vulnerable)'}
             `
         };
     } else if (vis !== VISIBILITY.UNEXPLORED && chests.some(c => c.x === worldX && c.y === worldY)) {
@@ -403,26 +582,26 @@ export function inspectTileAt(worldX, worldY) {
             icon: c.opened ? '📭' : '📦',
             name: c.opened ? 'Opened Chest' : 'Ancient Chest',
             desc: c.opened ? 'Already looted.' : 'Contains floor equipment reward.',
-            details: c.opened ? 'Empty' : `<strong>Contents:</strong> ${c.item.name} (${c.item.desc})`
+            details: c.opened ? 'Empty' : `<strong>Item:</strong> ${c.item.name} (${c.item.desc})`
         };
     } else if (vis !== VISIBILITY.UNEXPLORED) {
         if (tile === TILES.DOOR_CLOSED) {
-            data = { icon: '🚪', name: 'Closed Oak Door', desc: 'Wooden door blocking line-of-sight.', details: 'Tap to open and surprise enemies behind it.' };
+            data = { icon: '🚪', name: 'Closed Oak Door', desc: 'Blocks movement and sightlines.', details: 'Tap to breach open with surprise advantage.' };
         } else if (tile === TILES.DOOR_OPEN) {
-            data = { icon: '🚪', name: 'Open Doorway', desc: 'Passable doorway.', details: 'Allows movement and sight lines.' };
+            data = { icon: '🚪', name: 'Open Doorway', desc: 'Passable doorway.', details: 'Permits line of sight and traversal.' };
         } else if (tile === TILES.STAIRS_DOWN) {
-            data = { icon: '🪜', name: 'Stairs Down', desc: `Descent to Floor ${dungeonManager.currentFloor + 1}.`, details: 'Tap to venture deeper into the dungeon.' };
+            data = { icon: '🪜', name: 'Stairs Down', desc: `Descent to Floor ${dungeonManager.currentFloor + 1}.`, details: 'Tap to delve deeper.' };
         } else if (tile === TILES.STAIRS_UP) {
-            data = { icon: '⛺', name: 'Stairs Up', desc: `Ascent to Floor ${dungeonManager.currentFloor - 1}.`, details: 'Return to previous explored floor.' };
+            data = { icon: '⛺', name: 'Stairs Up', desc: `Ascent to Floor ${dungeonManager.currentFloor - 1}.`, details: 'Tap to return to cleared upper floor.' };
         } else if (tile === TILES.RUBBLE) {
-            data = { icon: '🪨', name: 'Stone Rubble', desc: 'Impassable collapsed masonry.', details: 'Provides cover against line-of-sight.' };
+            data = { icon: '🪨', name: 'Stone Rubble', desc: 'Collapsed dungeon masonry.', details: 'Impassable barrier.' };
         } else if (tile === TILES.WALL) {
-            data = { icon: '🧱', name: 'Dungeon Wall', desc: `${biome.name} granite bedrock.`, details: 'Blocks all movement and vision.' };
+            data = { icon: '🧱', name: 'Dungeon Wall', desc: `${biome.name} granite bedrock.`, details: 'Impassable perimeter.' };
         } else {
-            data = { icon: '▫️', name: 'Dungeon Floor', desc: biome.name, details: `Coordinates: (${worldX}, ${worldY})` };
+            data = { icon: '▫️', name: 'Dungeon Floor', desc: biome.name, details: `World coordinates (${worldX}, ${worldY})` };
         }
     } else {
-        data = { icon: '⬛', name: 'Unexplored Darkness', desc: 'Pitch black darkness beyond your line-of-sight.', details: 'Increase Perception or walk closer to reveal.' };
+        data = { icon: '⬛', name: 'Darkness', desc: 'Unexplored territory.', details: 'Walk closer or increase Perception to illuminate.' };
     }
 
     if (data) {
@@ -435,15 +614,13 @@ export function inspectTileAt(worldX, worldY) {
     }
 }
 
-// Convert screen tap coordinates to 200x200 World Coordinates
+// Screen to World Coords
 function screenToWorld(clientX, clientY) {
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
-    const canvasX = (clientX - rect.left) * scaleX;
-    const canvasY = (clientY - rect.top) * scaleY;
-    const screenTileX = Math.floor(canvasX / TILE_SIZE);
-    const screenTileY = Math.floor(canvasY / TILE_SIZE);
+    const screenTileX = Math.floor(((clientX - rect.left) * scaleX) / TILE_SIZE);
+    const screenTileY = Math.floor(((clientY - rect.top) * scaleY) / TILE_SIZE);
 
     const camX = player.x - Math.floor(VIEW_COLS / 2);
     const camY = player.y - Math.floor(VIEW_ROWS / 2);
@@ -455,7 +632,7 @@ function screenToWorld(clientX, clientY) {
 }
 
 // ==========================================
-// 7. INPUT LISTENERS (TOUCH LONG-PRESS vs TAP)
+// 10. INPUT LISTENERS
 // ==========================================
 let holdTimer = null;
 let holdTriggered = false;
@@ -529,20 +706,28 @@ canvas.addEventListener('contextmenu', (e) => {
     inspectTileAt(world.x, world.y);
 });
 
-// Arrow Keys / WASD Support
 window.addEventListener('keydown', (e) => {
     let dx = 0, dy = 0;
     if (e.key === 'ArrowUp' || e.key === 'w') dy = -1;
     if (e.key === 'ArrowDown' || e.key === 's') dy = 1;
     if (e.key === 'ArrowLeft' || e.key === 'a') dx = -1;
     if (e.key === 'ArrowRight' || e.key === 'd') dx = 1;
+    if (e.key === ' ' || e.key === 'Spacebar') {
+        // Space = Wait / Rest Turn
+        e.preventDefault();
+        endTurn();
+        draw();
+        return;
+    }
     if (dx !== 0 || dy !== 0) {
         e.preventDefault();
         handleTap(player.x + dx, player.y + dy);
     }
 });
 
-// Export character sheet modal populator
+// ==========================================
+// 11. CHARACTER SHEET VISUAL PAPERDOLL
+// ==========================================
 export function populateSheet() {
     const formatMod = (m) => m >= 0 ? `+${m}` : `${m}`;
     document.getElementById('sheet-str').innerText = `STR: ${player.str}`;
@@ -562,14 +747,49 @@ export function populateSheet() {
     document.getElementById('sheet-hp').innerText = `${player.hp} / ${player.maxHp}`;
     document.getElementById('sheet-ac').innerText = player.ac;
 
-    // Render 10 equipped slots + 15 backpack slots
-    const equipHtml = Object.entries(player.equipment).map(([slot, item]) => {
-        return `<div><strong>${slot.toUpperCase()}:</strong> ${item ? `${item.icon} ${item.name} (${item.desc})` : '<span style="color:#555">Empty</span>'}</div>`;
-    }).join('');
-    document.getElementById('sheet-equip').innerHTML = equipHtml;
+    // Visual Paperdoll Body Slots:
+    const eq = player.equipment;
+    const slotCard = (slotName, item, iconPlaceholder) => `
+        <div class="paperdoll-slot" title="${slotName}">
+            <div style="font-size: 10px; color: #888; text-transform: uppercase;">${slotName}</div>
+            <div style="font-size: 18px; margin: 2px 0;">${item ? item.icon : iconPlaceholder}</div>
+            <div style="font-size: 10px; color: #64d8cb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                ${item ? item.name : '<span style="color:#444">Empty</span>'}
+            </div>
+        </div>
+    `;
+
+    document.getElementById('paperdoll-body').innerHTML = `
+        <div style="display: flex; justify-content: center; gap: 8px;">
+            ${slotCard('Helm', eq[ITEM_SLOTS.HELM], '🪖')}
+            ${slotCard('Amulet', eq[ITEM_SLOTS.AMULET], '📿')}
+        </div>
+        <div style="display: flex; justify-content: space-between; gap: 6px; margin: 6px 0;">
+            ${slotCard('Main Hand', eq[ITEM_SLOTS.MAIN_HAND], '⚔️')}
+            ${slotCard('Armor', eq[ITEM_SLOTS.ARMOR], '🦺')}
+            ${slotCard('Off Hand', eq[ITEM_SLOTS.OFF_HAND], '🛡️')}
+        </div>
+        <div style="display: flex; justify-content: space-between; gap: 6px;">
+            ${slotCard('Left Ring', eq[ITEM_SLOTS.RING_LEFT], '💍')}
+            ${slotCard('Cloak', eq[ITEM_SLOTS.CLOAK], '🧥')}
+            ${slotCard('Right Ring', eq[ITEM_SLOTS.RING_RIGHT], '💍')}
+        </div>
+        <div style="display: flex; justify-content: center; gap: 8px; margin-top: 6px;">
+            ${slotCard('Gauntlets', eq[ITEM_SLOTS.GAUNTLETS], '🧤')}
+            ${slotCard('Boots', eq[ITEM_SLOTS.BOOTS], '🥾')}
+        </div>
+    `;
+
+    // 15 Backpack slots
+    const bagHtml = player.backpack.map((item, idx) => `
+        <div class="backpack-slot">
+            ${item ? `${item.icon} <span style="color:#ddd">${item.name}</span>` : `<span style="color:#333">[Slot ${idx+1}]</span>`}
+        </div>
+    `).join('');
+    document.getElementById('backpack-grid').innerHTML = bagHtml;
 }
 
-// Start from URL seed or fresh seed
+// Initial launch
 const urlParams = new URLSearchParams(window.location.search);
 const initSeed = urlParams.get('seed') || PRNG.generateRandomSeed();
 startPlaythrough(initSeed);

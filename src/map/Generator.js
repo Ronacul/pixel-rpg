@@ -194,6 +194,8 @@ export function generateFloor(baseSeed, floorLevel) {
         stairsUpPos,
         stairsDownPos,
         monsters,
-        chests
+        chests,
+        bloodStains: []
     };
 }
+

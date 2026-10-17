@@ -81,3 +81,4 @@ export function generateLootItem(prng, floorLevel = 1) {
 
     return item;
 }
+

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Pixel RPG - 200x200 Modular Engine</title>
+    <title>Pixel RPG</title>
     <style>
         * {
             box-sizing: border-box;
@@ -146,10 +146,10 @@
             border: 2px solid #ffcc00;
             border-radius: 10px;
             width: 100%;
-            max-width: 330px;
+            max-width: 340px;
             max-height: 90vh;
             overflow-y: auto;
-            padding: 16px;
+            padding: 14px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.95);
             display: flex;
             flex-direction: column;
@@ -201,40 +201,70 @@
             justify-content: space-between;
         }
 
-        .equip-box {
-            background: #0e0f17;
-            border: 1px dashed #32354a;
-            padding: 8px;
-            border-radius: 4px;
-            font-size: 11px;
-            color: #64d8cb;
-            line-height: 1.6;
-            max-height: 180px;
+        /* Visual Paperdoll Slots */
+        .paperdoll-slot {
+            flex: 1;
+            background: #0c0d13;
+            border: 1px solid #2b2e40;
+            border-radius: 5px;
+            padding: 4px;
+            text-align: center;
+            min-width: 0;
+        }
+
+        /* 15 Backpack Grid */
+        #backpack-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 4px;
+            max-height: 120px;
             overflow-y: auto;
+            background: #090a0f;
+            padding: 6px;
+            border: 1px solid #202230;
+            border-radius: 4px;
+        }
+
+        .backpack-slot {
+            background: #111219;
+            border: 1px dashed #262938;
+            border-radius: 3px;
+            padding: 4px;
+            font-size: 10px;
+            text-align: center;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .modal-btn {
             background: #252e3a;
             border: 1px solid #41556b;
             color: #7ec8ff;
-            padding: 7px;
+            padding: 8px;
             border-radius: 6px;
             font-family: inherit;
             font-weight: bold;
             cursor: pointer;
         }
+
+        .modal-btn:active { background: #354252; }
     </style>
 </head>
 <body>
 
-    <!-- Minimal Header: Seed + Floor + Character Button -->
+    <!-- Minimal Header: Seed + Zoom + Floor + Character Button -->
     <div id="header-bar">
         <div class="header-chip" title="Active Playthrough Seed">
             🌱 <span id="seed-display" style="color: #7ec8ff; letter-spacing: 1px;">XXXX-XXXX</span>
             <button id="btn-reroll" class="btn-icon" title="New Random Run">🎲</button>
         </div>
 
-        <div class="header-chip" id="btn-sheet-open" title="View Character Sheet">
+        <div class="header-chip" id="btn-zoom" title="Toggle Map Zoom">
+            🔍 <span id="hud-zoom" style="color: #64d8cb;">1x</span>
+        </div>
+
+        <div class="header-chip" id="btn-sheet-open" title="View Character Sheet & Equipment">
             <span id="hud-floor" style="color: #ffcc00; margin-right: 2px;">F1</span>
             <span style="color: #ff5577;">❤️ <span id="hud-hp">28</span>/<span id="hud-max-hp">28</span></span>
             <span style="color: #555;">|</span>
@@ -243,7 +273,7 @@
         </div>
     </div>
 
-    <!-- Main Map Viewport (Tap/Click to move | Long-press/Right-click to inspect) -->
+    <!-- Main Map Viewport (Tap/Click to move | Long-press to inspect) -->
     <div id="map-container">
         <canvas id="stage" width="352" height="352"></canvas>
     </div>
@@ -251,7 +281,7 @@
     <!-- Single-Line Message Ticker -->
     <div id="message-bar">> Exploring dungeon depths... Tap floor to move | Long-press to inspect.</div>
 
-    <!-- 1. Character Sheet Modal Popup (25-Slot Architecture) -->
+    <!-- 1. Character Sheet Modal Popup (Visual Paperdoll & 25 Slots) -->
     <div id="sheet-modal" class="modal-overlay" onclick="closeSheetModal(event)">
         <div class="modal-card" onclick="event.stopPropagation()">
             <div class="modal-header">
@@ -273,10 +303,19 @@
             <div class="stat-box" style="border-color: #ff5577; width: 100%;">
                 <span>Hit Points:</span> <strong id="sheet-hp">28 / 28</strong>
             </div>
-            <div style="font-size: 11px; color: #888; margin-top: 4px;">🎒 EQUIPPED SLOTS (10 Active):</div>
-            <div class="equip-box" id="sheet-equip">
-                <!-- Loaded dynamically -->
+
+            <!-- Visual Paperdoll Body Layout -->
+            <div style="font-size: 11px; color: #ffcc00; margin-top: 4px; font-weight: bold;">👤 EQUIPPED (10 Slots):</div>
+            <div id="paperdoll-body" style="background: #090a0f; border: 1px solid #232535; border-radius: 6px; padding: 6px;">
+                <!-- Generated dynamically -->
             </div>
+
+            <!-- 15 Backpack Slots -->
+            <div style="font-size: 11px; color: #888; margin-top: 2px;">🎒 BACKPACK (15 Slots):</div>
+            <div id="backpack-grid">
+                <!-- Generated dynamically -->
+            </div>
+
             <button class="modal-btn" onclick="closeSheetModal()">Close Sheet</button>
         </div>
     </div>
@@ -298,9 +337,27 @@
         </div>
     </div>
 
+    <!-- 3. Permadeath & Game Over Modal -->
+    <div id="death-modal" class="modal-overlay">
+        <div class="modal-card" style="text-align: center; border-color: #ff3344;">
+            <div style="font-size: 42px; margin-top: 6px;">💀</div>
+            <div style="font-size: 20px; font-weight: bold; color: #ff4455; letter-spacing: 2px;">YOU HAVE DIED</div>
+            <div id="death-slain-by" style="font-size: 13px; color: #bbb;">Slain in combat</div>
+            <div style="background: #0d0d12; border: 1px solid #33151b; border-radius: 6px; padding: 10px; font-size: 13px; margin: 4px 0;">
+                <div>Depth Reached: <strong id="death-floor" style="color: #ffcc00;">Floor 1</strong></div>
+                <div id="death-turns" style="color: #aaa; margin-top: 4px;">Turns Survived: 0</div>
+            </div>
+            <div style="font-size: 12px; color: #888; margin-bottom: 6px;">Restart your journey:</div>
+            <div style="display: flex; gap: 8px;">
+                <button id="btn-death-reroll" class="modal-btn" style="flex: 1; background: #3d1a24; border-color: #732a3b; color: #ff99aa;">🎲 New Seed</button>
+                <button id="btn-death-retry" class="modal-btn" style="flex: 1;">🔄 Retry Run</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Core Modular Engine Script -->
     <script type="module">
-        import { startPlaythrough, populateSheet } from './src/main.js';
+        import { startPlaythrough, restartSameSeed, populateSheet, cycleZoom } from './src/main.js';
         import { PRNG } from './src/core/RNG.js';
 
         window.openSheetModal = function() {
@@ -317,9 +374,22 @@
         };
 
         document.getElementById('btn-sheet-open').addEventListener('click', window.openSheetModal);
+        document.getElementById('btn-zoom').addEventListener('click', cycleZoom);
+
         document.getElementById('btn-reroll').addEventListener('click', () => {
             const newSeed = PRNG.generateRandomSeed();
             startPlaythrough(newSeed);
+        });
+
+        document.getElementById('btn-death-reroll').addEventListener('click', () => {
+            document.getElementById('death-modal').classList.remove('active');
+            const newSeed = PRNG.generateRandomSeed();
+            startPlaythrough(newSeed);
+        });
+
+        document.getElementById('btn-death-retry').addEventListener('click', () => {
+            document.getElementById('death-modal').classList.remove('active');
+            restartSameSeed();
         });
     </script>
 </body>
