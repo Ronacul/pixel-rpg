@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Pixel RPG</title>
+    <title>Pixel RPG - 200x200 Modular Engine</title>
     <style>
         * {
             box-sizing: border-box;
@@ -16,7 +16,7 @@
 
         body {
             font-family: 'Courier New', monospace;
-            background: #0d0d12;
+            background: #08080d;
             color: #e0e0e8;
             display: flex;
             flex-direction: column;
@@ -24,7 +24,7 @@
             justify-content: space-between;
             min-height: 100vh;
             min-height: 100dvh;
-            padding: 10px 12px 14px 12px;
+            padding: 8px 10px 12px 10px;
             overflow: hidden;
             touch-action: manipulation;
         }
@@ -37,14 +37,14 @@
             justify-content: space-between;
             align-items: center;
             padding: 4px 2px;
-            margin-bottom: 8px;
+            margin-bottom: 6px;
             font-size: 13px;
         }
 
         .header-chip {
-            background: #181924;
-            border: 1px solid #36384a;
-            padding: 6px 10px;
+            background: #14151f;
+            border: 1px solid #333649;
+            padding: 5px 8px;
             border-radius: 6px;
             display: flex;
             align-items: center;
@@ -59,18 +59,14 @@
         }
 
         .btn-icon {
-            background: #252838;
-            border: 1px solid #454963;
+            background: #232535;
+            border: 1px solid #434760;
             color: #ffcc00;
-            padding: 2px 7px;
+            padding: 2px 6px;
             border-radius: 4px;
             cursor: pointer;
-            font-size: 12px;
+            font-size: 11px;
             font-family: inherit;
-        }
-
-        .btn-icon:active {
-            background: #353950;
         }
 
         /* Map Viewport */
@@ -86,16 +82,16 @@
 
         canvas {
             display: block;
-            background: #08080c;
-            border: 2px solid #3d4052;
+            background: #040508;
+            border: 2px solid #373a4d;
             border-radius: 8px;
             image-rendering: pixelated;
             image-rendering: crisp-edges;
             width: 100%;
-            max-width: 360px;
+            max-width: 352px;
             height: auto;
             aspect-ratio: 1 / 1;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.8);
             touch-action: none;
             cursor: pointer;
         }
@@ -104,18 +100,18 @@
         #message-bar {
             width: 100%;
             max-width: 360px;
-            background: #14151e;
-            border: 1px solid #323547;
+            background: #101118;
+            border: 1px solid #2d3043;
             border-left: 4px solid #ffcc00;
             border-radius: 6px;
-            padding: 10px 12px;
+            padding: 9px 12px;
             font-size: 12px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
             color: #f0f0f0;
-            margin-top: 8px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            margin-top: 6px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
         }
 
         .msg-hit { color: #55ff77 !important; }
@@ -132,7 +128,7 @@
             left: 0;
             right: 0;
             bottom: 0;
-            background: rgba(0, 0, 0, 0.75);
+            background: rgba(0, 0, 0, 0.8);
             backdrop-filter: blur(3px);
             display: none;
             align-items: center;
@@ -146,16 +142,18 @@
         }
 
         .modal-card {
-            background: #181924;
+            background: #161722;
             border: 2px solid #ffcc00;
             border-radius: 10px;
             width: 100%;
-            max-width: 320px;
+            max-width: 330px;
+            max-height: 90vh;
+            overflow-y: auto;
             padding: 16px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.9);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.95);
             display: flex;
             flex-direction: column;
-            gap: 12px;
+            gap: 10px;
             animation: popIn 0.15s ease-out;
         }
 
@@ -168,8 +166,8 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            border-bottom: 1px solid #333649;
-            padding-bottom: 8px;
+            border-bottom: 1px solid #2f3246;
+            padding-bottom: 6px;
         }
 
         .modal-title {
@@ -187,39 +185,39 @@
             padding: 0 4px;
         }
 
-        .close-btn:hover { color: #fff; }
-
         .stat-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 8px;
-            font-size: 13px;
+            gap: 6px;
+            font-size: 12px;
         }
 
         .stat-box {
-            background: #111219;
-            border: 1px solid #2d3043;
-            padding: 6px 8px;
+            background: #0e0f17;
+            border: 1px solid #292b3c;
+            padding: 5px 8px;
             border-radius: 4px;
             display: flex;
             justify-content: space-between;
         }
 
         .equip-box {
-            background: #111219;
-            border: 1px dashed #3a3d52;
-            padding: 8px 10px;
+            background: #0e0f17;
+            border: 1px dashed #32354a;
+            padding: 8px;
             border-radius: 4px;
-            font-size: 12px;
+            font-size: 11px;
             color: #64d8cb;
             line-height: 1.6;
+            max-height: 180px;
+            overflow-y: auto;
         }
 
         .modal-btn {
-            background: #2a3540;
-            border: 1px solid #4a6580;
+            background: #252e3a;
+            border: 1px solid #41556b;
             color: #7ec8ff;
-            padding: 8px;
+            padding: 7px;
             border-radius: 6px;
             font-family: inherit;
             font-weight: bold;
@@ -229,30 +227,31 @@
 </head>
 <body>
 
-    <!-- Minimal Header: Seed + Character Button -->
+    <!-- Minimal Header: Seed + Floor + Character Button -->
     <div id="header-bar">
         <div class="header-chip" title="Active Playthrough Seed">
             🌱 <span id="seed-display" style="color: #7ec8ff; letter-spacing: 1px;">XXXX-XXXX</span>
-            <button onclick="startNewPlaythrough()" class="btn-icon" title="New Random Run">🎲</button>
+            <button id="btn-reroll" class="btn-icon" title="New Random Run">🎲</button>
         </div>
 
-        <div class="header-chip" onclick="openSheetModal()" title="View Character Sheet">
+        <div class="header-chip" id="btn-sheet-open" title="View Character Sheet">
+            <span id="hud-floor" style="color: #ffcc00; margin-right: 2px;">F1</span>
             <span style="color: #ff5577;">❤️ <span id="hud-hp">28</span>/<span id="hud-max-hp">28</span></span>
             <span style="color: #555;">|</span>
             <span style="color: #64d8cb;">AC <span id="hud-ac">12</span></span>
-            <span style="font-size: 11px; color: #ffcc00; margin-left: 2px;">👤</span>
+            <span style="font-size: 11px; color: #ffcc00;">👤</span>
         </div>
     </div>
 
     <!-- Main Map Viewport (Tap/Click to move | Long-press/Right-click to inspect) -->
     <div id="map-container">
-        <canvas id="stage" width="320" height="320"></canvas>
+        <canvas id="stage" width="352" height="352"></canvas>
     </div>
 
     <!-- Single-Line Message Ticker -->
-    <div id="message-bar">> Tap to move | Long-press any tile to inspect...</div>
+    <div id="message-bar">> Exploring dungeon depths... Tap floor to move | Long-press to inspect.</div>
 
-    <!-- 1. Character Sheet Modal Popup -->
+    <!-- 1. Character Sheet Modal Popup (25-Slot Architecture) -->
     <div id="sheet-modal" class="modal-overlay" onclick="closeSheetModal(event)">
         <div class="modal-card" onclick="event.stopPropagation()">
             <div class="modal-header">
@@ -268,12 +267,15 @@
                 <div class="stat-box"><span id="sheet-cha">CHA: 10</span> <strong id="mod-cha">+0</strong></div>
             </div>
             <div class="stat-grid" style="margin-top: 2px;">
-                <div class="stat-box" style="border-color: #ff5577;"><span>Hit Points:</span> <strong id="sheet-hp">28/28</strong></div>
-                <div class="stat-box" style="border-color: #64d8cb;"><span>Armor Class:</span> <strong id="sheet-ac">12</strong></div>
+                <div class="stat-box" style="border-color: #ffcc00;"><span id="sheet-per">PER: 10 (+0)</span> <strong>Rad: 3</strong></div>
+                <div class="stat-box" style="border-color: #64d8cb;"><span>AC:</span> <strong id="sheet-ac">12</strong></div>
             </div>
+            <div class="stat-box" style="border-color: #ff5577; width: 100%;">
+                <span>Hit Points:</span> <strong id="sheet-hp">28 / 28</strong>
+            </div>
+            <div style="font-size: 11px; color: #888; margin-top: 4px;">🎒 EQUIPPED SLOTS (10 Active):</div>
             <div class="equip-box" id="sheet-equip">
-                ⚔️ <strong>Weapon:</strong> Iron Blade (1d6)<br>
-                🛡️ <strong>Armor:</strong> Padded Vest (+1 AC)
+                <!-- Loaded dynamically -->
             </div>
             <button class="modal-btn" onclick="closeSheetModal()">Close Sheet</button>
         </div>
@@ -283,799 +285,42 @@
     <div id="inspect-modal" class="modal-overlay" onclick="closeInspectModal(event)">
         <div class="modal-card" onclick="event.stopPropagation()" style="text-align: center;">
             <div class="modal-header" style="justify-content: center; position: relative;">
-                <span class="modal-title" id="inspect-title">🔍 TILE INSPECT</span>
+                <span class="modal-title" id="inspect-title">🔍 TILE QUERY</span>
                 <button class="close-btn" onclick="closeInspectModal()" style="position: absolute; right: 0;">✕</button>
             </div>
-            <div style="font-size: 38px; margin: 4px 0;" id="inspect-icon">🐀</div>
-            <div style="font-size: 16px; font-weight: bold; color: #ffcc00;" id="inspect-name">Sewer Rat</div>
-            <div style="font-size: 12px; color: #aaa; line-height: 1.4;" id="inspect-desc">Hostile vermin inhabiting dungeon depths.</div>
-            <div id="inspect-details" style="background: #111219; border: 1px solid #2d3043; border-radius: 4px; padding: 8px; font-size: 12px; color: #64d8cb; line-height: 1.5; text-align: left;">
+            <div style="font-size: 38px; margin: 4px 0;" id="inspect-icon">🚪</div>
+            <div style="font-size: 15px; font-weight: bold; color: #ffcc00;" id="inspect-name">Closed Oak Door</div>
+            <div style="font-size: 12px; color: #aaa; line-height: 1.4;" id="inspect-desc">Blocks passage and line-of-sight.</div>
+            <div id="inspect-details" style="background: #0e0f17; border: 1px solid #292b3c; border-radius: 4px; padding: 8px; font-size: 12px; color: #64d8cb; line-height: 1.5; text-align: left;">
                 <!-- Filled dynamically -->
             </div>
             <button class="modal-btn" onclick="closeInspectModal()">Done</button>
         </div>
     </div>
 
-    <script>
-        // ==========================================
-        // 1. SPRITE & ICON REGISTRY (EASY UPDATE MECHANISM)
-        // ==========================================
-        // Single-cell icons: no letters!
-        // Update any sprite anytime via updateSprite(key, { icon: '...' })
-        const SPRITES = {
-            player: {
-                icon: '🛡️',
-                size: 21,
-                name: 'Human Warrior',
-                desc: 'Level 1 Adventurer. Guided by your hand.'
-            },
-            rat: {
-                icon: '🐀',
-                size: 21,
-                name: 'Sewer Rat',
-                desc: 'Aggressive dungeon vermin with sharp incisors.'
-            },
-            chestClosed: {
-                icon: '📦',
-                size: 20,
-                name: 'Ancient Chest',
-                desc: 'Sturdy wooden lockbox containing equipment.'
-            },
-            chestOpen: {
-                icon: '📭',
-                size: 18,
-                name: 'Opened Chest',
-                desc: 'An emptied container.'
-            },
-            rubble: {
-                icon: '🪨',
-                size: 19,
-                name: 'Stone Rubble',
-                desc: 'Collapsed ancient masonry. Impassable.'
-            },
-            wall: {
-                name: 'Dungeon Wall',
-                desc: 'Dense granite barrier outlining the dungeon chamber.'
-            },
-            floor: {
-                name: 'Stone Floor',
-                desc: 'Open flagstone pathway ready for exploration.'
-            }
-        };
+    <!-- Core Modular Engine Script -->
+    <script type="module">
+        import { startPlaythrough, populateSheet } from './src/main.js';
+        import { PRNG } from './src/core/RNG.js';
 
-        // Utility mechanic to update sprite definitions dynamically
-        function updateSprite(key, newProps) {
-            if (SPRITES[key]) {
-                Object.assign(SPRITES[key], newProps);
-                draw();
-            }
-        }
-
-        // ==========================================
-        // 2. SEED PRNG ENGINE (Mulberry32)
-        // ==========================================
-        const SEED_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-
-        function generateRandomSeedString() {
-            let s = '';
-            for (let i = 0; i < 8; i++) {
-                if (i === 4) s += '-';
-                s += SEED_CHARS[Math.floor(Math.random() * SEED_CHARS.length)];
-            }
-            return s;
-        }
-
-        function hashString(str) {
-            let h = 2166136261 >>> 0;
-            for (let i = 0; i < str.length; i++) {
-                h = Math.imul(h ^ str.charCodeAt(i), 16777619);
-            }
-            return h >>> 0;
-        }
-
-        let currentSeed = '';
-        let rngState = 0;
-
-        function seedRNG(seedStr) {
-            currentSeed = seedStr.toUpperCase().trim();
-            rngState = hashString(currentSeed);
-            document.getElementById('seed-display').innerText = currentSeed;
-            const url = new URL(window.location);
-            url.searchParams.set('seed', currentSeed);
-            window.history.replaceState({}, '', url);
-        }
-
-        function rng() {
-            let t = rngState += 0x6D2B79F5;
-            t = Math.imul(t ^ t >>> 15, t | 1);
-            t ^= t + Math.imul(t ^ t >>> 7, t | 61);
-            return ((t ^ t >>> 14) >>> 0) / 4294967296;
-        }
-
-        function rngInt(min, max) {
-            return Math.floor(rng() * (max - min + 1)) + min;
-        }
-
-        function rngChoice(arr) {
-            return arr[Math.floor(rng() * arr.length)];
-        }
-
-        // ==========================================
-        // 3. MODALS & STATUS BAR
-        // ==========================================
-        function openSheetModal() {
+        window.openSheetModal = function() {
+            populateSheet();
             document.getElementById('sheet-modal').classList.add('active');
-        }
+        };
 
-        function closeSheetModal() {
+        window.closeSheetModal = function() {
             document.getElementById('sheet-modal').classList.remove('active');
-        }
+        };
 
-        function openInspectModal(data) {
-            document.getElementById('inspect-icon').innerText = data.icon || '🔍';
-            document.getElementById('inspect-name').innerText = data.name;
-            document.getElementById('inspect-desc').innerText = data.desc;
-            document.getElementById('inspect-details').innerHTML = data.details;
-            document.getElementById('inspect-modal').classList.add('active');
-        }
-
-        function closeInspectModal() {
+        window.closeInspectModal = function() {
             document.getElementById('inspect-modal').classList.remove('active');
-        }
-
-        function postMessage(text, className = '') {
-            const bar = document.getElementById('message-bar');
-            bar.className = className;
-            bar.innerHTML = `> ${text}`;
-        }
-
-        // ==========================================
-        // 4. LOOT TABLES
-        // ==========================================
-        const LOOT_PREFIXES = [
-            { name: "Rusty", strBonus: 0, dexBonus: 0, acBonus: 0 },
-            { name: "Hardened", strBonus: 1, dexBonus: 0, acBonus: 1 },
-            { name: "Swift", strBonus: 0, dexBonus: 2, acBonus: 0 },
-            { name: "Brawny", strBonus: 2, dexBonus: 0, acBonus: 0 },
-            { name: "Stalwart", strBonus: 0, dexBonus: 0, acBonus: 2 },
-            { name: "Champion's", strBonus: 2, dexBonus: 1, acBonus: 1 }
-        ];
-
-        const WEAPONS = [
-            { name: "Dagger", dice: 4 },
-            { name: "Shortsword", dice: 6 },
-            { name: "Broadsword", dice: 8 },
-            { name: "Battleaxe", dice: 8 }
-        ];
-
-        const ARMORS = [
-            { name: "Leather Jerkin", baseAc: 1 },
-            { name: "Ring Mail", baseAc: 2 },
-            { name: "Scale Cuirass", baseAc: 3 }
-        ];
-
-        function generateSeededLoot() {
-            const isWeapon = rng() > 0.5;
-            const prefix = rngChoice(LOOT_PREFIXES);
-            if (isWeapon) {
-                const base = rngChoice(WEAPONS);
-                return {
-                    type: 'weapon',
-                    name: `${prefix.name} ${base.name}`,
-                    dice: base.dice,
-                    strBonus: prefix.strBonus,
-                    dexBonus: prefix.dexBonus,
-                    desc: `1d${base.dice} Dmg${prefix.strBonus ? ` (+${prefix.strBonus} STR)` : ''}`
-                };
-            } else {
-                const base = rngChoice(ARMORS);
-                return {
-                    type: 'armor',
-                    name: `${prefix.name} ${base.name}`,
-                    acBonus: base.baseAc + prefix.acBonus,
-                    desc: `+${base.baseAc + prefix.acBonus} AC`
-                };
-            }
-        }
-
-        // ==========================================
-        // 5. ENTITY MODELS
-        // ==========================================
-        const canvas = document.getElementById('stage');
-        const ctx = canvas.getContext('2d');
-        const tileSize = 32;
-
-        let player = {
-            x: 1,
-            y: 1,
-            baseStr: 12,
-            baseDex: 10,
-            baseCon: 12,
-            baseInt: 10,
-            baseWis: 10,
-            baseCha: 10,
-            weapon: { name: "Iron Blade", dice: 6, strBonus: 0, dexBonus: 0, desc: "1d6 Dmg" },
-            armor: { name: "Padded Vest", acBonus: 1, desc: "+1 AC" },
-            hp: 28,
-
-            get str() { return this.baseStr + (this.weapon.strBonus || 0); },
-            get dex() { return this.baseDex + (this.weapon.dexBonus || 0); },
-            get con() { return this.baseCon; },
-            get int() { return this.baseInt; },
-            get wis() { return this.baseWis; },
-            get cha() { return this.baseCha; },
-
-            get strMod() { return Math.floor((this.str - 10) / 2); },
-            get dexMod() { return Math.floor((this.dex - 10) / 2); },
-            get conMod() { return Math.floor((this.con - 10) / 2); },
-            get maxHp() { return 20 + (this.conMod * 8); },
-            get ac() { return 10 + this.armor.acBonus + this.dexMod; }
         };
 
-        let rat = {
-            name: "Sewer Rat",
-            x: 6,
-            y: 5,
-            hp: 6,
-            maxHp: 6,
-            ac: 10,
-            damageDice: 4,
-            alive: true
-        };
-
-        let chest = {
-            x: 8,
-            y: 2,
-            opened: false,
-            item: null
-        };
-
-        let map = [];
-        let targetCursor = null;
-
-        // ==========================================
-        // 6. MAP BUILDER
-        // ==========================================
-        function buildSeededMap() {
-            map = [];
-            for (let y = 0; y < 10; y++) {
-                map[y] = [];
-                for (let x = 0; x < 10; x++) {
-                    // 1 = solid border wall
-                    map[y][x] = (y === 0 || y === 9 || x === 0 || x === 9) ? 1 : 0;
-                }
-            }
-
-            // Scatter 4 to 6 interior stone rubble pillars (stored as 2 for distinct rubble)
-            const pillarCount = rngInt(4, 6);
-            let placed = 0;
-            while (placed < pillarCount) {
-                const rx = rngInt(2, 7);
-                const ry = rngInt(2, 7);
-                if ((rx === 1 && ry === 1) || (rx === rat.x && ry === rat.y) || (rx === chest.x && ry === chest.y)) continue;
-                if (map[ry][rx] === 0) {
-                    map[ry][rx] = 2; // 2 = Stone Rubble Obstacle
-                    placed++;
-                }
-            }
-        }
-
-        // ==========================================
-        // 7. INITIALIZATION
-        // ==========================================
-        function initPlaythrough(seedStr) {
-            cancelWalking();
-            seedRNG(seedStr);
-
-            player.x = 1;
-            player.y = 1;
-            player.weapon = { name: "Iron Blade", dice: 6, strBonus: 0, dexBonus: 0, desc: "1d6 Dmg" };
-            player.armor = { name: "Padded Vest", acBonus: 1, desc: "+1 AC" };
-            player.hp = player.maxHp;
-
-            const ratPrefixes = ["Vile", "Giant", "Rabid", "Sewer", "Plagued"];
-            rat.name = `${rngChoice(ratPrefixes)} Rat`;
-            rat.x = rngInt(5, 7);
-            rat.y = rngInt(5, 7);
-            rat.maxHp = 6 + rngInt(0, 3);
-            rat.hp = rat.maxHp;
-            rat.ac = 10 + rngInt(0, 1);
-            rat.alive = true;
-
-            chest.x = rngInt(6, 8);
-            chest.y = rngInt(1, 3);
-            chest.opened = false;
-            chest.item = generateSeededLoot();
-
-            buildSeededMap();
-            postMessage(`Seed [${currentSeed}] active. Tap to move | Long-press to inspect.`, 'msg-info');
-
-            updateUI();
-            draw();
-        }
-
-        function updateUI() {
-            document.getElementById('hud-hp').innerText = player.hp;
-            document.getElementById('hud-max-hp').innerText = player.maxHp;
-            document.getElementById('hud-ac').innerText = player.ac;
-
-            const formatMod = (m) => m >= 0 ? `+${m}` : `${m}`;
-            document.getElementById('sheet-str').innerText = `STR: ${player.str}`;
-            document.getElementById('mod-str').innerText = formatMod(player.strMod);
-            document.getElementById('sheet-dex').innerText = `DEX: ${player.dex}`;
-            document.getElementById('mod-dex').innerText = formatMod(player.dexMod);
-            document.getElementById('sheet-con').innerText = `CON: ${player.con}`;
-            document.getElementById('mod-con').innerText = formatMod(player.conMod);
-            document.getElementById('sheet-int').innerText = `INT: ${player.int}`;
-            document.getElementById('mod-int').innerText = formatMod(Math.floor((player.int-10)/2));
-            document.getElementById('sheet-wis').innerText = `WIS: ${player.wis}`;
-            document.getElementById('mod-wis').innerText = formatMod(Math.floor((player.wis-10)/2));
-            document.getElementById('sheet-cha').innerText = `CHA: ${player.cha}`;
-            document.getElementById('mod-cha').innerText = formatMod(Math.floor((player.cha-10)/2));
-
-            document.getElementById('sheet-hp').innerText = `${player.hp} / ${player.maxHp}`;
-            document.getElementById('sheet-ac').innerText = player.ac;
-            document.getElementById('sheet-equip').innerHTML = `⚔️ <strong>Weapon:</strong> ${player.weapon.name} (${player.weapon.desc})<br>🛡️ <strong>Armor:</strong> ${player.armor.name} (${player.armor.desc})`;
-        }
-
-        // ==========================================
-        // 8. RENDER LOOP (SINGLE-CELL ICONS, NO LETTERS)
-        // ==========================================
-        function drawSprite(sprite, cellX, cellY) {
-            const cx = cellX * tileSize + tileSize / 2;
-            const cy = cellY * tileSize + tileSize / 2;
-            ctx.save();
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.font = `${sprite.size || 20}px 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif`;
-            ctx.fillText(sprite.icon, cx, cy + 1);
-            ctx.restore();
-        }
-
-        function draw() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            // Draw Base Terrain Grid
-            for (let y = 0; y < 10; y++) {
-                for (let x = 0; x < 10; x++) {
-                    const tileType = map[y][x];
-                    if (tileType === 1) {
-                        // Perimeter Wall
-                        ctx.fillStyle = '#3a3d4f';
-                        ctx.fillRect(x * tileSize, y * tileSize, tileSize - 1, tileSize - 1);
-                        ctx.strokeStyle = '#252632';
-                        ctx.strokeRect(x * tileSize, y * tileSize, tileSize, tileSize);
-                    } else if (tileType === 2) {
-                        // Interior Rubble Tile
-                        ctx.fillStyle = '#222330';
-                        ctx.fillRect(x * tileSize, y * tileSize, tileSize - 1, tileSize - 1);
-                        ctx.strokeStyle = '#2d3042';
-                        ctx.strokeRect(x * tileSize, y * tileSize, tileSize, tileSize);
-                        drawSprite(SPRITES.rubble, x, y);
-                    } else {
-                        // Open Floor
-                        ctx.fillStyle = '#12131a';
-                        ctx.fillRect(x * tileSize, y * tileSize, tileSize - 1, tileSize - 1);
-                        ctx.strokeStyle = '#1d1f2b';
-                        ctx.strokeRect(x * tileSize, y * tileSize, tileSize, tileSize);
-                    }
-                }
-            }
-
-            // Move Target Reticle
-            if (targetCursor) {
-                ctx.strokeStyle = '#64d8cb';
-                ctx.lineWidth = 2;
-                ctx.strokeRect(targetCursor.x * tileSize + 2, targetCursor.y * tileSize + 2, tileSize - 4, tileSize - 4);
-                ctx.lineWidth = 1;
-            }
-
-            // Chest (Single Cell Icon)
-            drawSprite(chest.opened ? SPRITES.chestOpen : SPRITES.chestClosed, chest.x, chest.y);
-
-            // Monster (Single Cell Icon)
-            if (rat.alive) {
-                drawSprite(SPRITES.rat, rat.x, rat.y);
-            }
-
-            // Player (Single Cell Icon)
-            drawSprite(SPRITES.player, player.x, player.y);
-        }
-
-        // ==========================================
-        // 9. QUERY / INSPECT SYSTEM
-        // ==========================================
-        function queryTile(x, y) {
-            if (x < 0 || x >= 10 || y < 0 || y >= 10) return;
-
-            let data = null;
-
-            // 1. Check Player
-            if (player.x === x && player.y === y) {
-                data = {
-                    icon: SPRITES.player.icon,
-                    name: 'Hero: Human Warrior',
-                    desc: SPRITES.player.desc,
-                    details: `
-                        <strong>HP:</strong> ${player.hp} / ${player.maxHp}<br>
-                        <strong>Armor Class:</strong> ${player.ac}<br>
-                        <strong>Attack:</strong> ${player.weapon.name} (${player.weapon.desc})<br>
-                        <strong>Attributes:</strong> STR ${player.str} | DEX ${player.dex} | CON ${player.con}
-                    `
-                };
-                postMessage(`🔍 [Hero]: ${player.hp}/${player.maxHp} HP | AC ${player.ac} | STR ${player.str}`, 'msg-inspect');
-            }
-            // 2. Check Monster
-            else if (rat.alive && rat.x === x && rat.y === y) {
-                data = {
-                    icon: SPRITES.rat.icon,
-                    name: rat.name,
-                    desc: SPRITES.rat.desc,
-                    details: `
-                        <strong>Health:</strong> ${rat.hp} / ${rat.maxHp} HP<br>
-                        <strong>Armor Class:</strong> ${rat.ac} AC<br>
-                        <strong>Damage:</strong> 1d${rat.damageDice} Piercing Bite<br>
-                        <strong>Status:</strong> Active & Hostile
-                    `
-                };
-                postMessage(`🔍 [${rat.name}]: ${rat.hp}/${rat.maxHp} HP | AC ${rat.ac} | Atk 1d${rat.damageDice}`, 'msg-inspect');
-            }
-            // 3. Check Chest
-            else if (chest.x === x && chest.y === y) {
-                const status = chest.opened ? "Opened & Empty" : "Locked (Walk into it to open)";
-                data = {
-                    icon: chest.opened ? SPRITES.chestOpen.icon : SPRITES.chestClosed.icon,
-                    name: chest.opened ? SPRITES.chestOpen.name : SPRITES.chestClosed.name,
-                    desc: chest.opened ? SPRITES.chestOpen.desc : SPRITES.chestClosed.desc,
-                    details: `
-                        <strong>State:</strong> ${status}<br>
-                        <strong>Loot Category:</strong> Equipment Drop<br>
-                        <strong>Action:</strong> Walk into tile to claim reward
-                    `
-                };
-                postMessage(`🔍 [Chest]: ${status}`, 'msg-inspect');
-            }
-            // 4. Check Rubble
-            else if (map[y][x] === 2) {
-                data = {
-                    icon: SPRITES.rubble.icon,
-                    name: SPRITES.rubble.name,
-                    desc: SPRITES.rubble.desc,
-                    details: `
-                        <strong>Type:</strong> Dungeon Obstacle<br>
-                        <strong>Passable:</strong> No (Blocks movement & vectors)<br>
-                        <strong>Tactics:</strong> Use for cover & chokepoints
-                    `
-                };
-                postMessage(`🔍 [Stone Rubble]: Solid dungeon debris. Impassable.`, 'msg-inspect');
-            }
-            // 5. Check Wall
-            else if (map[y][x] === 1) {
-                data = {
-                    icon: '🧱',
-                    name: SPRITES.wall.name,
-                    desc: SPRITES.wall.desc,
-                    details: `
-                        <strong>Material:</strong> Reinforced Granite<br>
-                        <strong>Passable:</strong> No (Perimeter barrier)
-                    `
-                };
-                postMessage(`🔍 [Perimeter Wall]: Impassable granite bedrock.`, 'msg-inspect');
-            }
-            // 6. Open Floor
-            else {
-                data = {
-                    icon: '▫️',
-                    name: SPRITES.floor.name,
-                    desc: SPRITES.floor.desc,
-                    details: `
-                        <strong>Coordinates:</strong> (${x}, ${y})<br>
-                        <strong>Terrain:</strong> Open Flagstone Floor<br>
-                        <strong>Movement:</strong> 1 Turn Step
-                    `
-                };
-                postMessage(`🔍 [Floor (${x},${y})]: Open flagstone floor.`, 'msg-inspect');
-            }
-
-            if (data) {
-                openInspectModal(data);
-            }
-        }
-
-        // ==========================================
-        // 10. TAP-TO-MOVE (BFS PATHFINDING)
-        // ==========================================
-        let walkTimer = null;
-
-        function cancelWalking() {
-            if (walkTimer) {
-                clearTimeout(walkTimer);
-                walkTimer = null;
-            }
-            targetCursor = null;
-        }
-
-        function findPath(startX, startY, endX, endY) {
-            if (startX === endX && startY === endY) return [];
-
-            const queue = [[startX, startY]];
-            const visited = Array.from({ length: 10 }, () => Array(10).fill(false));
-            const parent = Array.from({ length: 10 }, () => Array(10).fill(null));
-            visited[startY][startX] = true;
-
-            const isSolid = (x, y) => {
-                if (x < 0 || x >= 10 || y < 0 || y >= 10) return true;
-                if (map[y][x] === 1 || map[y][x] === 2) return true; // walls & rubble are solid
-                if (x === endX && y === endY) return false;
-                if (rat.alive && x === rat.x && y === rat.y) return true;
-                return false;
-            };
-
-            const dirs = [
-                { dx: 0, dy: -1 },
-                { dx: 0, dy: 1 },
-                { dx: -1, dy: 0 },
-                { dx: 1, dy: 0 }
-            ];
-
-            let found = false;
-            while (queue.length > 0) {
-                const [cx, cy] = queue.shift();
-                if (cx === endX && cy === endY) {
-                    found = true;
-                    break;
-                }
-
-                for (const d of dirs) {
-                    const nx = cx + d.dx;
-                    const ny = cy + d.dy;
-                    if (nx < 0 || nx >= 10 || ny < 0 || ny >= 10) continue;
-                    if (visited[ny][nx] || isSolid(nx, ny)) continue;
-
-                    visited[ny][nx] = true;
-                    parent[ny][nx] = [cx, cy];
-                    queue.push([nx, ny]);
-                }
-            }
-
-            if (!found) return [];
-
-            const path = [];
-            let curr = [endX, endY];
-            while (curr[0] !== startX || curr[1] !== startY) {
-                path.unshift(curr);
-                curr = parent[curr[1]][curr[0]];
-            }
-            return path;
-        }
-
-        function executePath(path) {
-            if (path.length === 0) {
-                cancelWalking();
-                draw();
-                return;
-            }
-
-            const [nextX, nextY] = path.shift();
-
-            if (rat.alive && nextX === rat.x && nextY === rat.y) {
-                cancelWalking();
-                resolveCombatTurn();
-                return;
-            }
-
-            if (!chest.opened && nextX === chest.x && nextY === chest.y) {
-                cancelWalking();
-                openChest();
-                return;
-            }
-
-            player.x = nextX;
-            player.y = nextY;
-            draw();
-
-            if (path.length > 0) {
-                walkTimer = setTimeout(() => executePath(path), 110);
-            } else {
-                cancelWalking();
-                draw();
-            }
-        }
-
-        function handleTapMove(tileX, tileY) {
-            if (tileX < 0 || tileX >= 10 || tileY < 0 || tileY >= 10) return;
-            if (map[tileY][tileX] === 1 || map[tileY][tileX] === 2) {
-                postMessage("Obstacle blocks that path.", "msg-miss");
-                return;
-            }
-
-            cancelWalking();
-            targetCursor = { x: tileX, y: tileY };
-            draw();
-
-            const path = findPath(player.x, player.y, tileX, tileY);
-            if (path.length > 0) {
-                executePath(path);
-            } else {
-                targetCursor = null;
-                draw();
-            }
-        }
-
-        function getCanvasTileCoords(e) {
-            const rect = canvas.getBoundingClientRect();
-            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-            const scaleX = canvas.width / rect.width;
-            const scaleY = canvas.height / rect.height;
-            return {
-                x: Math.floor(((clientX - rect.left) * scaleX) / tileSize),
-                y: Math.floor(((clientY - rect.top) * scaleY) / tileSize)
-            };
-        }
-
-        // ==========================================
-        // 11. TOUCH & MOUSE LISTENERS (TAP TO MOVE vs LONG-PRESS TO INSPECT)
-        // ==========================================
-        let holdTimer = null;
-        let holdTriggered = false;
-        let startPos = { x: 0, y: 0 };
-
-        // Touch event handling (Mobile)
-        canvas.addEventListener('touchstart', (e) => {
-            e.preventDefault();
-            const touch = e.touches[0];
-            startPos = { x: touch.clientX, y: touch.clientY };
-            holdTriggered = false;
-
-            const tile = getCanvasTileCoords(e);
-
-            // 400ms threshold for Long-Press Query
-            holdTimer = setTimeout(() => {
-                holdTriggered = true;
-                if (navigator.vibrate) navigator.vibrate(35); // Haptic bump
-                queryTile(tile.x, tile.y);
-            }, 400);
-        }, { passive: false });
-
-        canvas.addEventListener('touchmove', (e) => {
-            if (!holdTimer) return;
-            const touch = e.touches[0];
-            const dist = Math.hypot(touch.clientX - startPos.x, touch.clientY - startPos.y);
-            // If moved more than 8 pixels, cancel hold
-            if (dist > 8) {
-                clearTimeout(holdTimer);
-                holdTimer = null;
-            }
+        document.getElementById('btn-sheet-open').addEventListener('click', window.openSheetModal);
+        document.getElementById('btn-reroll').addEventListener('click', () => {
+            const newSeed = PRNG.generateRandomSeed();
+            startPlaythrough(newSeed);
         });
-
-        canvas.addEventListener('touchend', (e) => {
-            e.preventDefault();
-            if (holdTimer) {
-                clearTimeout(holdTimer);
-                holdTimer = null;
-            }
-
-            if (!holdTriggered) {
-                // Short tap -> move!
-                const tile = getCanvasTileCoords(e.changedTouches ? { touches: [e.changedTouches[0]], clientX: e.changedTouches[0].clientX, clientY: e.changedTouches[0].clientY } : e);
-                handleTapMove(tile.x, tile.y);
-            }
-            holdTriggered = false;
-        });
-
-        // Mouse handling (Desktop: Left click to move, Right-click to inspect, or Left-hold)
-        canvas.addEventListener('mousedown', (e) => {
-            if (e.button === 2) return; // Right click handled by contextmenu
-            startPos = { x: e.clientX, y: e.clientY };
-            holdTriggered = false;
-            const tile = getCanvasTileCoords(e);
-
-            holdTimer = setTimeout(() => {
-                holdTriggered = true;
-                queryTile(tile.x, tile.y);
-            }, 400);
-        });
-
-        canvas.addEventListener('mouseup', (e) => {
-            if (holdTimer) {
-                clearTimeout(holdTimer);
-                holdTimer = null;
-            }
-            if (e.button === 0 && !holdTriggered) {
-                const tile = getCanvasTileCoords(e);
-                handleTapMove(tile.x, tile.y);
-            }
-            holdTriggered = false;
-        });
-
-        canvas.addEventListener('mouseleave', () => {
-            if (holdTimer) {
-                clearTimeout(holdTimer);
-                holdTimer = null;
-            }
-            holdTriggered = false;
-        });
-
-        // Right-click directly triggers Query/Inspect on desktop
-        canvas.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-            const tile = getCanvasTileCoords(e);
-            queryTile(tile.x, tile.y);
-        });
-
-        // ==========================================
-        // 12. INTERACTIONS & COMBAT
-        // ==========================================
-        function openChest() {
-            chest.opened = true;
-            const item = chest.item;
-            postMessage(`🎁 Found & equipped: ${item.name}!`, 'msg-loot');
-
-            if (item.type === 'weapon') player.weapon = item;
-            if (item.type === 'armor') player.armor = item;
-            updateUI();
-            draw();
-        }
-
-        function resolveCombatTurn() {
-            let d20 = rngInt(1, 20);
-            let attackTotal = d20 + player.dexMod + 1;
-
-            if (attackTotal >= rat.ac) {
-                let dmg = Math.max(1, rngInt(1, player.weapon.dice) + player.strMod);
-                rat.hp = Math.max(0, rat.hp - dmg);
-
-                if (rat.hp <= 0) {
-                    rat.alive = false;
-                    const drop = generateSeededLoot();
-                    postMessage(`🏆 Defeated ${rat.name}! Looted ${drop.name}!`, 'msg-victory');
-                    if (drop.type === 'weapon') player.weapon = drop;
-                    if (drop.type === 'armor') player.armor = drop;
-                } else {
-                    postMessage(`💥 Hit ${rat.name} for ${dmg} dmg! (${rat.hp}/${rat.maxHp} HP left)`, 'msg-hit');
-                }
-            } else {
-                postMessage(`🛡️ Missed ${rat.name} (Rolled ${attackTotal} vs AC ${rat.ac}).`, 'msg-miss');
-            }
-
-            if (rat.alive) {
-                let ratAttack = rngInt(1, 20) + 1;
-                if (ratAttack >= player.ac) {
-                    let ratDmg = rngInt(1, rat.damageDice);
-                    player.hp = Math.max(0, player.hp - ratDmg);
-                    setTimeout(() => {
-                        postMessage(`🩸 Rat bit you for ${ratDmg} dmg! (${player.hp}/${player.maxHp} HP)`, 'msg-miss');
-                        updateUI();
-                    }, 400);
-                }
-            }
-
-            updateUI();
-            draw();
-        }
-
-        // Keyboard controls for computer
-        window.addEventListener('keydown', (e) => {
-            let dx = 0, dy = 0;
-            if (e.key === 'ArrowUp' || e.key === 'w') dy = -1;
-            if (e.key === 'ArrowDown' || e.key === 's') dy = 1;
-            if (e.key === 'ArrowLeft' || e.key === 'a') dx = -1;
-            if (e.key === 'ArrowRight' || e.key === 'd') dx = 1;
-            if (dx !== 0 || dy !== 0) {
-                e.preventDefault();
-                handleTapMove(player.x + dx, player.y + dy);
-            }
-        });
-
-        function startNewPlaythrough() {
-            initPlaythrough(generateRandomSeedString());
-        }
-
-        // Launch
-        const urlParams = new URLSearchParams(window.location.search);
-        const initialSeed = urlParams.get('seed') || generateRandomSeedString();
-        initPlaythrough(initialSeed);
     </script>
 </body>
 </html>
