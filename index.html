@@ -1,53 +1,198 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Pixel RPG</title>
-  <link rel="stylesheet" href="style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RPG Engine Prototype - Vertical Slice</title>
+    <style>
+        body { font-family: 'Courier New', monospace; background: #121212; color: #e0e0e0; display: flex; flex-direction: column; align-items: center; padding: 20px; }
+        #game-container { display: flex; gap: 20px; background: #1a1a1a; padding: 20px; border-radius: 8px; border: 2px solid #333; }
+        canvas { background: #000; border: 2px solid #555; image-rendering: pixelated; }
+        #sidebar { width: 300px; display: flex; flex-direction: column; gap: 15px; }
+        .panel { background: #222; padding: 12px; border-radius: 4px; border: 1px solid #444; }
+        h3 { margin: 0 0 10px 0; color: #ffcc00; font-size: 16px; border-bottom: 1px solid #444; padding-bottom: 5px; }
+        .stat-line { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 4px; }
+        #log { height: 160px; overflow-y: auto; background: #0a0a0a; border: 1px solid #333; padding: 8px; font-size: 12px; color: #a0a0a0; display: flex; flex-direction: column-reverse; }
+        .controls { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; width: 150px; margin: 0 auto; }
+        button { background: #333; color: #fff; border: 1px solid #555; padding: 10px; cursor: pointer; font-weight: bold; border-radius: 4px; }
+        button:hover { background: #444; border-color: #ffcc00; }
+        button:active { background: #222; }
+        .empty { visibility: hidden; }
+        .log-hit { color: #55ff55; }
+        .log-miss { color: #ff5555; }
+        .log-victory { color: #ffff55; font-weight: bold; }
+
+        /* Responsive layout for phone playtesting */
+        @media (max-width: 680px) {
+            body { padding: 10px; }
+            #game-container { flex-direction: column; align-items: center; width: 100%; max-width: 360px; }
+            #sidebar { width: 100%; }
+            canvas { max-width: 100%; height: auto; }
+        }
+    </style>
 </head>
 <body>
-  <div id="game-container">
-    <div id="ui-bar">
-      <div id="stats">
-        <span class="stat-badge">❤️ HP: <span id="hp-val">100</span>/100</span>
-        <span class="stat-badge">🪙 Gold: <span id="gold-val">0</span></span>
-      </div>
-      <div id="zone-title">Whispering Woods</div>
-    </div>
 
-    <canvas id="gameCanvas" width="480" height="320"></canvas>
+    <h2 style="color: #ffcc00; margin-bottom: 10px;">🛡️ RPG ENGINE SANDBOX v0.2</h2>
+    <div style="margin-bottom: 15px; color: #aaa; font-size: 14px; text-align: center;">Use your keyboard Arrow Keys or click the D-Pad to move your Warrior (P) to the Rat (R).</div>
 
-    <!-- Dialog Box overlay -->
-    <div id="dialog-box" class="hidden">
-      <div id="dialog-speaker">Elder Rowan</div>
-      <div id="dialog-text">Greetings, traveler! Explore the woods and beware of deep waters.</div>
-      <div id="dialog-prompt">Tap or press Space to continue...</div>
-    </div>
-
-    <!-- On-Screen Touch Controls for Mobile Playtesting -->
-    <div id="touch-controls">
-      <div class="dpad">
-        <button id="btn-up" class="touch-btn dpad-btn">▲</button>
-        <div class="dpad-middle">
-          <button id="btn-left" class="touch-btn dpad-btn">◀</button>
-          <div class="dpad-center"></div>
-          <button id="btn-right" class="touch-btn dpad-btn">▶</button>
+    <div id="game-container">
+        <canvas id="stage" width="320" height="320"></canvas>
+        <div id="sidebar">
+            <div class="panel">
+                <h3>HERO: HUMAN WARRIOR</h3>
+                <div class="stat-line"><span>STR: 12 (+1)</span> <span>DEX: 10 (+0)</span></div>
+                <div class="stat-line"><span>CON: 12 (+1)</span> <span>INT: 10 (+0)</span></div>
+                <div class="stat-line"><span>WIS: 10 (+0)</span> <span>CHA: 10 (+0)</span></div>
+                <div class="stat-line" style="margin-top: 10px; font-weight: bold;">
+                    <span>HP: <span id="hero-hp">28</span>/28</span>
+                    <span>AC: 12</span>
+                </div>
+            </div>
+            <div class="panel">
+                <h3>TARGET: SEWER RAT</h3>
+                <div class="stat-line"><span>HP: <span id="rat-hp">6</span>/6</span> <span>AC: 10</span></div>
+            </div>
+            <div class="panel">
+                <h3>MOVEMENT INPUT CONTROLS</h3>
+                <div class="controls">
+                    <button class="empty"></button>
+                    <button onclick="move(0, -1)">▲</button>
+                    <button class="empty"></button>
+                    <button onclick="move(-1, 0)">◀</button>
+                    <button onclick="move(0, 0)">👁️</button>
+                    <button onclick="move(1, 0)">▶</button>
+                    <button class="empty"></button>
+                    <button onclick="move(0, 1)">▼</button>
+                    <button class="empty"></button>
+                </div>
+            </div>
+            <div class="panel">
+                <h3>COMBAT RESOLUTION LOG</h3>
+                <div id="log"><div>Engine ready. Map matrix successfully constructed...</div></div>
+            </div>
         </div>
-        <button id="btn-down" class="touch-btn dpad-btn">▼</button>
-      </div>
-
-      <div class="action-buttons">
-        <button id="btn-action" class="touch-btn action-btn">A</button>
-      </div>
     </div>
-  </div>
 
-  <div id="instructions">
-    <p><strong>Desktop Controls:</strong> WASD or Arrow Keys to Move | <strong>Space / Enter:</strong> Interact</p>
-    <p><strong>Mobile Controls:</strong> Use the on-screen D-Pad and [A] button</p>
-  </div>
+    <script>
+        const canvas = document.getElementById('stage');
+        const ctx = canvas.getContext('2d');
+        const tileSize = 32;
 
-  <script src="game.js"></script>
+        let player = { x: 1, y: 1, hp: 28, maxHp: 28, str: 12, dex: 10, ac: 12 };
+        let rat = { x: 6, y: 5, hp: 6, maxHp: 6, ac: 10, alive: true };
+
+        // Explicitly load a 10x10 zero-filled floor grid surrounded by border walls
+        const map = [];
+        for (let y = 0; y < 10; y++) {
+            map[y] = [];
+            for (let x = 0; x < 10; x++) {
+                // Generate solid wall blocks on the perimeter borders
+                if (y === 0 || y === 9 || x === 0 || x === 9) {
+                    map[y][x] = 1;
+                } else {
+                    map[y][x] = 0; // Open floor tile
+                }
+            }
+        }
+
+        function logMessage(text, className = '') {
+            const logDiv = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = className;
+            entry.innerHTML = `&gt; ${text}`;
+            logDiv.insertBefore(entry, logDiv.firstChild);
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            for (let y = 0; y < 10; y++) {
+                for (let x = 0; x < 10; x++) {
+                    if (map[y][x] === 1) {
+                        ctx.fillStyle = '#444'; // Wall block
+                        ctx.fillRect(x * tileSize, y * tileSize, tileSize - 1, tileSize - 1);
+                    } else {
+                        ctx.fillStyle = '#1a1a1a'; // Open floor
+                        ctx.fillRect(x * tileSize, y * tileSize, tileSize - 1, tileSize - 1);
+                        ctx.strokeStyle = '#252525';
+                        ctx.strokeRect(x * tileSize, y * tileSize, tileSize, tileSize);
+                    }
+                }
+            }
+            if (rat.alive) {
+                ctx.fillStyle = '#ff5555';
+                ctx.font = 'bold 16px Courier New';
+                ctx.fillText('🐀 R', rat.x * tileSize + 4, rat.y * tileSize + 22);
+            }
+            ctx.fillStyle = '#55ff55';
+            ctx.font = 'bold 16px Courier New';
+            ctx.fillText('🛡️ P', player.x * tileSize + 4, player.y * tileSize + 22);
+        }
+
+        function move(dx, dy) {
+            let nextX = player.x + dx;
+            let nextY = player.y + dy;
+
+            if (map[nextY][nextX] === 1) {
+                logMessage("COLLISION: Border wall blocks movement vectors.");
+                return;
+            }
+
+            if (rat.alive && nextX === rat.x && nextY === rat.y) {
+                resolveCombatTurn();
+                return;
+            }
+
+            player.x = nextX;
+            player.y = nextY;
+            logMessage(`Player moved to: (${player.x}, ${player.y})`);
+            draw();
+        }
+
+        function resolveCombatTurn() {
+            logMessage("⚔️ Attacking Sewer Rat!");
+            let d20Roll = Math.floor(Math.random() * 20) + 1;
+            let attackTotal = d20Roll + 1; // +1 BAB bonus from level 1
+
+            if (attackTotal >= rat.ac) {
+                let d6Damage = Math.floor(Math.random() * 6) + 1;
+                let totalDamage = d6Damage + 1; // +1 STR modifier bonus from 12 Strength
+                rat.hp = Math.max(0, rat.hp - totalDamage);
+                document.getElementById('rat-hp').innerText = rat.hp;
+                logMessage(`💥 HIT! Rolled ${attackTotal} vs AC 10. Dealt ${totalDamage} damage!`, 'log-hit');
+
+                if (rat.hp <= 0) {
+                    rat.alive = false;
+                    logMessage("🏆 VICTORY! The Sewer Rat has been defeated!", 'log-victory');
+                }
+            } else {
+                logMessage(`🛡️ MISS! Rolled ${attackTotal} vs Rat AC 10.`, 'log-miss');
+            }
+
+            if (rat.alive) {
+                let ratRoll = Math.floor(Math.random() * 20) + 1;
+                let ratAttack = ratRoll + 1;
+                if (ratAttack >= player.ac) {
+                    let damage = Math.floor(Math.random() * 4) + 1;
+                    player.hp = Math.max(0, player.hp - damage);
+                    document.getElementById('hero-hp').innerText = player.hp;
+                    logMessage(`🩸 OUCH! Rat bit you for ${damage} damage.`, 'log-miss');
+                } else {
+                    logMessage(`🛡️ BLOCKED! Rat missed your AC layout score of ${player.ac}.`);
+                }
+            }
+            draw();
+        }
+
+        window.addEventListener('keydown', function(e) {
+            if (e.key === 'ArrowUp')    { move(0, -1); e.preventDefault(); }
+            if (e.key === 'ArrowDown')  { move(0, 1);  e.preventDefault(); }
+            if (e.key === 'ArrowLeft')  { move(-1, 0); e.preventDefault(); }
+            if (e.key === 'ArrowRight') { move(1, 0);  e.preventDefault(); }
+        });
+
+        // Fire initial view render frame loop
+        draw();
+    </script>
 </body>
 </html>

@@ -1,29 +1,30 @@
 # Pixel RPG ⚔️
 
-A 2D retro pixel RPG built with HTML5 Canvas, modern JavaScript, and 8-bit procedural Web Audio. Zero external asset dependencies required to run!
+A 2D retro RPG engine sandbox prototype built with HTML5 Canvas and vanilla JavaScript. Features a d20 combat resolution system, base RPG attributes, tile-based grid collision, and an interactive combat log.
 
 ## Features
 
-- **Retro Pixel Engine:** 16x16 tile-based graphics (animated water, forest paths, obstacles, procedural vegetation).
-- **Player & Animations:** 4-directional player movement with walk animations.
-- **Interactive Entities:**
-  - **Elder Rowan (NPC):** Dialog system with multi-stage dialogue.
-  - **Treasure Chest:** Openable chest with coin reward and fanfare audio.
-  - **Bouncing Slime:** Wandering forest monster.
-- **Synthesized 8-bit Audio:** Procedural Web Audio API sound effects (footsteps, collision bumps, dialog blips, treasure fanfare).
-- **Mobile Playtest Ready:** On-screen virtual D-Pad and Action button automatically enabled for touch screens.
+- **RPG Engine Sandbox v0.2:**
+  - **10x10 Tile Grid Matrix:** Perimeter solid walls with open dungeon floor grid.
+  - **Hero (Human Warrior):** Tracked core attributes (STR 12 (+1), DEX 10 (+0), CON 12 (+1), INT 10 (+0), WIS 10 (+0), CHA 10 (+0)), HP (28/28), and Armor Class (AC 12).
+  - **Target (Sewer Rat):** Interactive monster entity with HP (6/6), AC 10, and counter-attack behavior.
+  - **d20 Combat Engine:**
+    - Player attack roll: `d20 + BAB (+1)` vs Target AC.
+    - Damage pipeline: `d6 + STR Modifier (+1)` physical damage.
+    - Enemy retaliation attack roll & damage resolution on turn.
+  - **Combat Resolution Log:** Live combat feed with color-coded hits, misses, and victory states.
+  - **Controls:** Arrow keys for desktop movement; on-screen directional D-Pad for mouse and mobile touch controls.
 
 ---
 
 ## 🎮 How to Play
 
 ### Desktop
-- **Movement:** `W`, `A`, `S`, `D` or `Arrow Keys`
-- **Interact:** `Space` or `Enter` (talk to NPC, open chest, advance dialog)
+- **Movement:** `Arrow Keys` or click on-screen D-Pad
+- **Combat:** Walk directly into the Sewer Rat (R) to engage combat turns
 
 ### Mobile / Phone
-- **Movement:** On-screen D-Pad (▲, ◀, ▼, ▶)
-- **Interact:** On-screen `[A]` button or tap the dialog box
+- **Movement:** Tap the on-screen D-Pad buttons (▲, ◀, ▼, ▶)
 
 ---
 
@@ -50,4 +51,3 @@ Even with a **Private GitHub repository**, you can connect free hosting services
 
 - [Master Plan (Phases 1-4)](file:///C:/Users/The%20One/.gemini/antigravity/scratch/pixel-rpg/MASTER_PLAN.md): Core attributes, derived mechanics, modular registry, and monster behavior.
 - [System Modification Maps](file:///C:/Users/The%20One/.gemini/antigravity/scratch/pixel-rpg/SYSTEM_MODIFICATIONS.md): d20 combat formulas and perception radar scan matrix.
-
