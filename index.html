@@ -262,12 +262,20 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
+            cursor: pointer;
+            transition: all 0.1s;
         }
 
         .paperdoll-slot.equipped {
             background: #111520;
             border: 1px solid #3c546b;
             box-shadow: 0 0 8px rgba(100, 216, 203, 0.1);
+        }
+
+        .paperdoll-slot.selected {
+            border: 2px solid #ffcc00 !important;
+            box-shadow: 0 0 10px rgba(255, 204, 0, 0.45);
+            background: #181926 !important;
         }
 
         .paperdoll-slot .slot-label {
@@ -323,12 +331,85 @@
             overflow: hidden;
             text-overflow: ellipsis;
             color: #888;
+            cursor: pointer;
+            transition: all 0.1s;
         }
 
         .backpack-slot.equipped {
             background: #141724;
             border: 1px solid #3b425e;
             color: #f0f0ff;
+        }
+
+        .backpack-slot.selected {
+            border: 1px solid #ffcc00 !important;
+            box-shadow: 0 0 8px rgba(255, 204, 0, 0.4);
+            background: #1f2233 !important;
+            color: #ffcc00 !important;
+        }
+
+        /* Item Selection Action Drawer */
+        #item-action-card {
+            background: #0d0e17;
+            border: 1px solid #2d3148;
+            border-radius: 6px;
+            padding: 8px 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .item-action-row {
+            display: flex;
+            gap: 6px;
+            margin-top: 4px;
+        }
+
+        .btn-action-small {
+            flex: 1;
+            padding: 5px 8px;
+            border-radius: 4px;
+            border: 1px solid #4a5473;
+            background: #1a1e2d;
+            color: #f0f0ff;
+            font-family: inherit;
+            font-size: 11px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .btn-action-small:active {
+            filter: brightness(1.2);
+        }
+
+        /* XP Progress Bar */
+        .xp-bar-container {
+            width: 100%;
+            height: 6px;
+            background: #0f1019;
+            border: 1px solid #232638;
+            border-radius: 3px;
+            overflow: hidden;
+            margin: 2px 0 4px 0;
+        }
+
+        .xp-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #64d8cb, #ffcc00);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .btn-boost {
+            background: #ffcc00;
+            color: #111;
+            border: none;
+            border-radius: 3px;
+            font-weight: bold;
+            font-size: 10px;
+            padding: 1px 5px;
+            margin-left: 4px;
+            cursor: pointer;
         }
 
         .modal-btn {
@@ -354,8 +435,9 @@
             <button id="btn-reroll" class="btn-icon" title="New Random Run">🎲</button>
         </div>
 
-        <div class="header-chip" id="btn-sheet-open" title="Character HP & AC (Tap to open Paperdoll)">
+        <div class="header-chip" id="btn-sheet-open" title="Character HP, Level & AC (Tap to open Paperdoll)">
             <span id="hud-floor" style="color: #ffcc00; margin-right: 2px;">F1</span>
+            <span id="hud-level" style="color: #64d8cb; font-size: 11px;">Lv.1</span>
             <span style="color: #ff5577;">❤️ <span id="hud-hp">28</span>/<span id="hud-max-hp">28</span></span>
             <span style="color: #555;">|</span>
             <span style="color: #64d8cb;">AC <span id="hud-ac">12</span></span>
@@ -375,14 +457,19 @@
             <span>Zoom: <strong id="action-zoom-label" style="color: #64d8cb;">1x</strong></span>
         </button>
 
-        <button id="btn-sheet-main" class="action-btn action-btn-highlight" title="Open Character Paperdoll (10 Body + 15 Bag Slots) (Hotkey: C)">
+        <button id="btn-sheet-main" class="action-btn action-btn-highlight" title="Open Character Paperdoll & Inventory (Hotkey: C)">
             <span style="font-size: 14px;">👤</span>
             <span style="color: #ffcc00;">Paperdoll (25)</span>
         </button>
 
+        <button id="btn-feat-main" class="action-btn" title="Use Primary Class Feat (Hotkey: F)">
+            <span style="font-size: 14px;" id="action-feat-icon">💨</span>
+            <span id="action-feat-name" style="color: #ffcc00;">Second Wind</span>
+        </button>
+
         <button id="btn-wait-main" class="action-btn" title="Pass 1 turn / Rest & Heal (Hotkey: Space)">
             <span style="font-size: 14px;">⏳</span>
-            <span>Wait Turn</span>
+            <span>Wait</span>
         </button>
     </div>
 
@@ -394,18 +481,66 @@
         <div class="modal-card" onclick="event.stopPropagation()">
             <div class="modal-header">
                 <div>
-                    <span class="modal-title">🛡️ CHARACTER & PAPERDOLL</span>
-                    <div style="font-size: 10px; color: #888;">25 Inventory Slots: 10 Body + 15 Backpack</div>
+                    <span class="modal-title" id="sheet-title">🛡️ WARRIOR (LV. 1)</span>
+                    <div style="font-size: 10px; color: #888;" id="sheet-xp-text">XP: 0 / 100 • Martial Champion</div>
                 </div>
                 <button class="close-btn" onclick="closeSheetModal()">✕</button>
             </div>
+
+            <!-- XP Progress Bar -->
+            <div class="xp-bar-container">
+                <div id="sheet-xp-bar" class="xp-bar-fill"></div>
+            </div>
+
+            <!-- Milestone Points Banner (Hidden unless attributePoints > 0) -->
+            <div id="milestone-banner" style="display: none; background: #262111; border: 1px solid #ffcc00; border-radius: 4px; padding: 6px; font-size: 11px; color: #ffcc00; text-align: center;">
+                ⭐ Milestone Attribute Points Available: <strong id="milestone-points-count">0</strong>! Tap a [+] button below.
+            </div>
+
+            <!-- Core Stats Grid with Boost Buttons -->
             <div class="stat-grid">
-                <div class="stat-box"><span id="sheet-str">STR: 12</span> <strong id="mod-str">+1</strong></div>
-                <div class="stat-box"><span id="sheet-dex">DEX: 10</span> <strong id="mod-dex">+0</strong></div>
-                <div class="stat-box"><span id="sheet-con">CON: 12</span> <strong id="mod-con">+1</strong></div>
-                <div class="stat-box"><span id="sheet-int">INT: 10</span> <strong id="mod-int">+0</strong></div>
-                <div class="stat-box"><span id="sheet-wis">WIS: 10</span> <strong id="mod-wis">+0</strong></div>
-                <div class="stat-box"><span id="sheet-cha">CHA: 10</span> <strong id="mod-cha">+0</strong></div>
+                <div class="stat-box">
+                    <span id="sheet-str">STR: 12</span>
+                    <div>
+                        <strong id="mod-str">+1</strong>
+                        <button class="btn-boost" id="btn-boost-str" onclick="boostStat('str')" style="display:none;">+</button>
+                    </div>
+                </div>
+                <div class="stat-box">
+                    <span id="sheet-dex">DEX: 10</span>
+                    <div>
+                        <strong id="mod-dex">+0</strong>
+                        <button class="btn-boost" id="btn-boost-dex" onclick="boostStat('dex')" style="display:none;">+</button>
+                    </div>
+                </div>
+                <div class="stat-box">
+                    <span id="sheet-con">CON: 12</span>
+                    <div>
+                        <strong id="mod-con">+1</strong>
+                        <button class="btn-boost" id="btn-boost-con" onclick="boostStat('con')" style="display:none;">+</button>
+                    </div>
+                </div>
+                <div class="stat-box">
+                    <span id="sheet-int">INT: 10</span>
+                    <div>
+                        <strong id="mod-int">+0</strong>
+                        <button class="btn-boost" id="btn-boost-int" onclick="boostStat('int')" style="display:none;">+</button>
+                    </div>
+                </div>
+                <div class="stat-box">
+                    <span id="sheet-wis">WIS: 10</span>
+                    <div>
+                        <strong id="mod-wis">+0</strong>
+                        <button class="btn-boost" id="btn-boost-wis" onclick="boostStat('wis')" style="display:none;">+</button>
+                    </div>
+                </div>
+                <div class="stat-box">
+                    <span id="sheet-cha">CHA: 10</span>
+                    <div>
+                        <strong id="mod-cha">+0</strong>
+                        <button class="btn-boost" id="btn-boost-cha" onclick="boostStat('cha')" style="display:none;">+</button>
+                    </div>
+                </div>
             </div>
             <div class="stat-grid" style="margin-top: 2px;">
                 <div class="stat-box" style="border-color: #ffcc00;"><span id="sheet-per">PER: 10 (+0)</span> <strong>Rad: 3</strong></div>
@@ -415,10 +550,25 @@
                 <span>Hit Points:</span> <strong id="sheet-hp" style="color: #ff7799;">28 / 28</strong>
             </div>
 
+            <!-- Item Selection & Action Card -->
+            <div id="item-action-card">
+                <div style="font-size: 11px; color: #888;" id="item-card-title">Select an item below to equip, unequip, or inspect:</div>
+                <div id="item-card-content" style="font-size: 11px; color: #e0e0e0; display: none;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span id="item-card-name" style="font-weight: bold; color: #64d8cb;">Item Name</span>
+                        <span id="item-card-slot" style="color: #aaa; font-size: 10px;">Slot</span>
+                    </div>
+                    <div id="item-card-desc" style="color: #ffcc00; font-size: 10px; margin: 2px 0;">Item stats</div>
+                    <div class="item-action-row" id="item-card-actions">
+                        <!-- Action buttons injected dynamically -->
+                    </div>
+                </div>
+            </div>
+
             <!-- Visual Paperdoll Body Layout -->
             <div style="font-size: 11px; color: #ffcc00; margin-top: 4px; font-weight: bold; display: flex; justify-content: space-between;">
                 <span>👤 EQUIPPED ON BODY (10 SLOTS):</span>
-                <span style="font-size: 10px; color: #888ea6;">Head, Hands, Chest, Rings...</span>
+                <span style="font-size: 10px; color: #888ea6;">Tap slot to inspect/unequip</span>
             </div>
             <div id="paperdoll-body" style="background: #090a0f; border: 1px solid #232535; border-radius: 6px; padding: 6px;">
                 <!-- Generated dynamically -->
@@ -427,10 +577,17 @@
             <!-- 15 Backpack Slots -->
             <div style="font-size: 11px; color: #888; margin-top: 2px; display: flex; justify-content: space-between;">
                 <span>🎒 BACKPACK INVENTORY (15 SLOTS):</span>
-                <span style="font-size: 10px; color: #666;">Loot storage</span>
+                <span style="font-size: 10px; color: #666;">Tap item to equip/drop</span>
             </div>
             <div id="backpack-grid">
                 <!-- Generated dynamically -->
+            </div>
+
+            <!-- Class Proficiencies & Feats Info -->
+            <div style="background: #0d0f17; border: 1px solid #222638; border-radius: 6px; padding: 8px; font-size: 11px; line-height: 1.4;">
+                <div style="color: #ffcc00; font-weight: bold; margin-bottom: 2px;">⚡ CLASS PROFICIENCIES & FEATS:</div>
+                <div id="sheet-proficiencies" style="color: #aaa; font-size: 10px;">Proficiencies: Armor, Weapons, Skills</div>
+                <div id="sheet-abilities" style="margin-top: 4px; font-size: 10px; color: #64d8cb;">Class Abilities: Ready</div>
             </div>
 
             <button class="modal-btn" onclick="closeSheetModal()">Close Character Sheet</button>
@@ -472,10 +629,52 @@
         </div>
     </div>
 
+    <!-- 4. Level-Up Milestone Modal -->
+    <div id="levelup-modal" class="modal-overlay">
+        <div class="modal-card" style="text-align: center; border-color: #ffcc00;">
+            <div style="font-size: 38px; margin-top: 4px;">⭐</div>
+            <div style="font-size: 20px; font-weight: bold; color: #ffcc00; letter-spacing: 2px;">LEVEL UP!</div>
+            <div id="levelup-subtitle" style="font-size: 13px; color: #64d8cb; margin-top: 2px;">You reached Level 2!</div>
+
+            <div style="background: #0e101a; border: 1px solid #2d334d; border-radius: 6px; padding: 10px; margin: 8px 0; text-align: left; font-size: 12px; line-height: 1.6;">
+                <div>❤️ <strong id="levelup-hp-gain">+6 Max HP</strong> (Full HP restored!)</div>
+                <div id="levelup-feat-section" style="margin-top: 6px; display: none;">
+                    <div style="color: #ffcc00; font-weight: bold;">✨ New Feat Unlocked:</div>
+                    <div id="levelup-feat-desc" style="color: #ddd;"></div>
+                </div>
+                <div id="levelup-milestone-section" style="margin-top: 6px; display: none;">
+                    <div style="color: #ffcc00; font-weight: bold;">🌟 Milestone Attribute Boost (+1 Stat):</div>
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 6px;">
+                        <button class="modal-btn" style="padding: 4px;" onclick="chooseMilestoneStat('str')">+1 STR</button>
+                        <button class="modal-btn" style="padding: 4px;" onclick="chooseMilestoneStat('dex')">+1 DEX</button>
+                        <button class="modal-btn" style="padding: 4px;" onclick="chooseMilestoneStat('con')">+1 CON</button>
+                        <button class="modal-btn" style="padding: 4px;" onclick="chooseMilestoneStat('int')">+1 INT</button>
+                        <button class="modal-btn" style="padding: 4px;" onclick="chooseMilestoneStat('wis')">+1 WIS</button>
+                        <button class="modal-btn" style="padding: 4px;" onclick="chooseMilestoneStat('cha')">+1 CHA</button>
+                    </div>
+                </div>
+            </div>
+
+            <button class="modal-btn" id="btn-levelup-confirm" onclick="closeLevelUpModal()">⚔️ Continue Adventure</button>
+        </div>
+    </div>
+
     <!-- Core Modular Engine Script with Cache-Busting Version Query -->
     <script type="module">
-        import { startPlaythrough, restartSameSeed, populateSheet, cycleZoom, waitTurn } from './src/main.js?v=4.0';
-        import { PRNG } from './src/core/RNG.js?v=4.0';
+        import {
+            startPlaythrough,
+            restartSameSeed,
+            populateSheet,
+            cycleZoom,
+            waitTurn,
+            usePrimaryFeat,
+            selectSlot,
+            equipSelectedBackpackItem,
+            unequipSelectedBodyItem,
+            dropSelectedBackpackItem,
+            boostStat
+        } from './src/main.js?v=5.0';
+        import { PRNG } from './src/core/RNG.js?v=5.0';
 
         window.openSheetModal = function() {
             populateSheet();
@@ -490,13 +689,27 @@
             document.getElementById('inspect-modal').classList.remove('active');
         };
 
-        // Connect both Header button and Action Bar button to Paperdoll
+        window.closeLevelUpModal = function() {
+            document.getElementById('levelup-modal').classList.remove('active');
+        };
+
+        window.chooseMilestoneStat = function(stat) {
+            boostStat(stat);
+            window.closeLevelUpModal();
+        };
+
+        window.selectSlot = selectSlot;
+        window.equipSelectedBackpackItem = equipSelectedBackpackItem;
+        window.unequipSelectedBodyItem = unequipSelectedBodyItem;
+        window.dropSelectedBackpackItem = dropSelectedBackpackItem;
+        window.boostStat = boostStat;
+
+        // Connect Header & Action Bar buttons
         document.getElementById('btn-sheet-open').addEventListener('click', window.openSheetModal);
         document.getElementById('btn-sheet-main').addEventListener('click', window.openSheetModal);
-
-        // Connect Zoom and Wait buttons
         document.getElementById('btn-zoom-main').addEventListener('click', cycleZoom);
         document.getElementById('btn-wait-main').addEventListener('click', waitTurn);
+        document.getElementById('btn-feat-main').addEventListener('click', usePrimaryFeat);
 
         document.getElementById('btn-reroll').addEventListener('click', () => {
             const newSeed = PRNG.generateRandomSeed();

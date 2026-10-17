@@ -9,6 +9,7 @@ import { PerceptionSystem } from './systems/Perception.js';
 import { CombatSystem } from './systems/Combat.js';
 import { findPath } from './systems/Pathfinding.js';
 import { ITEM_SLOTS } from './data/Items.js';
+import { CLASSES, XP_TABLE, isAttributeMilestone } from './data/Classes.js';
 
 // Viewport Camera & Zoom Settings
 const ZOOM_LEVELS = [
@@ -80,7 +81,12 @@ function loadFloor(floorNum, enterFromAbove = true) {
         player.y,
         player.per,
         player.perMod,
-        (sx, sy) => postMessage(`👁️ Secret Door spotted at (${sx}, ${sy})!`, 'msg-loot')
+        (sx, sy) => {
+            postMessage(`👁️ Secret Door spotted at (${sx}, ${sy})! +25 XP`, 'msg-loot');
+            const levelUps = player.gainXp(25);
+            if (levelUps.length > 0) handleLevelUps(levelUps);
+            updateHUD();
+        }
     );
 
     postMessage(`Floor ${floorNum}: ${currentFloorData.biome.name}`, 'msg-info');
@@ -113,9 +119,25 @@ export function cycleZoom() {
 function updateHUD() {
     document.getElementById('seed-display').innerText = dungeonManager.baseSeedString;
     document.getElementById('hud-floor').innerText = `F${dungeonManager.currentFloor}`;
+    const hl = document.getElementById('hud-level');
+    if (hl) hl.innerText = `Lv.${player.level}`;
     document.getElementById('hud-hp').innerText = player.hp;
     document.getElementById('hud-max-hp').innerText = player.maxHp;
     document.getElementById('hud-ac').innerText = player.ac;
+
+    // Feat button status in Action Bar
+    const abilities = player.getAvailableAbilities();
+    const primaryFeat = abilities[0];
+    if (primaryFeat) {
+        const featIcon = document.getElementById('action-feat-icon');
+        const featName = document.getElementById('action-feat-name');
+        if (featIcon) featIcon.innerText = primaryFeat.icon;
+        const cd = player.cooldowns[primaryFeat.id] || 0;
+        if (featName) {
+            featName.innerText = cd > 0 ? `${primaryFeat.name} (${cd}t)` : `${primaryFeat.name}`;
+            featName.style.color = cd > 0 ? '#888' : '#ffcc00';
+        }
+    }
 
     const url = new URL(window.location);
     url.searchParams.set('seed', dungeonManager.baseSeedString);
@@ -464,15 +486,29 @@ function stepPath(path) {
         player.y,
         player.per,
         player.perMod,
-        (sx, sy) => postMessage(`👁️ Secret Door revealed at (${sx}, ${sy})!`, 'msg-loot')
+        (sx, sy) => {
+            postMessage(`👁️ Secret Door revealed at (${sx}, ${sy})! +25 XP`, 'msg-loot');
+            const levelUps = player.gainXp(25);
+            if (levelUps.length > 0) handleLevelUps(levelUps);
+            updateHUD();
+        }
     );
 
     // Loot Chest
     const chest = chests.find(c => !c.opened && c.x === nextX && c.y === nextY);
     if (chest) {
         chest.opened = true;
-        player.equip(chest.item);
-        postMessage(`🎁 Found & Equipped: ${chest.item.name}!`, 'msg-loot');
+        const xpReward = 20 * currentFloorData.floorLevel;
+        const levelUps = player.gainXp(xpReward);
+        const added = player.addToBackpack(chest.item);
+        if (added) {
+            postMessage(`🎁 Looted: ${chest.item.name}! Added to Backpack (+${xpReward} XP)`, 'msg-loot');
+        } else {
+            postMessage(`🎁 Found ${chest.item.name}, but Backpack is full! (+${xpReward} XP)`, 'msg-loot');
+        }
+        if (levelUps.length > 0) {
+            handleLevelUps(levelUps);
+        }
         updateHUD();
     }
 
@@ -528,7 +564,12 @@ function resolveCombatTurn(monster) {
     }
 
     if (result.monsterDied) {
-        postMessage(`🏆 Defeated ${monster.name}!`, 'msg-victory');
+        const xpReward = 15 * currentFloorData.floorLevel + Math.max(10, monster.maxHp * 2);
+        const levelUps = player.gainXp(xpReward);
+        postMessage(`🏆 Defeated ${monster.name}! +${xpReward} XP`, 'msg-victory');
+        if (levelUps.length > 0) {
+            handleLevelUps(levelUps);
+        }
     } else if (result.monsterCounter?.isHit) {
         addBlood(player.x, player.y);
         setTimeout(() => {
@@ -717,13 +758,179 @@ export function waitTurn() {
     draw();
 }
 
+// ==========================================
+// 11. CLASS FEATS & ABILITIES EXECUTION
+// ==========================================
+export function usePrimaryFeat() {
+    if (!player || !player.alive) return;
+    const abilities = player.getAvailableAbilities();
+    if (abilities.length === 0) {
+        postMessage('No class abilities unlocked yet.', 'msg-miss');
+        return;
+    }
+
+    const ability = abilities[0];
+    if (!player.canUseAbility(ability.id)) {
+        const cd = player.cooldowns[ability.id] || 0;
+        postMessage(`⏳ ${ability.name} is on cooldown (${cd} turns remaining).`, 'msg-miss');
+        return;
+    }
+
+    if (ability.type === 'heal') {
+        const healAmt = Math.max(6, Math.floor(player.maxHp * 0.35));
+        const prevHp = player.hp;
+        player.hp = Math.min(player.maxHp, player.hp + healAmt);
+        const actualHeal = player.hp - prevHp;
+        player.triggerAbilityCooldown(ability.id);
+        postMessage(`${ability.icon} ${ability.name} used! Restored ${actualHeal} HP.`, 'msg-victory');
+        endTurn();
+        updateHUD();
+        draw();
+    } else if (ability.type === 'buff_attack') {
+        player.activeBuffs.push({ id: ability.id, name: ability.name, stat: 'bonus_dmg', value: 8, turnsLeft: 6 });
+        player.triggerAbilityCooldown(ability.id);
+        postMessage(`${ability.icon} ${ability.name} activated! Next melee strike deals crushing bonus damage.`, 'msg-victory');
+        endTurn();
+        updateHUD();
+        draw();
+    } else if (ability.type === 'buff_all') {
+        player.activeBuffs.push({ id: ability.id, name: ability.name, stat: 'ac', value: 2, turnsLeft: 15 });
+        player.activeBuffs.push({ id: ability.id, name: ability.name, stat: 'attack', value: 2, turnsLeft: 15 });
+        player.triggerAbilityCooldown(ability.id);
+        postMessage(`${ability.icon} ${ability.name} performed! +2 AC and +2 Attack for 15 turns.`, 'msg-victory');
+        endTurn();
+        updateHUD();
+        draw();
+    } else if (ability.type === 'ranged_damage') {
+        const { monsters, visibility } = currentFloorData;
+        const visibleMonsters = monsters.filter(m => m.alive && visibility[m.y * MAP_WIDTH + m.x] === VISIBILITY.VISIBLE);
+        if (visibleMonsters.length === 0) {
+            postMessage(`⚠️ No monsters visible to target with ${ability.name}!`, 'msg-miss');
+            return;
+        }
+        visibleMonsters.sort((a, b) => Math.hypot(a.x - player.x, a.y - player.y) - Math.hypot(b.x - player.x, b.y - player.y));
+        const target = visibleMonsters[0];
+        const dmg = prng.nextInt(4, 10);
+        target.hp = Math.max(0, target.hp - dmg);
+        addBlood(target.x, target.y);
+        player.triggerAbilityCooldown(ability.id);
+        postMessage(`✨ Magic Missile struck ${target.name} for ${dmg} damage!`, 'msg-victory');
+        if (target.hp <= 0) {
+            target.alive = false;
+            const xp = 15 * currentFloorData.floorLevel + Math.max(10, target.maxHp * 2);
+            const levelUps = player.gainXp(xp);
+            postMessage(`🏆 Defeated ${target.name}! +${xp} XP`, 'msg-victory');
+            if (levelUps.length > 0) handleLevelUps(levelUps);
+        }
+        endTurn();
+        updateHUD();
+        draw();
+    }
+}
+
+// ==========================================
+// 12. LEVEL UP & MILESTONES
+// ==========================================
+export function handleLevelUps(levelUps) {
+    if (!levelUps || levelUps.length === 0) return;
+    const latest = levelUps[levelUps.length - 1];
+    const totalHpGain = levelUps.reduce((sum, l) => sum + l.hpGain, 0);
+
+    const modal = document.getElementById('levelup-modal');
+    if (modal) {
+        document.getElementById('levelup-subtitle').innerText = `You reached Level ${latest.level} (${player.characterClass.title})!`;
+        document.getElementById('levelup-hp-gain').innerText = `+${totalHpGain} Max HP (Full HP Restored!)`;
+
+        const featSec = document.getElementById('levelup-feat-section');
+        const allUnlocked = levelUps.flatMap(l => l.unlockedAbilities);
+        if (allUnlocked.length > 0) {
+            featSec.style.display = 'block';
+            document.getElementById('levelup-feat-desc').innerHTML = allUnlocked
+                .map(a => `<strong>${a.icon} ${a.name}:</strong> ${a.desc}`)
+                .join('<br>');
+        } else {
+            featSec.style.display = 'none';
+        }
+
+        const msSec = document.getElementById('levelup-milestone-section');
+        if (player.attributePoints > 0) {
+            msSec.style.display = 'block';
+        } else {
+            msSec.style.display = 'none';
+        }
+
+        modal.classList.add('active');
+    }
+    updateHUD();
+}
+
+export function boostStat(stat) {
+    if (player.boostAttribute(stat)) {
+        postMessage(`⭐ Milestone Attribute Boost! ${stat.toUpperCase()} increased by +1!`, 'msg-victory');
+        updateHUD();
+        populateSheet();
+        const modal = document.getElementById('levelup-modal');
+        if (modal && player.attributePoints === 0) {
+            const msSec = document.getElementById('levelup-milestone-section');
+            if (msSec) msSec.style.display = 'none';
+        }
+    }
+}
+
+// ==========================================
+// 13. INTERACTIVE PAPERDOLL SELECTION & ACTIONS
+// ==========================================
+let selectedSlot = null; // { type: 'body'|'backpack', id: string|number }
+
+export function selectSlot(type, id) {
+    selectedSlot = { type, id };
+    populateSheet();
+}
+
+export function equipSelectedBackpackItem() {
+    if (!selectedSlot || selectedSlot.type !== 'backpack') return;
+    const res = player.equipFromBackpack(selectedSlot.id);
+    if (res) {
+        postMessage(`⚔️ Equipped ${res.equipped.name} into ${res.slot.replace('_', ' ')}!`, 'msg-loot');
+        selectedSlot = { type: 'body', id: res.slot };
+        updateHUD();
+        populateSheet();
+    }
+}
+
+export function unequipSelectedBodyItem() {
+    if (!selectedSlot || selectedSlot.type !== 'body') return;
+    const res = player.unequipToBackpack(selectedSlot.id);
+    if (res.success) {
+        postMessage(`🎒 Unequipped ${res.item.name} to backpack slot ${res.backpackIdx + 1}.`, 'msg-info');
+        selectedSlot = { type: 'backpack', id: res.backpackIdx };
+        updateHUD();
+        populateSheet();
+    } else {
+        postMessage(`⚠️ ${res.reason}`, 'msg-miss');
+    }
+}
+
+export function dropSelectedBackpackItem() {
+    if (!selectedSlot || selectedSlot.type !== 'backpack') return;
+    const dropped = player.removeFromBackpack(selectedSlot.id);
+    if (dropped) {
+        postMessage(`🗑️ Dropped ${dropped.name}.`, 'msg-info');
+        selectedSlot = null;
+        updateHUD();
+        populateSheet();
+    }
+}
+
 window.addEventListener('keydown', (e) => {
     // Escape closes modals
     if (e.key === 'Escape') {
         const sheet = document.getElementById('sheet-modal');
         const inspect = document.getElementById('inspect-modal');
+        const levelup = document.getElementById('levelup-modal');
         if (sheet && sheet.classList.contains('active')) sheet.classList.remove('active');
         if (inspect && inspect.classList.contains('active')) inspect.classList.remove('active');
+        if (levelup && levelup.classList.contains('active')) levelup.classList.remove('active');
         return;
     }
 
@@ -747,6 +954,12 @@ window.addEventListener('keydown', (e) => {
         return;
     }
 
+    // Hotkey: F triggers primary class feat
+    if (e.key === 'f' || e.key === 'F') {
+        usePrimaryFeat();
+        return;
+    }
+
     let dx = 0, dy = 0;
     if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') dy = -1;
     if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') dy = 1;
@@ -765,10 +978,38 @@ window.addEventListener('keydown', (e) => {
 });
 
 // ==========================================
-// 11. CHARACTER SHEET VISUAL PAPERDOLL (25 SLOTS)
+// 14. CHARACTER SHEET & PAPERDOLL RENDERER
 // ==========================================
 export function populateSheet() {
     const formatMod = (m) => m >= 0 ? `+${m}` : `${m}`;
+    const pClass = player.characterClass;
+
+    // Header info & XP Progress
+    const titleEl = document.getElementById('sheet-title');
+    if (titleEl) titleEl.innerText = `${pClass.icon} ${pClass.name.toUpperCase()} (LV. ${player.level})`;
+
+    const xpText = document.getElementById('sheet-xp-text');
+    if (xpText) xpText.innerText = `XP: ${player.xp} / ${player.getNextLevelXp()} • ${pClass.title}`;
+
+    const xpBar = document.getElementById('sheet-xp-bar');
+    if (xpBar) {
+        const pct = Math.min(100, Math.floor((player.xp / player.getNextLevelXp()) * 100));
+        xpBar.style.width = `${pct}%`;
+    }
+
+    // Milestone Banner & Boost Buttons
+    const mb = document.getElementById('milestone-banner');
+    const mbc = document.getElementById('milestone-points-count');
+    const hasMilestones = player.attributePoints > 0;
+    if (mb) mb.style.display = hasMilestones ? 'block' : 'none';
+    if (mbc) mbc.innerText = player.attributePoints;
+
+    ['str', 'dex', 'con', 'int', 'wis', 'cha'].forEach(stat => {
+        const btn = document.getElementById(`btn-boost-${stat}`);
+        if (btn) btn.style.display = hasMilestones ? 'inline-block' : 'none';
+    });
+
+    // Attributes
     document.getElementById('sheet-str').innerText = `STR: ${player.str}`;
     document.getElementById('mod-str').innerText = formatMod(player.strMod);
     document.getElementById('sheet-dex').innerText = `DEX: ${player.dex}`;
@@ -786,49 +1027,125 @@ export function populateSheet() {
     document.getElementById('sheet-hp').innerText = `${player.hp} / ${player.maxHp}`;
     document.getElementById('sheet-ac').innerText = player.ac;
 
-    // Visual Paperdoll Body Slots: 10 categorized equipment positions
+    // Visual Paperdoll Body Slots (10 slots)
     const eq = player.equipment;
-    const slotCard = (slotName, item, iconPlaceholder) => `
-        <div class="paperdoll-slot ${item ? 'equipped' : ''}" title="${slotName}: ${item ? item.name : 'Empty'}">
-            <div class="slot-label">${slotName}</div>
-            <div class="slot-icon">${item ? item.icon : iconPlaceholder}</div>
-            <div class="slot-name">
-                ${item ? item.name : '<span style="color:#4a5068">Empty</span>'}
+    const isBodySelected = (slot) => selectedSlot?.type === 'body' && selectedSlot?.id === slot;
+
+    const slotCard = (slotName, slotKey, iconPlaceholder) => {
+        const item = eq[slotKey];
+        const isSel = isBodySelected(slotKey);
+        return `
+            <div class="paperdoll-slot ${item ? 'equipped' : ''} ${isSel ? 'selected' : ''}" 
+                 onclick="window.selectSlot('body', '${slotKey}')"
+                 title="${slotName}: ${item ? item.name : 'Empty'}">
+                <div class="slot-label">${slotName}</div>
+                <div class="slot-icon">${item ? item.icon : iconPlaceholder}</div>
+                <div class="slot-name">
+                    ${item ? item.name : '<span style="color:#4a5068">Empty</span>'}
+                </div>
+                <div class="slot-stat">
+                    ${item && item.desc ? item.desc : ''}
+                </div>
             </div>
-            <div class="slot-stat">
-                ${item && item.desc ? item.desc : ''}
-            </div>
-        </div>
-    `;
+        `;
+    };
 
     document.getElementById('paperdoll-body').innerHTML = `
         <div style="display: flex; justify-content: center; gap: 8px;">
-            ${slotCard('Helm', eq[ITEM_SLOTS.HELM], '🪖')}
-            ${slotCard('Amulet', eq[ITEM_SLOTS.AMULET], '📿')}
+            ${slotCard('Helm', ITEM_SLOTS.HELM, '🪖')}
+            ${slotCard('Amulet', ITEM_SLOTS.AMULET, '📿')}
         </div>
         <div style="display: flex; justify-content: space-between; gap: 6px; margin: 6px 0;">
-            ${slotCard('Main Hand', eq[ITEM_SLOTS.MAIN_HAND], '⚔️')}
-            ${slotCard('Armor', eq[ITEM_SLOTS.ARMOR], '🦺')}
-            ${slotCard('Off Hand', eq[ITEM_SLOTS.OFF_HAND], '🛡️')}
+            ${slotCard('Main Hand', ITEM_SLOTS.MAIN_HAND, '⚔️')}
+            ${slotCard('Armor', ITEM_SLOTS.ARMOR, '🦺')}
+            ${slotCard('Off Hand', ITEM_SLOTS.OFF_HAND, '🛡️')}
         </div>
         <div style="display: flex; justify-content: space-between; gap: 6px;">
-            ${slotCard('Left Ring', eq[ITEM_SLOTS.RING_LEFT], '💍')}
-            ${slotCard('Cloak', eq[ITEM_SLOTS.CLOAK], '🧥')}
-            ${slotCard('Right Ring', eq[ITEM_SLOTS.RING_RIGHT], '💍')}
+            ${slotCard('Left Ring', ITEM_SLOTS.RING_LEFT, '💍')}
+            ${slotCard('Cloak', ITEM_SLOTS.CLOAK, '🧥')}
+            ${slotCard('Right Ring', ITEM_SLOTS.RING_RIGHT, '💍')}
         </div>
         <div style="display: flex; justify-content: center; gap: 8px; margin-top: 6px;">
-            ${slotCard('Gauntlets', eq[ITEM_SLOTS.GAUNTLETS], '🧤')}
-            ${slotCard('Boots', eq[ITEM_SLOTS.BOOTS], '🥾')}
+            ${slotCard('Gauntlets', ITEM_SLOTS.GAUNTLETS, '🧤')}
+            ${slotCard('Boots', ITEM_SLOTS.BOOTS, '🥾')}
         </div>
     `;
 
-    // 15 Backpack slots (10 equipped + 15 backpack = 25 total slots)
-    const bagHtml = player.backpack.map((item, idx) => `
-        <div class="backpack-slot ${item ? 'equipped' : ''}">
-            ${item ? `${item.icon} <span style="color:#ddd">${item.name}</span>` : `<span style="color:#444">Slot ${idx+1}</span>`}
-        </div>
-    `).join('');
+    // 15 Backpack slots
+    const isBagSelected = (idx) => selectedSlot?.type === 'backpack' && selectedSlot?.id === idx;
+    const bagHtml = player.backpack.map((item, idx) => {
+        const isSel = isBagSelected(idx);
+        return `
+            <div class="backpack-slot ${item ? 'equipped' : ''} ${isSel ? 'selected' : ''}"
+                 onclick="window.selectSlot('backpack', ${idx})"
+                 title="Slot ${idx + 1}: ${item ? item.name : 'Empty'}">
+                ${item ? `${item.icon} <span style="color:#ddd">${item.name}</span>` : `<span style="color:#444">Slot ${idx+1}</span>`}
+            </div>
+        `;
+    }).join('');
     document.getElementById('backpack-grid').innerHTML = bagHtml;
+
+    // Item Action Drawer
+    const cardTitle = document.getElementById('item-card-title');
+    const cardContent = document.getElementById('item-card-content');
+    const cardName = document.getElementById('item-card-name');
+    const cardSlot = document.getElementById('item-card-slot');
+    const cardDesc = document.getElementById('item-card-desc');
+    const cardActions = document.getElementById('item-card-actions');
+
+    if (selectedSlot) {
+        if (selectedSlot.type === 'body') {
+            const item = player.equipment[selectedSlot.id];
+            cardTitle.innerText = `Selected Body Slot: ${selectedSlot.id.replace('_', ' ').toUpperCase()}`;
+            if (item) {
+                cardContent.style.display = 'block';
+                cardName.innerText = `${item.icon} ${item.name}`;
+                cardSlot.innerText = `Equipped (${item.slot})`;
+                cardDesc.innerText = item.desc || 'Equipped gear';
+                cardActions.innerHTML = `
+                    <button class="btn-action-small" onclick="window.unequipSelectedBodyItem()">🎒 Unequip to Backpack</button>
+                `;
+            } else {
+                cardContent.style.display = 'none';
+                cardTitle.innerText = `Empty ${selectedSlot.id.replace('_', ' ')} slot. Select an item in your backpack to equip.`;
+            }
+        } else if (selectedSlot.type === 'backpack') {
+            const item = player.backpack[selectedSlot.id];
+            if (item) {
+                cardTitle.innerText = `Selected Backpack Item (Slot ${selectedSlot.id + 1}):`;
+                cardContent.style.display = 'block';
+                cardName.innerText = `${item.icon} ${item.name}`;
+                cardSlot.innerText = `Slot: ${item.slot.replace('_', ' ')}`;
+                cardDesc.innerText = item.desc || 'Standard item';
+                cardActions.innerHTML = `
+                    <button class="btn-action-small" style="background: #193826; border-color: #55ff77; color: #aaffaa;" onclick="window.equipSelectedBackpackItem()">⚔️ Equip to ${item.slot.replace('_', ' ')}</button>
+                    <button class="btn-action-small" style="background: #381919; border-color: #ff6666; color: #ffaaaa;" onclick="window.dropSelectedBackpackItem()">🗑️ Drop Item</button>
+                `;
+            } else {
+                cardContent.style.display = 'none';
+                cardTitle.innerText = `Backpack Slot ${selectedSlot.id + 1} is empty.`;
+            }
+        }
+    } else {
+        cardTitle.innerText = 'Tap an item in your backpack to equip, or tap equipped gear to unequip:';
+        cardContent.style.display = 'none';
+    }
+
+    // Proficiencies & Abilities
+    const profEl = document.getElementById('sheet-proficiencies');
+    if (profEl) {
+        profEl.innerText = `Armor: ${pClass.proficiencies.armor.join(', ')} • Weapons: ${pClass.proficiencies.weapons.join(', ')} • Skills: ${pClass.proficiencies.skills.join(', ')}`;
+    }
+
+    const abilEl = document.getElementById('sheet-abilities');
+    if (abilEl) {
+        abilEl.innerHTML = pClass.abilities.map(a => {
+            const unlocked = player.level >= a.level;
+            const cd = player.cooldowns[a.id] || 0;
+            const status = !unlocked ? `<span style="color:#666">[Unlocks at Lv. ${a.level}]</span>` : (cd > 0 ? `<span style="color:#ff6666">[CD: ${cd}t]</span>` : `<span style="color:#55ff77">[Ready]</span>`);
+            return `<div>${a.icon} <strong>${a.name}</strong> ${status}: ${a.desc}</div>`;
+        }).join('');
+    }
 }
 
 // Initial launch

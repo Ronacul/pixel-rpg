@@ -1,4 +1,4 @@
-// Procedural 200x200 Dungeon Generator with Rooms, Corridors, Doors & Secret Doors
+// Procedural 100x100 Dungeon Generator with Dense Small Rooms, Short Hallways, Doors & Secret Doors
 
 import { MAP_WIDTH, MAP_HEIGHT, TILES, VISIBILITY } from './Dungeon.js';
 import { getBiomeForFloor } from '../data/Biomes.js';
@@ -16,25 +16,26 @@ export function generateFloor(baseSeed, floorLevel) {
     // Fill completely with solid wall
     terrain.fill(TILES.WALL);
 
+    // Generate smaller, dense rooms (5-9 tiles wide/high)
     const rooms = [];
-    const roomCount = prng.nextInt(35, 50);
+    const roomAttempts = prng.nextInt(65, 85);
 
-    for (let i = 0; i < roomCount; i++) {
-        const w = prng.nextInt(8, 18);
-        const h = prng.nextInt(8, 18);
-        const x = prng.nextInt(5, MAP_WIDTH - w - 5);
-        const y = prng.nextInt(5, MAP_HEIGHT - h - 5);
+    for (let i = 0; i < roomAttempts; i++) {
+        const w = prng.nextInt(5, 9);
+        const h = prng.nextInt(5, 9);
+        const x = prng.nextInt(3, MAP_WIDTH - w - 3);
+        const y = prng.nextInt(3, MAP_HEIGHT - h - 3);
 
         const newRoom = { x, y, w, h, cx: Math.floor(x + w / 2), cy: Math.floor(y + h / 2), isSecret: false };
 
-        // Check overlap with padding
+        // Check overlap with 1-tile wall padding to maximize room packing
         let overlap = false;
         for (const other of rooms) {
             if (
-                newRoom.x <= other.x + other.w + 2 &&
-                newRoom.x + newRoom.w + 2 >= other.x &&
-                newRoom.y <= other.y + other.h + 2 &&
-                newRoom.y + newRoom.h + 2 >= other.y
+                newRoom.x <= other.x + other.w + 1 &&
+                newRoom.x + newRoom.w + 1 >= other.x &&
+                newRoom.y <= other.y + other.h + 1 &&
+                newRoom.y + newRoom.h + 1 >= other.y
             ) {
                 overlap = true;
                 break;
@@ -46,47 +47,89 @@ export function generateFloor(baseSeed, floorLevel) {
         }
     }
 
-    // Carve room interiors
+    // Carve floor utility
     function carveFloor(x, y) {
-        if (x >= 0 && x < MAP_WIDTH && y >= 0 && y < MAP_HEIGHT) {
+        if (x >= 1 && x < MAP_WIDTH - 1 && y >= 1 && y < MAP_HEIGHT - 1) {
             terrain[y * MAP_WIDTH + x] = TILES.FLOOR;
         }
     }
 
-    rooms.forEach((room, idx) => {
+    // Carve room interiors
+    rooms.forEach(room => {
         for (let ry = room.y; ry < room.y + room.h; ry++) {
             for (let rx = room.x; rx < room.x + room.w; rx++) {
                 carveFloor(rx, ry);
             }
         }
 
-        // Add 2-4 rubble obstacles in larger rooms
-        if (room.w > 10 && room.h > 10) {
-            const rubbleCount = prng.nextInt(2, 4);
-            for (let r = 0; r < rubbleCount; r++) {
-                const ox = prng.nextInt(room.x + 2, room.x + room.w - 3);
-                const oy = prng.nextInt(room.y + 2, room.y + room.h - 3);
-                terrain[oy * MAP_WIDTH + ox] = TILES.RUBBLE;
-            }
-        }
-
-        // Connect room to previous room via hallway
-        if (idx > 0) {
-            const prev = rooms[idx - 1];
-            let cx = prev.cx;
-            let cy = prev.cy;
-
-            // Connect horizontally then vertically
-            while (cx !== room.cx) {
-                carveFloor(cx, cy);
-                cx += (cx < room.cx) ? 1 : -1;
-            }
-            while (cy !== room.cy) {
-                carveFloor(cx, cy);
-                cy += (cy < room.cy) ? 1 : -1;
-            }
+        // Rubble in larger 7x7+ rooms
+        if (room.w >= 7 && room.h >= 7 && prng.chance(0.4)) {
+            const ox = prng.nextInt(room.x + 1, room.x + room.w - 2);
+            const oy = prng.nextInt(room.y + 1, room.y + room.h - 2);
+            terrain[oy * MAP_WIDTH + ox] = TILES.RUBBLE;
         }
     });
+
+    // Short Corridor Carving using Nearest-Neighbor Graph (Minimal Hallways)
+    function carveCorridor(x1, y1, x2, y2) {
+        let cx = x1, cy = y1;
+        if (prng.chance(0.5)) {
+            while (cx !== x2) { carveFloor(cx, cy); cx += (cx < x2) ? 1 : -1; }
+            while (cy !== y2) { carveFloor(cx, cy); cy += (cy < y2) ? 1 : -1; }
+        } else {
+            while (cy !== y2) { carveFloor(cx, cy); cy += (cy < y2) ? 1 : -1; }
+            while (cx !== x2) { carveFloor(cx, cy); cx += (cx < x2) ? 1 : -1; }
+        }
+        carveFloor(x2, y2);
+    }
+
+    // Connect all rooms via minimum distance spanning tree
+    if (rooms.length > 1) {
+        const connected = [rooms[0]];
+        const unconnected = rooms.slice(1);
+
+        while (unconnected.length > 0) {
+            let bestDist = Infinity;
+            let bestA = null;
+            let bestBIdx = -1;
+
+            for (const rA of connected) {
+                for (let b = 0; b < unconnected.length; b++) {
+                    const rB = unconnected[b];
+                    const dist = Math.hypot(rA.cx - rB.cx, rA.cy - rB.cy);
+                    if (dist < bestDist) {
+                        bestDist = dist;
+                        bestA = rA;
+                        bestBIdx = b;
+                    }
+                }
+            }
+
+            const bestB = unconnected.splice(bestBIdx, 1)[0];
+            carveCorridor(bestA.cx, bestA.cy, bestB.cx, bestB.cy);
+            connected.push(bestB);
+        }
+
+        // Add 4-6 extra loop connections between close neighbors for non-linear exploration
+        const extraConnections = Math.min(6, Math.floor(rooms.length / 4));
+        for (let e = 0; e < extraConnections; e++) {
+            const r1 = prng.choice(rooms);
+            // find another close room
+            let closest = null;
+            let closestDist = Infinity;
+            for (const r2 of rooms) {
+                if (r1 === r2) continue;
+                const d = Math.hypot(r1.cx - r2.cx, r1.cy - r2.cy);
+                if (d < 22 && d < closestDist) {
+                    closestDist = d;
+                    closest = r2;
+                }
+            }
+            if (closest) {
+                carveCorridor(r1.cx, r1.cy, closest.cx, closest.cy);
+            }
+        }
+    }
 
     // Designate 2-3 rooms as Secret Rooms
     const secretRoomCandidates = rooms.slice(Math.floor(rooms.length / 2));
@@ -107,8 +150,7 @@ export function generateFloor(baseSeed, floorLevel) {
                 const isHorizontalChoke = (north === TILES.WALL && south === TILES.WALL && west === TILES.FLOOR && east === TILES.FLOOR);
                 const isVerticalChoke   = (west === TILES.WALL && east === TILES.WALL && north === TILES.FLOOR && south === TILES.FLOOR);
 
-                if ((isHorizontalChoke || isVerticalChoke) && prng.chance(0.25)) {
-                    // Check if near secret room
+                if ((isHorizontalChoke || isVerticalChoke) && prng.chance(0.28)) {
                     const inSecretRoom = rooms.some(r => r.isSecret && Math.abs(r.cx - x) < r.w && Math.abs(r.cy - y) < r.h);
                     if (inSecretRoom) {
                         terrain[y * MAP_WIDTH + x] = TILES.SECRET_DOOR;
@@ -126,8 +168,16 @@ export function generateFloor(baseSeed, floorLevel) {
     const stairsUpPos = { x: spawnRoom.cx, y: spawnRoom.cy };
     terrain[stairsUpPos.y * MAP_WIDTH + stairsUpPos.x] = TILES.STAIRS_UP;
 
-    // Place Stairs Down (Farthest Room)
-    const exitRoom = rooms[rooms.length - 1];
+    // Place Stairs Down (Furthest Room from spawn)
+    let exitRoom = rooms[rooms.length - 1];
+    let maxDist = 0;
+    for (const r of rooms) {
+        const d = Math.hypot(r.cx - spawnRoom.cx, r.cy - spawnRoom.cy);
+        if (d > maxDist) {
+            maxDist = d;
+            exitRoom = r;
+        }
+    }
     const stairsDownPos = { x: exitRoom.cx, y: exitRoom.cy };
     terrain[stairsDownPos.y * MAP_WIDTH + stairsDownPos.x] = (floorLevel < 25) ? TILES.STAIRS_DOWN : TILES.FLOOR;
 

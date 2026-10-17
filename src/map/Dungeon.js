@@ -1,8 +1,8 @@
-// 200x200 Dungeon Manager with 25 Floor Bi-directional Caching
+// 100x100 Dungeon Manager with 25 Floor Bi-directional Caching
 
-export const MAP_WIDTH = 200;
-export const MAP_HEIGHT = 200;
-export const TOTAL_TILES = MAP_WIDTH * MAP_HEIGHT; // 40,000 tiles
+export const MAP_WIDTH = 100;
+export const MAP_HEIGHT = 100;
+export const TOTAL_TILES = MAP_WIDTH * MAP_HEIGHT; // 10,000 tiles
 
 export const TILES = {
     FLOOR: 0,
