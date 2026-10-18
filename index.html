@@ -463,10 +463,11 @@
             <button id="btn-reroll" class="btn-icon" title="New Random Run">🎲</button>
         </div>
 
-        <div class="header-chip" id="btn-sheet-open" title="Character HP, Level & AC (Tap to open Paperdoll)">
+        <div class="header-chip" id="btn-sheet-open" title="Character HP, Rations, Level & AC (Tap to open Paperdoll)">
             <span id="hud-floor" style="color: #ffcc00; margin-right: 2px;">F1</span>
             <span id="hud-level" style="color: #64d8cb; font-size: 11px;">Lv.1</span>
             <span style="color: #ff5577;">❤️ <span id="hud-hp">28</span>/<span id="hud-max-hp">28</span></span>
+            <span style="color: #ffaa55;">🍖 <span id="hud-rations">5</span></span>
             <span style="color: #555;">|</span>
             <span style="color: #64d8cb;">AC <span id="hud-ac">12</span></span>
             <span id="hud-statuses" style="margin-left: 2px;"></span>
@@ -505,6 +506,11 @@
         <button id="btn-sheet-main" class="action-btn action-btn-highlight" title="Open Character Paperdoll & Inventory (Hotkey: C)">
             <span style="font-size: 13px;">👤</span>
             <span style="color: #ffcc00;">Gear (25)</span>
+        </button>
+
+        <button id="btn-camp-main" class="action-btn" title="Camp Rest: Consumes 1 Ration to restore 60% HP & reset cooldowns (Hotkey: R)">
+            <span style="font-size: 13px;">🏕️</span>
+            <span style="color: #aaff77;">Rest</span>
         </button>
 
         <button id="btn-zoom-main" class="action-btn" title="Toggle Map Zoom: 1x, 1.5x, 2x (Hotkey: Z)">
@@ -559,6 +565,9 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Modular Equipped Set Bonuses Banner -->
+                <div id="sheet-set-bonuses" style="display: none; margin-top: 6px;"></div>
 
                 <!-- Visual Paperdoll Body Layout -->
                 <div style="font-size: 11px; color: #ffcc00; margin-top: 6px; font-weight: bold; display: flex; justify-content: space-between;">
@@ -635,8 +644,9 @@
                     <div class="stat-box" style="border-color: #ffcc00;"><span id="sheet-per">PER: 10 (+0)</span> <strong>Rad: 3</strong></div>
                     <div class="stat-box" style="border-color: #64d8cb;"><span>Armor Class:</span> <strong id="sheet-ac">12</strong></div>
                 </div>
-                <div class="stat-box" style="border-color: #ff5577; width: 100%;">
-                    <span>Hit Points:</span> <strong id="sheet-hp" style="color: #ff7799;">28 / 28</strong>
+                <div class="stat-grid" style="margin-top: 2px;">
+                    <div class="stat-box" style="border-color: #ff5577;"><span>Hit Points:</span> <strong id="sheet-hp" style="color: #ff7799;">28 / 28</strong></div>
+                    <div class="stat-box" style="border-color: #ffaa55;"><span>Camp Rations:</span> <strong id="sheet-rations" style="color: #ffaa55;">5</strong></div>
                 </div>
 
                 <!-- Modular Skills Specialization Grid -->
@@ -798,6 +808,7 @@
             populateSheet,
             cycleZoom,
             waitTurn,
+            campRest,
             triggerAimMode,
             autoTargetAndAttack,
             switchSheetTab,
@@ -805,6 +816,9 @@
             openSpellsModal,
             closeSpellsModal,
             useAbilityById,
+            switchClass,
+            toggleFeat,
+            consumeBackpackItem,
             throwItemFromBackpack,
             cancelTargeting,
             selectSlot,
@@ -812,8 +826,8 @@
             unequipSelectedBodyItem,
             dropSelectedBackpackItem,
             boostStat
-        } from './src/main.js?v=7.0';
-        import { PRNG } from './src/core/RNG.js?v=7.0';
+        } from './src/main.js?v=8.0';
+        import { PRNG } from './src/core/RNG.js?v=8.0';
 
         window.openSheetModal = function() {
             populateSheet();
@@ -839,6 +853,10 @@
         window.openSpellsModal = openSpellsModal;
         window.closeSpellsModal = closeSpellsModal;
         window.useAbilityById = useAbilityById;
+        window.switchClass = switchClass;
+        window.toggleFeat = toggleFeat;
+        window.consumeBackpackItem = consumeBackpackItem;
+        window.campRest = campRest;
         window.throwItemFromBackpack = throwItemFromBackpack;
         window.cancelTargeting = cancelTargeting;
 
@@ -859,6 +877,7 @@
         document.getElementById('btn-auto-main').addEventListener('click', autoTargetAndAttack);
         document.getElementById('btn-target-main').addEventListener('click', triggerAimMode);
         document.getElementById('btn-spells-main').addEventListener('click', openSpellsModal);
+        document.getElementById('btn-camp-main').addEventListener('click', campRest);
         document.getElementById('btn-zoom-main').addEventListener('click', cycleZoom);
         document.getElementById('btn-wait-main').addEventListener('click', waitTurn);
         document.getElementById('btn-cancel-target').addEventListener('click', cancelTargeting);

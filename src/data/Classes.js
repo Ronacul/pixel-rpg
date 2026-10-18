@@ -23,8 +23,21 @@ export const CLASSES = {
                 delivery: 'SELF',
                 type: 'heal',
                 healPercent: 0.35,
-                cooldown: 20,
+                cooldown: 18,
                 desc: 'Dig deep into martial reserve. Restore 35% of max HP immediately.'
+            },
+            {
+                id: 'battle_cry',
+                name: 'Battle Cry (Fear)',
+                level: 1,
+                icon: '🗣️',
+                delivery: 'AOE',
+                range: 0,
+                radius: 2,
+                type: 'aoe_fear',
+                cooldown: 16,
+                statusEffect: { type: 'TERRIFIED', duration: 3 },
+                desc: 'Thunderous roar! Intimidates all foes in a 5x5 radius to flee in TERROR for 3 turns.'
             },
             {
                 id: 'power_strike',
@@ -33,11 +46,22 @@ export const CLASSES = {
                 icon: '💥',
                 delivery: 'ADJACENT',
                 type: 'buff_attack',
-                cooldown: 12,
+                cooldown: 10,
                 dice: 6,
                 diceCount: 2,
                 statusEffect: { type: 'BLEEDING', duration: 4, power: 1 },
-                desc: 'Crushing melee blow dealing weapon +2d6 damage and causing heavy bleeding.'
+                desc: 'Crushing melee blow dealing weapon +2d6 damage and heavy bleeding.'
+            },
+            {
+                id: 'shield_wall',
+                name: 'Shield Wall',
+                level: 2,
+                icon: '🛡️',
+                delivery: 'SELF',
+                type: 'buff_def',
+                cooldown: 16,
+                statusEffect: { type: 'STONESKIN', duration: 10 },
+                desc: 'Adopt an impenetrable defensive guard: +3 AC and Stoneskin for 10 turns.'
             },
             {
                 id: 'javelin_throw',
@@ -49,9 +73,23 @@ export const CLASSES = {
                 type: 'ranged_damage',
                 dice: 8,
                 diceCount: 1,
-                cooldown: 14,
+                cooldown: 12,
                 statusEffect: { type: 'BLEEDING', duration: 3, power: 1 },
                 desc: 'Hurl a heavy barbed javelin at a distance foe for 1d8+STR damage and bleed.'
+            },
+            {
+                id: 'cleave',
+                name: 'Cleaving Sweep',
+                level: 3,
+                icon: '🪓',
+                delivery: 'AOE',
+                range: 0,
+                radius: 1,
+                type: 'aoe_adjacent',
+                dice: 6,
+                diceCount: 1,
+                cooldown: 14,
+                desc: 'Sweeping martial arc striking all surrounding enemies for 1d6+STR damage.'
             },
             {
                 id: 'shield_bash',
@@ -62,7 +100,7 @@ export const CLASSES = {
                 type: 'stun_adjacent',
                 dice: 6,
                 diceCount: 1,
-                cooldown: 16,
+                cooldown: 14,
                 statusEffect: { type: 'STUNNED', duration: 2 },
                 desc: 'Slam shield into adjacent foe for 1d6 damage and stun for 2 turns.'
             },
@@ -76,9 +114,9 @@ export const CLASSES = {
                 radius: 1,
                 type: 'aoe_adjacent',
                 dice: 8,
-                diceCount: 1,
-                cooldown: 24,
-                desc: 'Spin in a 360-degree martial arc, striking every surrounding foe for 1d8+STR damage.'
+                diceCount: 2,
+                cooldown: 20,
+                desc: 'Spin in a 360-degree martial storm, striking all adjacent foes for 2d8+STR damage.'
             }
         ]
     },
@@ -112,6 +150,17 @@ export const CLASSES = {
                 desc: 'Unerring arcane bolt strikes visible foe for 2d4+2 damage.'
             },
             {
+                id: 'mana_shield',
+                name: 'Mana Shield',
+                level: 1,
+                icon: '💠',
+                delivery: 'SELF',
+                type: 'buff_def',
+                cooldown: 16,
+                statusEffect: { type: 'STONESKIN', duration: 12 },
+                desc: 'Envelope yourself in translucent arcane barrier (+3 AC for 12 turns).'
+            },
+            {
                 id: 'frost_ray',
                 name: 'Frost Ray',
                 level: 2,
@@ -122,9 +171,9 @@ export const CLASSES = {
                 dice: 8,
                 diceCount: 1,
                 damageType: 'COLD',
-                cooldown: 12,
+                cooldown: 10,
                 statusEffect: { type: 'CLUMSY', duration: 4 },
-                desc: 'Beam of freezing energy: deals 1d8 cold damage and slows foe (-4 DEX, -2 AC).'
+                desc: 'Beam of freezing frost: deals 1d8 cold damage and slows foe (-4 DEX, -2 AC).'
             },
             {
                 id: 'fireball',
@@ -138,10 +187,10 @@ export const CLASSES = {
                 dice: 6,
                 diceCount: 3,
                 damageType: 'FIRE',
-                cooldown: 22,
+                cooldown: 18,
                 statusEffect: { type: 'BURNING', duration: 3 },
                 zoneEffect: { type: 'FIRE', duration: 4 },
-                desc: 'Hurl an explosive sphere creating a 3x3 blast for 3d6 fire damage and a lingering fire field.'
+                desc: 'Explosive sphere creates 3x3 blast for 3d6 fire damage and lingering fire field.'
             },
             {
                 id: 'poison_cloud',
@@ -155,7 +204,7 @@ export const CLASSES = {
                 dice: 4,
                 diceCount: 1,
                 damageType: 'POISON',
-                cooldown: 25,
+                cooldown: 22,
                 statusEffect: { type: 'POISONED', duration: 4 },
                 zoneEffect: { type: 'POISON_GAS', duration: 5 },
                 desc: 'Conjure a lingering 3x3 cloud of toxic gas that chokes and poisons all within.'
@@ -186,7 +235,7 @@ export const CLASSES = {
                 isPositive: true,
                 dice: 8,
                 diceCount: 2,
-                cooldown: 14,
+                cooldown: 12,
                 desc: 'Sacred prayer restores 2d8 + WIS modifier HP instantly.'
             },
             {
@@ -199,9 +248,22 @@ export const CLASSES = {
                 dice: 6,
                 diceCount: 2,
                 damageType: 'HOLY',
-                cooldown: 12,
+                cooldown: 10,
                 statusEffect: { type: 'BLESSED', duration: 8 },
                 desc: 'Infuse weapon with holy light: +2d6 radiant damage and grants Blessed aura.'
+            },
+            {
+                id: 'turn_undead',
+                name: 'Holy Terror (Turn Foes)',
+                level: 2,
+                icon: '☀️',
+                delivery: 'AOE',
+                range: 0,
+                radius: 2,
+                type: 'aoe_fear',
+                cooldown: 18,
+                statusEffect: { type: 'TERRIFIED', duration: 4 },
+                desc: 'Present holy symbol! Infuses divine dread, compelling nearby foes to flee in TERROR!'
             },
             {
                 id: 'holy_nova',
@@ -218,8 +280,8 @@ export const CLASSES = {
                 dice: 6,
                 diceCount: 2,
                 damageType: 'HOLY',
-                cooldown: 24,
-                desc: 'Positive burst (5x5 radius): heals hero for 2d8 HP while searing surrounding foes for 2d6 holy damage.'
+                cooldown: 20,
+                desc: 'Positive burst: heals hero for 2d8 HP while searing surrounding foes for 2d6 holy damage.'
             },
             {
                 id: 'consecrate',
@@ -231,7 +293,7 @@ export const CLASSES = {
                 radius: 1,
                 type: 'zone',
                 isPositive: true,
-                cooldown: 26,
+                cooldown: 24,
                 zoneEffect: { type: 'CONSECRATION', duration: 6 },
                 desc: 'Sanctify 3x3 ground: heals player each turn while burning unholy foes.'
             }
@@ -259,9 +321,24 @@ export const CLASSES = {
                 delivery: 'SELF',
                 type: 'buff_all',
                 isPositive: true,
-                cooldown: 18,
+                cooldown: 16,
                 statusEffect: { type: 'BLESSED', duration: 15 },
                 desc: 'Stirring ballad: grants Blessed aura (+2 AC, +2 Attack, +Holy damage) for 15 turns.'
+            },
+            {
+                id: 'dissonant_whispers',
+                name: 'Dissonant Whispers (Fear)',
+                level: 1,
+                icon: '😱',
+                delivery: 'RANGED',
+                range: 6,
+                type: 'ranged_damage',
+                dice: 6,
+                diceCount: 1,
+                damageType: 'SONIC',
+                cooldown: 12,
+                statusEffect: { type: 'TERRIFIED', duration: 3 },
+                desc: 'Whisper discordant dread into target mind: deals 1d6 sonic damage and causes TERROR!'
             },
             {
                 id: 'healing_ballad',
@@ -271,7 +348,7 @@ export const CLASSES = {
                 delivery: 'SELF',
                 type: 'heal_over_time',
                 isPositive: true,
-                cooldown: 18,
+                cooldown: 16,
                 statusEffect: { type: 'REGEN', duration: 6 },
                 desc: 'Soothing refrain: grants Regeneration status (+3 HP restored each turn for 6 turns).'
             },
@@ -287,7 +364,7 @@ export const CLASSES = {
                 dice: 6,
                 diceCount: 2,
                 damageType: 'SONIC',
-                cooldown: 20,
+                cooldown: 18,
                 statusEffect: { type: 'CLUMSY', duration: 4 },
                 desc: 'Acoustic shockwave in 3x3 area: deals 2d6 sonic damage and disorients foes with Clumsy.'
             },
@@ -300,7 +377,7 @@ export const CLASSES = {
                 range: 5,
                 radius: 1,
                 type: 'aoe_range',
-                cooldown: 30,
+                cooldown: 25,
                 statusEffect: { type: 'STUNNED', duration: 3 },
                 desc: 'Hypnotic melody: puts all foes in a 3x3 area into deep slumber (Stunned for 3 turns).'
             }
@@ -335,6 +412,17 @@ export const CLASSES = {
                 desc: 'Carefully sighted sniper shot dealing 1d8+DEX+3 damage with critical accuracy.'
             },
             {
+                id: 'hunters_mark',
+                name: "Hunter's Stalk",
+                level: 1,
+                icon: '👁️',
+                delivery: 'SELF',
+                type: 'buff_all',
+                cooldown: 14,
+                statusEffect: { type: 'ENERGY', duration: 15 },
+                desc: 'Tap into tracker instinct: grants Energy Rush (+3 DEX, +2 Attack) for 15 turns.'
+            },
+            {
                 id: 'snare_trap',
                 name: 'Snare Trap',
                 level: 2,
@@ -343,7 +431,7 @@ export const CLASSES = {
                 range: 4,
                 radius: 1,
                 type: 'zone',
-                cooldown: 16,
+                cooldown: 14,
                 zoneEffect: { type: 'WEB_ZONE', duration: 5 },
                 desc: 'Toss a spiked net creating an entangling web that roots and slows foes.'
             },
@@ -358,7 +446,7 @@ export const CLASSES = {
                 type: 'aoe_range',
                 dice: 6,
                 diceCount: 2,
-                cooldown: 22,
+                cooldown: 20,
                 statusEffect: { type: 'BLEEDING', duration: 3 },
                 desc: 'Rain piercing arrows in a 5x5 area: deals 2d6 physical damage and causes bleeding.'
             }
@@ -392,6 +480,29 @@ export class ClassManager {
 
     static getAllClasses() {
         return Object.values(CLASSES);
+    }
+
+    static getFeatsForClass(id) {
+        const cls = this.getClass(id);
+        return cls ? cls.abilities : [];
+    }
+
+    static getFeatsByTier(id, level) {
+        const feats = this.getFeatsForClass(id);
+        return feats.filter(f => f.level <= level);
+    }
+
+    static getDefaultFeatsForClass(id) {
+        const feats = this.getFeatsForClass(id);
+        const defaults = [];
+        const seenLevels = new Set();
+        for (const f of feats) {
+            if (!seenLevels.has(f.level)) {
+                seenLevels.add(f.level);
+                defaults.push(f.id);
+            }
+        }
+        return defaults;
     }
 }
 

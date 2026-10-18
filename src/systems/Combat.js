@@ -119,6 +119,9 @@ export class CombatSystem {
         if (monsterStatusMods.isStunned) {
             return { skipped: true, reason: 'Stunned' };
         }
+        if (monsterStatusMods.isTerrified) {
+            return { skipped: true, reason: 'Terrified' };
+        }
 
         let coverBonus = 0;
         if (terrain) {

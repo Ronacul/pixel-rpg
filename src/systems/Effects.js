@@ -67,9 +67,60 @@ export const STATUS_TYPES = {
         name: 'Regeneration',
         icon: '💖',
         isHarmful: false,
-        tickMin: 2,
-        tickMax: 4,
+        tickHeal: [2, 4],
         desc: 'Rapid cellular rejuvenation restores HP every turn.'
+    },
+    TERRIFIED: {
+        id: 'TERRIFIED',
+        name: 'Terrified',
+        icon: '😱',
+        isHarmful: true,
+        isFear: true,
+        attackPenalty: 4,
+        acPenalty: 2,
+        desc: 'Overwhelmed with sheer dread! Panics and flees away from the hero, unable to attack.'
+    },
+    HALLUCINATING: {
+        id: 'HALLUCINATING',
+        name: 'Hallucinating',
+        icon: '🌀',
+        isHarmful: false,
+        isHallucination: true,
+        desc: 'Perception warped by psychedelic fungal spores. Distorts senses, reveals phantom visions.'
+    },
+    ENERGY: {
+        id: 'ENERGY',
+        name: 'Energy Rush',
+        icon: '⚡',
+        isHarmful: false,
+        dexBonus: 3,
+        attackBonus: 2,
+        desc: 'Surging with mushroom adrenaline: +3 DEX, +2 Attack rolls.'
+    },
+    STONESKIN: {
+        id: 'STONESKIN',
+        name: 'Stoneskin',
+        icon: '🪨',
+        isHarmful: false,
+        acBonus: 3,
+        desc: 'Flesh hardened like granite: +3 Armor Class.'
+    },
+    STARVING: {
+        id: 'STARVING',
+        name: 'Starving',
+        icon: '🥀',
+        isHarmful: true,
+        attackPenalty: 2,
+        desc: 'Weakened by extreme hunger: -2 Attack, passive HP recovery halted.'
+    },
+    WELL_FED: {
+        id: 'WELL_FED',
+        name: 'Well Fed',
+        icon: '🍖',
+        isHarmful: false,
+        acBonus: 1,
+        attackBonus: 1,
+        desc: 'Nourished by hearty rations: +1 AC, +1 Attack, enhanced vigor.'
     }
 };
 
@@ -153,6 +204,11 @@ export class EffectSystem {
         if (!entity || !STATUS_TYPES[statusId]) return null;
         if (!entity.statuses) entity.statuses = [];
 
+        // Dwarven 3pc Set Bonus: Stoneblood Resilience (Immunity to Stun & Bleed)
+        if (entity.setBonuses?.stoneblood && (statusId === 'STUNNED' || statusId === 'BLEEDING')) {
+            return null;
+        }
+
         const def = STATUS_TYPES[statusId];
         const existing = entity.statuses.find(s => s.id === statusId);
 
@@ -189,9 +245,11 @@ export class EffectSystem {
         let attackMod = 0;
         let bonusDmg = 0;
         let isStunned = false;
+        let isTerrified = false;
+        let isHallucinating = false;
 
         if (!entity || !entity.statuses) {
-            return { dexMod, acMod, attackMod, bonusDmg, isStunned };
+            return { dexMod, acMod, attackMod, bonusDmg, isStunned, isTerrified, isHallucinating };
         }
 
         for (const s of entity.statuses) {
@@ -202,13 +260,16 @@ export class EffectSystem {
             if (def.acPenalty) acMod -= def.acPenalty;
             if (def.attackPenalty) attackMod -= def.attackPenalty;
             if (def.skipsTurn) isStunned = true;
+            if (def.isFear) isTerrified = true;
+            if (def.isHallucination) isHallucinating = true;
 
+            if (def.dexBonus) dexMod += def.dexBonus;
             if (def.acBonus) acMod += def.acBonus;
             if (def.attackBonus) attackMod += def.attackBonus;
             if (def.damageBonus) bonusDmg += def.damageBonus;
         }
 
-        return { dexMod, acMod, attackMod, bonusDmg, isStunned };
+        return { dexMod, acMod, attackMod, bonusDmg, isStunned, isTerrified, isHallucinating };
     }
 
     // Tick entity statuses (called every turn for player and living monsters)

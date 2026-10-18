@@ -10,7 +10,7 @@ import { PlayerCharacter } from './entities/Character.js';
 import { PerceptionSystem } from './systems/Perception.js';
 import { CombatSystem } from './systems/Combat.js';
 import { findPath } from './systems/Pathfinding.js';
-import { ITEM_SLOTS, generateLootItem } from './data/Items.js';
+import { ITEM_SLOTS, generateLootItem, EQUIPMENT_SETS, calculateEquippedSetBonuses, MUSHROOM_TYPES } from './data/Items.js';
 import { CLASSES, XP_TABLE, SKILLS, ClassManager, isAttributeMilestone } from './data/Classes.js';
 import { EffectSystem, STATUS_TYPES, ZONE_TYPES, DELIVERY_TYPES } from './systems/Effects.js';
 
@@ -146,6 +146,9 @@ function updateHUD() {
     document.getElementById('hud-max-hp').innerText = player.maxHp;
     document.getElementById('hud-ac').innerText = player.ac;
 
+    const hr = document.getElementById('hud-rations');
+    if (hr) hr.innerText = player.rations !== undefined ? player.rations : 5;
+
     // Status effect badges on HUD
     const hudStatuses = document.getElementById('hud-statuses');
     if (hudStatuses) {
@@ -189,10 +192,17 @@ function postMessage(text, className = '') {
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    // Dynamic Hallucination Canvas Filter (psychedelic fungal spores)
+    if (EffectSystem.hasStatus(player, 'HALLUCINATING')) {
+        canvas.style.filter = 'hue-rotate(160deg) saturate(2.2) contrast(1.15)';
+    } else {
+        canvas.style.filter = 'none';
+    }
+
     const camX = player.x - Math.floor(VIEW_COLS / 2);
     const camY = player.y - Math.floor(VIEW_ROWS / 2);
 
-    const { terrain, visibility, biome, monsters, chests, bloodStains, hazardZones, trapsRevealed } = currentFloorData;
+    const { terrain, visibility, biome, monsters, chests, mushrooms, corpses, bloodStains, hazardZones, trapsRevealed } = currentFloorData;
 
     for (let ry = 0; ry < VIEW_ROWS; ry++) {
         for (let rx = 0; rx < VIEW_COLS; rx++) {
@@ -328,6 +338,18 @@ function draw() {
                 drawGlyph(chest.opened ? '📭' : '📦', screenX, screenY, isDim ? 0.5 : 1.0);
             }
 
+            // Forageable Mushrooms
+            const shroom = mushrooms?.find(m => m.x === worldX && m.y === worldY);
+            if (shroom && vis !== VISIBILITY.UNEXPLORED) {
+                drawGlyph('🍄', screenX, screenY, isDim ? 0.45 : 1.0);
+            }
+
+            // Slain Monster Carcasses / Corpses
+            const corpse = corpses?.find(c => !c.harvested && c.x === worldX && c.y === worldY);
+            if (corpse && vis !== VISIBILITY.UNEXPLORED) {
+                drawGlyph('🥩', screenX, screenY, isDim ? 0.4 : 0.85);
+            }
+
             // Monsters (Only in active visibility)
             if (vis === VISIBILITY.VISIBLE) {
                 const monster = monsters.find(m => m.alive && m.x === worldX && m.y === worldY);
@@ -457,6 +479,56 @@ function addBlood(x, y) {
     }
 }
 
+function addCorpse(monster) {
+    if (!currentFloorData.corpses) currentFloorData.corpses = [];
+    const mName = monster.name;
+    const isVenomous = mName.toLowerCase().includes('spider') || mName.toLowerCase().includes('viper') || mName.toLowerCase().includes('crawler') || mName.toLowerCase().includes('snake');
+    currentFloorData.corpses.push({
+        id: `corpse_${monster.id || Date.now()}`,
+        x: monster.x,
+        y: monster.y,
+        name: `${monster.name} Carcass`,
+        monsterName: monster.name,
+        icon: '🥩',
+        isVenomous,
+        harvested: false
+    });
+}
+
+// Single-step direction for terrified monster fleeing away from player
+function getStepAwayFrom(sx, sy, px, py, terrain, monsters) {
+    const dirs = [
+        { dx: 0, dy: -1 },
+        { dx: 0, dy: 1 },
+        { dx: -1, dy: 0 },
+        { dx: 1, dy: 0 },
+        { dx: -1, dy: -1 },
+        { dx: 1, dy: -1 },
+        { dx: -1, dy: 1 },
+        { dx: 1, dy: 1 }
+    ];
+    let bestStep = null;
+    let maxDist = Math.hypot(sx - px, sy - py);
+
+    for (const d of dirs) {
+        const nx = sx + d.dx;
+        const ny = sy + d.dy;
+        if (nx < 0 || nx >= MAP_WIDTH || ny < 0 || ny >= MAP_HEIGHT) continue;
+        const t = terrain[ny * MAP_WIDTH + nx];
+        const isImpassable = (t === TILES.WALL || t === TILES.PILLAR || t === TILES.PIT || t === TILES.RUBBLE || t === TILES.DOOR_CLOSED || t === TILES.BARREL);
+        const occupied = monsters.some(other => other.alive && other.x === nx && other.y === ny);
+        const isPlayerTile = (nx === px && ny === py);
+        if (!isImpassable && !occupied && !isPlayerTile) {
+            const dist = Math.hypot(nx - px, ny - py);
+            if (dist > maxDist) {
+                maxDist = dist;
+                bestStep = { x: nx, y: ny };
+            }
+        }
+    }
+    return bestStep;
+}
+
 // ==========================================
 // 5. TURN CYCLE & LINGERING HAZARDS / STATUS TICKS
 // ==========================================
@@ -469,9 +541,13 @@ function endTurn() {
         postMessage('⚡ You are STUNNED and incapacitated this turn!', 'msg-miss');
     }
 
-    // 1. Natural turn advance (passive regen, cooldowns, buffs)
-    const { healed } = player.advanceTurn();
-    if (healed) {
+    // 1. Natural turn advance (passive regen, hunger consumption, cooldowns, buffs)
+    const { healed, hungerMsg } = player.advanceTurn();
+    if (hungerMsg === 'ration_consumed') {
+        postMessage('🍖 Sustenance: Hearty ration consumed to stave off hunger.', 'msg-info');
+    } else if (hungerMsg === 'starving') {
+        postMessage('🥀 Extreme Hunger! You are STARVING (-2 Attack, HP regen halted)! Camp or eat now!', 'msg-miss');
+    } else if (healed) {
         postMessage(`💖 Resting: Natural regeneration healed 1 HP! (${player.hp}/${player.maxHp})`, 'msg-loot');
     }
 
@@ -491,7 +567,27 @@ function endTurn() {
         return;
     }
 
-    // 3. Tick Floor Hazard Zones (Fire, Poison Gas, Consecration, Acid, Web)
+    // 3. King of Kings 3pc Sovereign Fear Aura Pulse
+    if (player.setBonuses?.fearAura) {
+        const fearRadius = player.setBonuses.fearRadius || 3;
+        for (const m of currentFloorData.monsters) {
+            if (!m.alive) continue;
+            const mIdx = m.y * MAP_WIDTH + m.x;
+            if (currentFloorData.visibility[mIdx] === VISIBILITY.VISIBLE) {
+                const dist = Math.hypot(m.x - player.x, m.y - player.y);
+                if (dist <= fearRadius && !EffectSystem.hasStatus(m, 'TERRIFIED')) {
+                    const mSave = prng.nextInt(1, 20) + (m.wisMod || 0);
+                    const fearDC = 10 + (player.chaMod || 0) + (player.setBonuses.fearDC ? 2 : 0);
+                    if (mSave < fearDC) {
+                        EffectSystem.applyStatus(m, 'TERRIFIED', 3, 1, 'King of Kings Aura');
+                        postMessage(`👑 Sovereign Majesty! ${m.name} was overwhelmed with dread and is TERRIFIED!`, 'msg-loot');
+                    }
+                }
+            }
+        }
+    }
+
+    // 4. Tick Floor Hazard Zones (Fire, Poison Gas, Consecration, Acid, Web)
     EffectSystem.tickFloorZones(currentFloorData, player, prng, {
         onPlayerDamage: (dmg, zoneName) => {
             postMessage(`⚠️ Caught in ${zoneName} taking ${dmg} dmg! (${player.hp}/${player.maxHp} HP)`, 'msg-miss');
@@ -502,6 +598,7 @@ function endTurn() {
         onMonsterDamage: (m, dmg, zoneType) => {
             if (m.hp <= 0) {
                 m.alive = false;
+                addCorpse(m);
                 const xp = 10 * currentFloorData.floorLevel + Math.max(5, m.maxHp);
                 const lvs = player.gainXp(xp);
                 postMessage(`💀 ${m.name} perished in ${zoneType}! +${xp} XP`, 'msg-victory');
@@ -515,7 +612,7 @@ function endTurn() {
         return;
     }
 
-    // 4. Tick Living Monster Statuses
+    // 5. Tick Living Monster Statuses
     const { monsters, terrain } = currentFloorData;
     for (const m of monsters) {
         if (!m.alive) continue;
@@ -524,6 +621,7 @@ function endTurn() {
         });
         if (m.hp <= 0) {
             m.alive = false;
+            addCorpse(m);
             const xp = 10 * currentFloorData.floorLevel + Math.max(5, m.maxHp);
             const lvs = player.gainXp(xp);
             postMessage(`💀 ${m.name} succumbed to lingering affliction! +${xp} XP`, 'msg-victory');
@@ -531,7 +629,7 @@ function endTurn() {
         }
     }
 
-    // 5. Monster Pursuit AI Loop (Checking Stun & Pillar Cover)
+    // 6. Monster Pursuit & Fear Fleeing AI Loop
     let pursuing = false;
     for (const m of monsters) {
         if (!m.alive) continue;
@@ -543,13 +641,25 @@ function endTurn() {
         }
 
         if (m.alert) {
+            const mMods = EffectSystem.getStatusModifiers(m);
+
+            // Terrified Monsters panic and flee away from player, cannot attack
+            if (mMods.isTerrified) {
+                const fleeStep = getStepAwayFrom(m.x, m.y, player.x, player.y, terrain, monsters);
+                if (fleeStep) {
+                    m.x = fleeStep.x;
+                    m.y = fleeStep.y;
+                }
+                continue;
+            }
+
             const dist = Math.hypot(player.x - m.x, player.y - m.y);
 
             // Adjacent -> Attack player!
             if (dist <= 1.5) {
                 const attackRes = CombatSystem.resolveMonsterAttack(prng, m, player, terrain);
                 if (attackRes.skipped) {
-                    postMessage(`⚡ ${m.name} is stunned and unable to attack.`);
+                    postMessage(`⚡ ${m.name} is incapacitated and unable to attack.`);
                 } else if (attackRes.isHit) {
                     addBlood(player.x, player.y);
                     let hitMsg = `🩸 ${m.name} struck you for ${attackRes.damage} dmg! (${player.hp}/${player.maxHp} HP)`;
@@ -567,7 +677,7 @@ function endTurn() {
                 }
             } else if (dist <= 12) {
                 // Monsters cannot move if stunned
-                if (!EffectSystem.getStatusModifiers(m).isStunned) {
+                if (!mMods.isStunned) {
                     const step = getStepTowards(m.x, m.y, player.x, player.y, terrain, monsters);
                     if (step) {
                         m.x = step.x;
@@ -817,6 +927,75 @@ function stepPath(path) {
         updateHUD();
     }
 
+    // Forage Mushrooms
+    const shroomIdx = currentFloorData.mushrooms?.findIndex(m => m.x === nextX && m.y === nextY);
+    if (shroomIdx !== undefined && shroomIdx !== -1) {
+        const shroom = currentFloorData.mushrooms.splice(shroomIdx, 1)[0];
+        const mushroomItem = {
+            name: shroom.name,
+            icon: shroom.icon,
+            isConsumable: true,
+            isMushroom: true,
+            mushroomType: shroom.type,
+            rations: shroom.rations,
+            healPotency: shroom.heal,
+            desc: shroom.desc
+        };
+
+        const added = player.addToBackpack(mushroomItem);
+        if (added) {
+            postMessage(`🍄 Foraged ${shroom.name}! Stowed in backpack (+10 XP).`, 'msg-loot');
+        } else {
+            let effectNote = '';
+            if (shroom.rations) player.rations += shroom.rations;
+            if (shroom.heal) {
+                player.hp = Math.min(player.maxHp, player.hp + shroom.heal);
+                effectNote += ` Healed +${shroom.heal} HP.`;
+            }
+            if (shroom.status) {
+                EffectSystem.applyStatus(player, shroom.status, shroom.duration || 20, 1, shroom.name);
+                effectNote += ` Gained ${shroom.status}!`;
+            }
+            postMessage(`🍄 Bag full! Consumed ${shroom.name} on the spot!${effectNote} (+10 XP)`, 'msg-loot');
+        }
+        const levelUps = player.gainXp(10);
+        if (levelUps.length > 0) handleLevelUps(levelUps);
+        updateHUD();
+    }
+
+    // Harvest Monster Carcass / Corpse
+    const corpse = currentFloorData.corpses?.find(c => !c.harvested && c.x === nextX && c.y === nextY);
+    if (corpse) {
+        corpse.harvested = true;
+        const harvestItem = corpse.isVenomous ? {
+            name: 'Spider Venom Sac',
+            icon: '🧪',
+            isConsumable: true,
+            statusOnHit: 'POISONED',
+            statusDuration: 5,
+            desc: 'Harvested venom gland. Coat weapon or throw: inflicts Poison.'
+        } : {
+            name: 'Fresh Beast Meat',
+            icon: '🥩',
+            isConsumable: true,
+            rations: 1,
+            healPotency: 8,
+            desc: `Freshly carved meat from ${corpse.monsterName || 'beast'}. Restores 1 Ration and 8 HP.`
+        };
+
+        const added = player.addToBackpack(harvestItem);
+        if (added) {
+            postMessage(`🥩 Harvested ${harvestItem.name} from carcass! Stowed in bag (+10 XP).`, 'msg-loot');
+        } else {
+            if (harvestItem.rations) player.rations += harvestItem.rations;
+            if (harvestItem.healPotency) player.hp = Math.min(player.maxHp, player.hp + harvestItem.healPotency);
+            postMessage(`🥩 Bag full! Ate fresh meat on spot (+1 Ration, +8 HP, +10 XP)!`, 'msg-loot');
+        }
+        const levelUps = player.gainXp(10);
+        if (levelUps.length > 0) handleLevelUps(levelUps);
+        updateHUD();
+    }
+
     // Stairs
     if (tile === TILES.STAIRS_DOWN) {
         cancelWalking();
@@ -871,6 +1050,7 @@ function resolveCombatTurn(monster, attackSource = null) {
     }
 
     if (result.monsterDied) {
+        addCorpse(monster);
         const xpReward = 15 * currentFloorData.floorLevel + Math.max(10, monster.maxHp * 2);
         const levelUps = player.gainXp(xpReward);
         postMessage(`🏆 Defeated ${monster.name}! +${xpReward} XP`, 'msg-victory');
@@ -952,6 +1132,7 @@ export function autoTargetAndAttack() {
                 postMessage(hitText, 'msg-victory');
 
                 if (res.monsterDied) {
+                    addCorpse(target);
                     const xp = 15 * currentFloorData.floorLevel + Math.max(10, target.maxHp * 2);
                     const lvs = player.gainXp(xp);
                     postMessage(`🏆 Defeated ${target.name}! +${xp} XP`, 'msg-victory');
@@ -1099,6 +1280,7 @@ function fireTargetedAction(targetX, targetY) {
                 postMessage(hitText, 'msg-victory');
 
                 if (res.monsterDied) {
+                    addCorpse(monster);
                     const xp = 15 * currentFloorData.floorLevel + Math.max(10, monster.maxHp * 2);
                     const lvs = player.gainXp(xp);
                     postMessage(`🏆 Defeated ${monster.name}! +${xp} XP`, 'msg-victory');
@@ -1139,6 +1321,7 @@ function fireTargetedAction(targetX, targetY) {
             for (const h of aoeRes.hits) {
                 if (h.died) {
                     deadCount++;
+                    addCorpse(h.monster);
                     const xp = 15 * currentFloorData.floorLevel + Math.max(10, h.monster.maxHp * 2);
                     const lvs = player.gainXp(xp);
                     if (lvs.length > 0) handleLevelUps(lvs);
@@ -1190,44 +1373,117 @@ export function openSpellsModal() {
     const list = document.getElementById('spells-list');
     if (!modal || !list) return;
 
-    const abilities = player.getAvailableAbilities();
-    if (abilities.length === 0) {
-        list.innerHTML = `<div style="color:#888; text-align:center; padding: 20px;">No class abilities unlocked yet.</div>`;
-    } else {
-        list.innerHTML = abilities.map(a => {
-            const cd = player.cooldowns[a.id] || 0;
-            const onCd = cd > 0;
-            const deliveryTag = a.delivery === 'SELF' ? 'SELF' : (a.delivery === 'AOE' ? `AOE (${a.radius}r, ${a.range || 0}t)` : (a.delivery === 'ZONE' ? `ZONE (${a.range}t)` : (a.delivery === 'RANGED' ? `RANGED (${a.range}t)` : 'ADJACENT')));
-            const statusHtml = onCd ? `<span style="color:#ff6666; font-size:10px;">[CD: ${cd}t]</span>` : `<span style="color:#55ff77; font-size:10px;">[Ready]</span>`;
+    const allClasses = ClassManager.getAllClasses();
+    const classSelectorHtml = `
+        <div style="display: flex; gap: 4px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 6px; border-bottom: 1px solid #23283c;">
+            ${allClasses.map(c => {
+                const isActive = player.characterClass.id === c.id;
+                return `
+                    <button class="modal-btn" style="flex: 1; padding: 4px 6px; font-size: 10px; white-space: nowrap; ${isActive ? 'background: #2b2814; border-color: #ffcc00; color: #ffcc00;' : 'opacity: 0.7;'}" onclick="window.switchClass('${c.id}')">
+                        ${c.icon} ${c.name}
+                    </button>
+                `;
+            }).join('')}
+        </div>
+    `;
 
-            let btnHtml = '';
-            if (onCd) {
-                btnHtml = `<button class="btn-action-small" disabled style="opacity:0.5;">On Cooldown</button>`;
-            } else if (a.delivery === 'SELF') {
-                btnHtml = `<button class="btn-action-small" style="background:#1a2e22; border-color:#55ff77; color:#55ff77;" onclick="window.useAbilityById('${a.id}')">Cast Now</button>`;
-            } else if (a.delivery === 'RANGED' || a.delivery === 'AOE' || a.delivery === 'ZONE') {
-                btnHtml = `<button class="btn-action-small" style="background:#2b2210; border-color:#ffcc00; color:#ffcc00;" onclick="window.useAbilityById('${a.id}')">🎯 Aim & Cast</button>`;
-            } else {
-                btnHtml = `<button class="btn-action-small" style="background:#2a1b1b; border-color:#ff7788; color:#ff7788;" onclick="window.useAbilityById('${a.id}')">Execute Strike</button>`;
-            }
+    const activeFeatCount = player.activeFeats.length;
+    const featBannerHtml = `
+        <div style="background: #111422; border: 1px solid #2a344d; border-radius: 6px; padding: 6px; margin-bottom: 6px; font-size: 11px; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <span style="color: #64d8cb; font-weight: bold;">Class Build:</span>
+                <span style="color: #fff; margin-left: 4px;">${activeFeatCount}/4 Feats Slotted</span>
+            </div>
+            <span style="font-size: 9px; color: #888ea6;">Tap [Equip/Unequip] to toggle active build</span>
+        </div>
+    `;
 
+    const abilities = player.characterClass.abilities || [];
+    const abilitiesHtml = abilities.map(a => {
+        const isUnlocked = a.level <= player.level;
+        const isEquipped = player.isFeatActive(a.id);
+        const cd = player.cooldowns[a.id] || 0;
+        const onCd = cd > 0;
+        const deliveryTag = a.delivery === 'SELF' ? 'SELF' : (a.delivery === 'AOE' ? `AOE (${a.radius}r, ${a.range || 0}t)` : (a.delivery === 'ZONE' ? `ZONE (${a.range}t)` : (a.delivery === 'RANGED' ? `RANGED (${a.range}t)` : 'ADJACENT')));
+
+        if (!isUnlocked) {
             return `
-                <div style="background: #0f111a; border: 1px solid #282c3f; border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 4px;">
+                <div style="background: #0a0b10; border: 1px solid #1a1c26; border-radius: 6px; padding: 6px 8px; opacity: 0.5;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-weight: bold; color: #ffcc00;">${a.icon} ${a.name}</span>
-                        <div style="display: flex; gap: 6px; align-items: center;">
-                            <span style="background: #192030; color: #64d8cb; border: 1px solid #364460; border-radius: 4px; padding: 1px 5px; font-size: 9px;">${deliveryTag}</span>
-                            ${statusHtml}
-                        </div>
+                        <span style="color: #666; font-weight: bold;">${a.icon} ${a.name}</span>
+                        <span style="font-size: 9px; color: #ff5577;">🔒 Unlocks Lv. ${a.level}</span>
                     </div>
-                    <div style="font-size: 11px; color: #bbb; line-height: 1.3;">${a.desc}</div>
-                    <div style="margin-top: 4px;">${btnHtml}</div>
+                    <div style="font-size: 10px; color: #555; margin-top: 2px;">${a.desc}</div>
                 </div>
             `;
-        }).join('');
-    }
+        }
 
+        const statusHtml = !isEquipped
+            ? `<span style="color:#777; font-size:9px;">[Not Slotted]</span>`
+            : (onCd ? `<span style="color:#ff6666; font-size:9px;">[CD: ${cd}t]</span>` : `<span style="color:#55ff77; font-size:9px;">[Ready]</span>`);
+
+        const toggleBtn = `
+            <button class="btn-action-small" style="padding: 2px 7px; font-size: 9px; ${isEquipped ? 'background: #193822; border-color: #55ff77; color: #aaffaa;' : 'background: #252838; border-color: #556688; color: #ccc;'}" onclick="window.toggleFeat('${a.id}')">
+                ${isEquipped ? '⭐ Slotted (Active)' : '+ Slot Feat'}
+            </button>
+        `;
+
+        let actionBtn = '';
+        if (isEquipped) {
+            if (onCd) {
+                actionBtn = `<button class="btn-action-small" disabled style="opacity:0.5; font-size:10px;">Cooldown (${cd}t)</button>`;
+            } else if (a.delivery === 'SELF') {
+                actionBtn = `<button class="btn-action-small" style="background:#1a2e22; border-color:#55ff77; color:#55ff77; font-size:10px;" onclick="window.useAbilityById('${a.id}')">Cast Now</button>`;
+            } else if (a.delivery === 'RANGED' || a.delivery === 'AOE' || a.delivery === 'ZONE') {
+                actionBtn = `<button class="btn-action-small" style="background:#2b2210; border-color:#ffcc00; color:#ffcc00; font-size:10px;" onclick="window.useAbilityById('${a.id}')">🎯 Aim & Cast</button>`;
+            } else {
+                actionBtn = `<button class="btn-action-small" style="background:#2a1b1b; border-color:#ff7788; color:#ff7788; font-size:10px;" onclick="window.useAbilityById('${a.id}')">Execute Strike</button>`;
+            }
+        }
+
+        return `
+            <div style="background: ${isEquipped ? '#0f111a' : '#0a0b12'}; border: 1px solid ${isEquipped ? '#282c3f' : '#191b26'}; border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 4px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-weight: bold; color: ${isEquipped ? '#ffcc00' : '#888'};">${a.icon} ${a.name}</span>
+                    <div style="display: flex; gap: 6px; align-items: center;">
+                        <span style="background: #192030; color: #64d8cb; border: 1px solid #364460; border-radius: 4px; padding: 1px 5px; font-size: 9px;">${deliveryTag}</span>
+                        ${statusHtml}
+                    </div>
+                </div>
+                <div style="font-size: 11px; color: ${isEquipped ? '#bbb' : '#777'}; line-height: 1.3;">${a.desc}</div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+                    ${toggleBtn}
+                    ${actionBtn}
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    list.innerHTML = classSelectorHtml + featBannerHtml + abilitiesHtml;
     modal.classList.add('active');
+}
+
+export function switchClass(classId) {
+    if (!player || !player.alive) return;
+    if (player.changeClass(classId)) {
+        postMessage(`⚔️ Class switched to ${player.characterClass.name} (${player.characterClass.title})!`, 'msg-victory');
+        updateHUD();
+        populateSheet();
+        openSpellsModal();
+        draw();
+    }
+}
+
+export function toggleFeat(featId) {
+    if (!player || !player.alive) return;
+    const res = player.toggleFeat(featId);
+    if (res.success) {
+        postMessage(`${res.active ? '⭐ Slotted' : '🎒 Removed'} feat: ${res.name}!`, 'msg-info');
+        updateHUD();
+        openSpellsModal();
+    } else {
+        postMessage(`⚠️ ${res.reason}`, 'msg-miss');
+    }
 }
 
 export function closeSpellsModal() {
@@ -1350,6 +1606,22 @@ export function inspectTileAt(worldX, worldY) {
             name: c.opened ? 'Opened Chest' : 'Ancient Chest',
             desc: c.opened ? 'Already looted.' : 'Contains floor equipment reward.',
             details: c.opened ? 'Empty' : `<strong>Item:</strong> ${c.item.name} (${c.item.desc})`
+        };
+    } else if (vis !== VISIBILITY.UNEXPLORED && currentFloorData.mushrooms?.some(m => m.x === worldX && m.y === worldY)) {
+        const shroom = currentFloorData.mushrooms.find(m => m.x === worldX && m.y === worldY);
+        data = {
+            icon: '🍄',
+            name: shroom.name,
+            desc: shroom.desc,
+            details: `Forageable dungeon fungi. Step onto tile to harvest or consume.<br><strong>Rations:</strong> +${shroom.rations} • <strong>Healing:</strong> +${shroom.heal} HP${shroom.status ? `<br><strong>Status Inflicted:</strong> ${shroom.status}` : ''}`
+        };
+    } else if (vis !== VISIBILITY.UNEXPLORED && currentFloorData.corpses?.some(c => !c.harvested && c.x === worldX && c.y === worldY)) {
+        const corpse = currentFloorData.corpses.find(c => !c.harvested && c.x === worldX && c.y === worldY);
+        data = {
+            icon: '🥩',
+            name: corpse.name,
+            desc: 'Slain monster carcass.',
+            details: 'Unharvested remains. Step onto tile to harvest fresh meat, venom, or sustenance rations!'
         };
     } else if (vis !== VISIBILITY.UNEXPLORED) {
         // Check for hazard zone first
@@ -1705,6 +1977,12 @@ window.addEventListener('keydown', (e) => {
         return;
     }
 
+    // Hotkey: R triggers Camp Rest
+    if (e.key === 'r' || e.key === 'R') {
+        campRest();
+        return;
+    }
+
     // Hotkey: C or I toggles Character Sheet
     if (e.key === 'c' || e.key === 'C' || e.key === 'i' || e.key === 'I') {
         const sheet = document.getElementById('sheet-modal');
@@ -1797,6 +2075,36 @@ export function populateSheet() {
     document.getElementById('sheet-per').innerText = `PER: ${player.per} (${formatMod(player.perMod)})`;
     document.getElementById('sheet-hp').innerText = `${player.hp} / ${player.maxHp}`;
     document.getElementById('sheet-ac').innerText = player.ac;
+
+    const rEl = document.getElementById('sheet-rations');
+    if (rEl) rEl.innerText = player.rations !== undefined ? player.rations : 5;
+
+    // Render Equipped Modular Set Bonuses
+    const setSummary = calculateEquippedSetBonuses(player);
+    const setBonusesEl = document.getElementById('sheet-set-bonuses');
+    if (setBonusesEl) {
+        if (setSummary.activeSets.length > 0) {
+            setBonusesEl.style.display = 'block';
+            setBonusesEl.innerHTML = `
+                <div style="font-size: 11px; font-weight: bold; color: #ffcc00; margin-bottom: 4px;">👑 EQUIPPED SET BONUSES:</div>
+                ${setSummary.activeSets.map(s => {
+                    const isFullyActive = s.tier > 0;
+                    const statusColor = isFullyActive ? '#55ff77' : '#ffcc00';
+                    return `
+                        <div style="background: #111422; border: 1px solid ${isFullyActive ? '#337744' : '#443322'}; border-radius: 4px; padding: 4px 6px; margin-bottom: 4px; font-size: 10px;">
+                            <div style="display: flex; justify-content: space-between;">
+                                <strong style="color: ${statusColor};">${s.icon} ${s.name} (${s.count} pc)</strong>
+                                <span style="color: ${statusColor}; font-weight: bold;">${s.title}</span>
+                            </div>
+                            <div style="color: #ccc; font-size: 9px; margin-top: 1px;">${s.desc}</div>
+                        </div>
+                    `;
+                }).join('')}
+            `;
+        } else {
+            setBonusesEl.style.display = 'none';
+        }
+    }
 
     // Visual Paperdoll Body Slots (10 slots)
     const eq = player.equipment;
@@ -1898,12 +2206,18 @@ export function populateSheet() {
                 cardDesc.innerText = item.desc || 'Standard item';
 
                 let throwAimBtn = '';
-                if (item.delivery === 'RANGED' || item.delivery === 'AOE' || item.isConsumable) {
+                if (item.delivery === 'RANGED' || item.delivery === 'AOE') {
                     throwAimBtn = `<button class="btn-action-small" style="background: #1b2e2d; border-color: #64d8cb; color: #64d8cb;" onclick="window.throwItemFromBackpack(${selectedSlot.id})">🎯 Aim & Throw / Fire</button>`;
                 }
 
+                let consumeBtn = '';
+                if (item.isConsumable) {
+                    consumeBtn = `<button class="btn-action-small" style="background: #2a3a19; border-color: #77cc33; color: #ccff77;" onclick="window.consumeBackpackItem(${selectedSlot.id})">🍴 Eat / Consume</button>`;
+                }
+
                 cardActions.innerHTML = `
-                    <button class="btn-action-small" style="background: #193826; border-color: #55ff77; color: #aaffaa;" onclick="window.equipSelectedBackpackItem()">⚔️ Equip</button>
+                    ${item.slot ? `<button class="btn-action-small" style="background: #193826; border-color: #55ff77; color: #aaffaa;" onclick="window.equipSelectedBackpackItem()">⚔️ Equip</button>` : ''}
+                    ${consumeBtn}
                     ${throwAimBtn}
                     <button class="btn-action-small" style="background: #381919; border-color: #ff6666; color: #ffaaaa;" onclick="window.dropSelectedBackpackItem()">🗑️ Drop</button>
                 `;
@@ -1969,6 +2283,45 @@ export function populateSheet() {
                 </div>
             `;
         }).join('');
+    }
+}
+
+export function consumeBackpackItem(idx) {
+    if (!player || !player.alive) return;
+    const res = player.consumeItem(idx);
+    if (res) {
+        let msg = `🍴 Consumed ${res.item.name}!`;
+        if (res.rationsGained) msg += ` (+${res.rationsGained} Rations: ${player.rations} total)`;
+        if (res.healAmt) msg += ` (Healed +${res.healAmt} HP: ${player.hp}/${player.maxHp})`;
+        if (res.statusApplied) msg += ` [Gained ${res.statusApplied}!]`;
+        postMessage(msg, 'msg-loot');
+        selectedSlot = null;
+        updateHUD();
+        populateSheet();
+        draw();
+    }
+}
+
+export function campRest() {
+    if (!player || !player.alive) return;
+    const { monsters, visibility } = currentFloorData;
+    const visibleFoes = monsters.filter(m => m.alive && visibility[m.y * MAP_WIDTH + m.x] === VISIBILITY.VISIBLE);
+    if (visibleFoes.length > 0) {
+        postMessage('⚠️ Cannot camp! Hostile foes are in your line of sight!', 'msg-miss');
+        return;
+    }
+
+    const res = player.campRest();
+    if (res.success) {
+        for (let i = 0; i < 5; i++) {
+            player.advanceTurn();
+        }
+        postMessage(`🏕️ Made camp and cooked a hearty meal! Restored +${res.healed} HP, cooldowns reset, Well-Fed vigor (+1 AC, +1 Atk)! (${res.rationsLeft} rations left)`, 'msg-victory');
+        updateHUD();
+        populateSheet();
+        draw();
+    } else {
+        postMessage(`⚠️ ${res.reason}`, 'msg-miss');
     }
 }
 

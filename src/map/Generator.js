@@ -3,7 +3,7 @@
 import { MAP_WIDTH, MAP_HEIGHT, TILES, VISIBILITY } from './Dungeon.js';
 import { getBiomeForFloor } from '../data/Biomes.js';
 import { PRNG } from '../core/RNG.js';
-import { generateLootItem } from '../data/Items.js';
+import { generateLootItem, MUSHROOM_TYPES } from '../data/Items.js';
 
 export function generateFloor(baseSeed, floorLevel) {
     const floorSeed = `${baseSeed}_L${floorLevel}`;
@@ -55,7 +55,7 @@ export function generateFloor(baseSeed, floorLevel) {
     }
 
     // Carve room interiors
-    rooms.forEach(room => {
+    rooms.forEach((room, idx) => {
         for (let ry = room.y; ry < room.y + room.h; ry++) {
             for (let rx = room.x; rx < room.x + room.w; rx++) {
                 carveFloor(rx, ry);
@@ -312,6 +312,40 @@ export function generateFloor(baseSeed, floorLevel) {
         }
     });
 
+    // Spawn Forageable Mushrooms across rooms (2 to 5 per floor)
+    const mushrooms = [];
+    const mushroomKeys = Object.keys(MUSHROOM_TYPES);
+    rooms.forEach((room, idx) => {
+        if (idx !== 0 && prng.chance(0.35)) {
+            const mx = prng.nextInt(room.x + 1, room.x + room.w - 2);
+            const my = prng.nextInt(room.y + 1, room.y + room.h - 2);
+            const posIdx = my * MAP_WIDTH + mx;
+            const notOccupied = terrain[posIdx] === TILES.FLOOR && 
+                !chests.some(c => c.x === mx && c.y === my) && 
+                !monsters.some(m => m.x === mx && m.y === my) &&
+                !mushrooms.some(m => m.x === mx && m.y === my);
+
+            if (notOccupied) {
+                const typeKey = prng.choice(mushroomKeys);
+                const mDef = MUSHROOM_TYPES[typeKey];
+                mushrooms.push({
+                    id: `shroom_${floorLevel}_${idx}`,
+                    x: mx,
+                    y: my,
+                    type: typeKey,
+                    name: mDef.name,
+                    icon: mDef.icon,
+                    color: mDef.color,
+                    desc: mDef.desc,
+                    rations: mDef.rations || 0,
+                    heal: mDef.heal || 0,
+                    status: mDef.status || null,
+                    duration: mDef.duration || 0
+                });
+            }
+        }
+    });
+
     return {
         floorLevel,
         biome,
@@ -323,6 +357,8 @@ export function generateFloor(baseSeed, floorLevel) {
         stairsDownPos,
         monsters,
         chests,
+        mushrooms,
+        corpses: [],
         hazardZones: [],
         trapsRevealed: new Set(),
         bloodStains: []
