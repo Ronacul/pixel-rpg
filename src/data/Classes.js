@@ -1,4 +1,6 @@
-// Modular Class & Progression System with Proficiencies, Feats, and Milestone Scaling
+// Data-driven Class registry: each class declares its hit die, base attributes, starting kit, proficiencies and ability list.
+// Sub-classes (Paladin, Ninja, Gladiator, Necromancer...) plug into the same registry later: see SUBCLASS_PLANS / ClassManager.
+import { EXTENDED_CLASSES } from './ClassesExtended.js';
 
 export const CLASSES = {
     WARRIOR: {
@@ -9,6 +11,11 @@ export const CLASSES = {
         desc: 'Master of melee weapons, heavy armor, and frontline endurance.',
         hitDie: 10,
         primaryStat: 'str',
+        baseHp: 22,
+        attributes: { str: 14, dex: 12, con: 14, int: 8, wis: 10, cha: 10 },
+        startingGear: { main_hand: 'Shortsword', armor: 'Leather Jerkin', off_hand: 'Buckler' },
+        parentClasses: [],
+        isSubclass: false,
         proficiencies: {
             armor: ['Light', 'Medium', 'Heavy', 'Shields'],
             weapons: ['Simple', 'Martial'],
@@ -120,14 +127,19 @@ export const CLASSES = {
             }
         ]
     },
-    MAGE: {
-        id: 'mage',
-        name: 'Mage',
+    WIZARD: {
+        id: 'wizard',
+        name: 'Wizard',
         title: 'Arcane Scholar',
         icon: '🔮',
         desc: 'Wielder of devastating elemental sorcery and dimensional magic.',
         hitDie: 6,
         primaryStat: 'int',
+        baseHp: 16,
+        attributes: { str: 8, dex: 12, con: 10, int: 16, wis: 12, cha: 10 },
+        startingGear: { main_hand: 'Apprentice Wand', armor: 'Padded Robes' },
+        parentClasses: [],
+        isSubclass: false,
         proficiencies: {
             armor: ['Light'],
             weapons: ['Daggers', 'Staves', 'Wands'],
@@ -219,6 +231,11 @@ export const CLASSES = {
         desc: 'Conduit of sacred light, divine healing, and radiant power.',
         hitDie: 8,
         primaryStat: 'wis',
+        baseHp: 20,
+        attributes: { str: 12, dex: 10, con: 12, int: 10, wis: 16, cha: 10 },
+        startingGear: { main_hand: 'Flanged Mace', armor: 'Leather Jerkin', off_hand: 'Buckler', amulet: 'Holy Symbol' },
+        parentClasses: [],
+        isSubclass: false,
         proficiencies: {
             armor: ['Light', 'Medium', 'Shields'],
             weapons: ['Simple', 'Maces', 'Warhammers'],
@@ -307,6 +324,11 @@ export const CLASSES = {
         desc: 'Charismatic performer weaving songs of inspiration, charm, and confusion.',
         hitDie: 8,
         primaryStat: 'cha',
+        baseHp: 18,
+        attributes: { str: 10, dex: 14, con: 10, int: 12, wis: 10, cha: 16 },
+        startingGear: { main_hand: 'Rapier', armor: 'Leather Jerkin', off_hand: 'Wooden Lute' },
+        parentClasses: [],
+        isSubclass: false,
         proficiencies: {
             armor: ['Light', 'Medium'],
             weapons: ['Simple', 'Rapiers', 'Shortswords'],
@@ -391,6 +413,11 @@ export const CLASSES = {
         desc: 'Master of line-of-sight marksmanship, beast tracking, and snare traps.',
         hitDie: 8,
         primaryStat: 'dex',
+        baseHp: 20,
+        attributes: { str: 10, dex: 16, con: 12, int: 10, wis: 12, cha: 8 },
+        startingGear: { main_hand: 'Shortbow', armor: 'Leather Jerkin', boots: 'Traveler Boots' },
+        parentClasses: [],
+        isSubclass: false,
         proficiencies: {
             armor: ['Light', 'Medium'],
             weapons: ['Simple', 'Martial', 'Bows', 'Crossbows', 'Spears'],
@@ -463,6 +490,22 @@ export const SKILLS = {
     MEDICINE: { id: 'medicine', name: 'Medicine & Survival', icon: '🩹', desc: 'Accelerates passive health regeneration rate by 2 turns' }
 };
 
+// Merge extended classes into the central registry
+Object.assign(CLASSES, EXTENDED_CLASSES);
+
+// Planned sub-classes. These are NOT selectable yet; the registry shape for them is defined here so they can be
+// added later as ordinary class defs via ClassManager.registerClass({ ...def, isSubclass: true, parentClasses: [...] }).
+// A subclass def uses the same schema as a base class plus:
+//   parentClasses: ['warrior', 'cleric']   // base classes it branches from
+//   unlockLevel: 5                          // level at which the branch becomes available
+//   inheritAbilities: true                  // keep parent abilities, add its own on top
+export const SUBCLASS_PLANS = [
+    { id: 'paladin',     name: 'Paladin',     parentClasses: ['warrior', 'cleric'], unlockLevel: 5, status: 'planned' },
+    { id: 'ninja',       name: 'Ninja',       parentClasses: ['thief', 'monk'],     unlockLevel: 5, status: 'planned' },
+    { id: 'gladiator',   name: 'Gladiator',   parentClasses: ['warrior', 'bard'],   unlockLevel: 5, status: 'planned' },
+    { id: 'necromancer', name: 'Necromancer', parentClasses: ['wizard', 'cleric'],  unlockLevel: 5, status: 'planned' }
+];
+
 // Extensible Class Management Architecture
 export class ClassManager {
     static registerClass(classDef) {
@@ -472,14 +515,30 @@ export class ClassManager {
         return true;
     }
 
+    // Legacy ids that saved links / old code may still use
+    static ALIASES = { mage: 'wizard' };
+
     static getClass(id) {
         if (!id) return CLASSES.WARRIOR;
-        const key = id.toUpperCase();
-        return CLASSES[key] || Object.values(CLASSES).find(c => c.id.toLowerCase() === id.toLowerCase()) || CLASSES.WARRIOR;
+        const lower = (this.ALIASES[id.toLowerCase()] || id).toLowerCase();
+        return CLASSES[lower.toUpperCase()] || Object.values(CLASSES).find(c => c.id.toLowerCase() === lower) || CLASSES.WARRIOR;
     }
 
     static getAllClasses() {
         return Object.values(CLASSES);
+    }
+
+    // Classes offered at character creation (base classes only; sub-classes unlock through play)
+    static getSelectableClasses() {
+        return Object.values(CLASSES).filter(c => !c.isSubclass);
+    }
+
+    static getSubclassesOf(parentId) {
+        return Object.values(CLASSES).filter(c => c.isSubclass && (c.parentClasses || []).includes(parentId));
+    }
+
+    static getPlannedSubclasses() {
+        return SUBCLASS_PLANS.filter(p => p.status === 'planned');
     }
 
     static getFeatsForClass(id) {
@@ -492,45 +551,11 @@ export class ClassManager {
         return feats.filter(f => f.level <= level);
     }
 
-    static getDefaultFeatsForClass(id) {
-        const feats = this.getFeatsForClass(id);
-        const defaults = [];
-        const seenLevels = new Set();
-        for (const f of feats) {
-            if (!seenLevels.has(f.level)) {
-                seenLevels.add(f.level);
-                defaults.push(f.id);
-            }
-        }
-        return defaults;
+    // Abilities slotted by default: everything already unlocked at `level`, up to the 4-slot cap.
+    static getDefaultFeatsForClass(id, level = 1) {
+        return this.getFeatsForClass(id).filter(f => f.level <= level).slice(0, 4).map(f => f.id);
     }
 }
 
-// Experience Point Thresholds (Levels 1 to 20)
-export const XP_TABLE = [
-    0,      // Level 1
-    100,    // Level 2
-    250,    // Level 3
-    500,    // Level 4 (Milestone Boost)
-    900,    // Level 5 (Special Feat Tier)
-    1400,   // Level 6
-    2000,   // Level 7
-    2800,   // Level 8 (Milestone Boost)
-    3800,   // Level 9
-    5000,   // Level 10 (Mastery Milestone)
-    6500,   // Level 11
-    8200,   // Level 12 (Milestone Boost)
-    10200,  // Level 13
-    12500,  // Level 14
-    15000,  // Level 15
-    18000,  // Level 16 (Milestone Boost)
-    21500,  // Level 17
-    25500,  // Level 18
-    30000,  // Level 19 (Milestone Boost)
-    35000   // Level 20
-];
-
-export function isAttributeMilestone(level) {
-    return [4, 8, 12, 16, 19].includes(level);
-}
-
+// Experience thresholds and level-up grants now live in Progression.js (data-driven); re-exported for compatibility.
+export { XP_TABLE } from './Progression.js';

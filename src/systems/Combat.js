@@ -19,6 +19,7 @@ export class CombatSystem {
         }
         const playerStatusMods = EffectSystem.getStatusModifiers(player);
         bonusAttack += playerStatusMods.attackMod;
+        bonusAttack += (player.passiveMods?.attack || 0); // Feats & masteries
 
         const bab = Math.max(1, Math.floor(player.level / 2) + 1);
         const statMod = isRanged ? player.dexMod : Math.max(player.strMod, player.dexMod);
@@ -67,7 +68,7 @@ export class CombatSystem {
                     skillBonusDmg += (player.skills.arcana || 0) * 2; // Arcana: +2 Magic Dmg
                 }
             }
-            damage = Math.max(1, rollDmg + statMod + featBonusDmg + holyBonus + (weapon.bonusFlat || 0) + skillBonusDmg);
+            damage = Math.max(1, rollDmg + statMod + featBonusDmg + holyBonus + (player.passiveMods?.dmg || 0) + (weapon.bonusFlat || 0) + skillBonusDmg);
             monster.hp = Math.max(0, monster.hp - damage);
             if (monster.hp <= 0) monster.alive = false;
 

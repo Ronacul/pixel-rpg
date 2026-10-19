@@ -1,9 +1,12 @@
-import { ITEM_SLOTS, calculateEquippedSetBonuses, MUSHROOM_TYPES } from '../data/Items.js';
-import { CLASSES, XP_TABLE, ClassManager, isAttributeMilestone } from '../data/Classes.js';
+import { ITEM_SLOTS, calculateEquippedSetBonuses, MUSHROOM_TYPES, getCompatibleSlots, createItemFromBase, findBaseItem } from '../data/Items.js';
+import { ClassManager } from '../data/Classes.js';
+import { PROGRESSION, XP_TABLE, getGrantsForLevel, MASTERIES } from '../data/Progression.js';
+import { RaceManager, DEFAULT_RACE_ID } from '../data/Races.js';
+import { FEATS } from '../data/Feats.js';
 import { EffectSystem } from '../systems/Effects.js';
 
 export class PlayerCharacter {
-    constructor(classKey = 'WARRIOR') {
+    constructor(classKey = 'warrior', raceKey = DEFAULT_RACE_ID) {
         this.x = 0;
         this.y = 0;
         this.level = 1;
@@ -13,8 +16,13 @@ export class PlayerCharacter {
         this.turnCount = 0;
         this.alive = true;
 
-        // Class Assignment
-        this.characterClass = CLASSES[classKey] || CLASSES.WARRIOR;
+        // Class & Race Assignment (data-driven registries)
+        this.characterClass = ClassManager.getClass(classKey);
+        this.race = RaceManager.getRace(raceKey);
+
+        // Permanent passives gained through levelling (ids into FEATS / MASTERIES)
+        this.generalFeats = [];
+        this.masteries = [];
 
         // Cooldowns, Active Buffs & Status Effects
         this.cooldowns = {};
@@ -25,11 +33,11 @@ export class PlayerCharacter {
         this.rations = 5;
         this.hungerTurns = 0;
 
-        // Active & Learned Feats / Talents
+        // Active & Learned Class Abilities
         this.activeFeats = ClassManager.getDefaultFeatsForClass(this.characterClass.id);
         this.learnedFeats = [...this.activeFeats];
 
-        // Skill Specializations (Ranks earned upon level milestones)
+        // Skill Specializations (Ranks earned upon level-ups)
         this.skills = {
             athletics: 0,   // +2 Max HP and +1 Melee Strike Damage per rank
             acrobatics: 0,  // +1 Dodge AC per rank
@@ -44,27 +52,28 @@ export class PlayerCharacter {
                 level: 1,
                 hpGain: 0,
                 choiceType: 'baseline',
-                choiceLabel: `Class Baseline (${this.characterClass.title})`,
+                choiceLabel: `${this.race.name} ${this.characterClass.name} (${this.characterClass.title})`,
                 unlockedAbilities: this.characterClass.abilities.filter(a => a.level === 1).map(a => a.name)
             }
         ];
 
-        // Class-Based Baseline RPG Attributes
+        // Class + Race Baseline RPG Attributes
         this.setClassAttributes(this.characterClass.id);
 
-        // 10 Categorized Paperdoll Equipment Slots
+        // 10 Categorized Paperdoll Equipment Slots, filled from the class' starting kit
         this.equipment = {
             [ITEM_SLOTS.HELM]: null,
             [ITEM_SLOTS.AMULET]: null,
-            [ITEM_SLOTS.ARMOR]: { name: 'Padded Vest', slot: ITEM_SLOTS.ARMOR, ac: 1, icon: '🦺', desc: '+1 AC' },
+            [ITEM_SLOTS.ARMOR]: null,
             [ITEM_SLOTS.CLOAK]: null,
-            [ITEM_SLOTS.MAIN_HAND]: { name: 'Iron Blade', slot: ITEM_SLOTS.MAIN_HAND, dice: 6, str: 0, dex: 0, icon: '⚔️', desc: '1d6 Dmg' },
-            [ITEM_SLOTS.OFF_HAND]: { name: 'Buckler', slot: ITEM_SLOTS.OFF_HAND, ac: 1, icon: '🛡️', desc: '+1 AC' },
+            [ITEM_SLOTS.MAIN_HAND]: null,
+            [ITEM_SLOTS.OFF_HAND]: null,
             [ITEM_SLOTS.GAUNTLETS]: null,
             [ITEM_SLOTS.BOOTS]: null,
             [ITEM_SLOTS.RING_LEFT]: null,
             [ITEM_SLOTS.RING_RIGHT]: null
         };
+        this.applyStartingGear();
 
         // 15 Backpack Storage Slots (10 Body + 15 Bag = 25 Total Slots)
         this.backpack = [];
@@ -75,23 +84,38 @@ export class PlayerCharacter {
         this.hp = this.maxHp;
     }
 
-    setClassAttributes(classId) {
-        const id = (classId || '').toLowerCase();
-        if (id === 'mage') {
-            this.baseStr = 8; this.baseDex = 12; this.baseCon = 10; this.baseInt = 16; this.baseWis = 12; this.baseCha = 10;
-        } else if (id === 'cleric') {
-            this.baseStr = 12; this.baseDex = 10; this.baseCon = 12; this.baseInt = 10; this.baseWis = 16; this.baseCha = 10;
-        } else if (id === 'bard') {
-            this.baseStr = 10; this.baseDex = 14; this.baseCon = 10; this.baseInt = 12; this.baseWis = 10; this.baseCha = 16;
-        } else if (id === 'ranger') {
-            this.baseStr = 10; this.baseDex = 16; this.baseCon = 12; this.baseInt = 10; this.baseWis = 12; this.baseCha = 8;
-        } else {
-            // warrior default
-            this.baseStr = 14; this.baseDex = 12; this.baseCon = 14; this.baseInt = 8; this.baseWis = 10; this.baseCha = 10;
+    applyStartingGear() {
+        const kit = this.characterClass.startingGear || {};
+        for (const slot of Object.keys(this.equipment)) {
+            this.equipment[slot] = null;
+        }
+        for (const [slot, baseName] of Object.entries(kit)) {
+            const base = findBaseItem(baseName);
+            if (base && slot in this.equipment) this.equipment[slot] = createItemFromBase(base);
         }
     }
 
-    // Dynamic Attribute Getters (Base + Equipment + Active Buffs + Set Bonuses)
+    // Class base attributes + race modifiers (never below 3)
+    setClassAttributes(classId) {
+        const cls = ClassManager.getClass(classId);
+        const a = cls.attributes || { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 };
+        const r = this.race?.attrs || {};
+        const v = (k) => Math.max(3, (a[k] || 10) + (r[k] || 0));
+        this.baseStr = v('str'); this.baseDex = v('dex'); this.baseCon = v('con');
+        this.baseInt = v('int'); this.baseWis = v('wis'); this.baseCha = v('cha');
+    }
+
+    // Sum of permanent passive modifiers from race, general feats and heroic masteries
+    get passiveMods() {
+        const totals = { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0, ac: 0, maxHp: 0, attack: 0, dmg: 0, per: 0, regen: 0 };
+        const add = (mods) => { for (const k in mods) totals[k] = (totals[k] || 0) + mods[k]; };
+        add(this.race?.mods);
+        for (const id of this.generalFeats) add(FEATS[id]?.mods);
+        for (const id of this.masteries) add(MASTERIES[id]?.mods);
+        return totals;
+    }
+
+    // Dynamic Attribute Getters (Base + Equipment + Active Buffs + Set Bonuses + Feats)
     getEquippedItems() {
         return Object.values(this.equipment).filter(Boolean);
     }
@@ -101,30 +125,30 @@ export class PlayerCharacter {
     }
 
     get str() {
-        return this.baseStr + this.getEquippedItems().reduce((sum, item) => sum + (item.str || 0), 0) + (this.setBonuses.str || 0);
+        return this.baseStr + this.getEquippedItems().reduce((sum, item) => sum + (item.str || 0), 0) + (this.setBonuses.str || 0) + this.passiveMods.str;
     }
 
     get dex() {
         const statusDex = EffectSystem.getStatusModifiers(this).dexMod;
         const equipDex = this.getEquippedItems().reduce((sum, item) => sum + (item.dex || 0), 0);
-        return Math.max(1, this.baseDex + equipDex + statusDex + (this.setBonuses.dex || 0));
+        return Math.max(1, this.baseDex + equipDex + statusDex + (this.setBonuses.dex || 0) + this.passiveMods.dex);
     }
 
     get con() {
-        return this.baseCon + this.getEquippedItems().reduce((sum, item) => sum + (item.con || 0), 0) + (this.setBonuses.con || 0);
+        return this.baseCon + this.getEquippedItems().reduce((sum, item) => sum + (item.con || 0), 0) + (this.setBonuses.con || 0) + this.passiveMods.con;
     }
 
     get int() {
         const intBonus = EffectSystem.hasStatus(this, 'HALLUCINATING') ? 3 : 0;
-        return this.baseInt + this.getEquippedItems().reduce((sum, item) => sum + (item.int || 0), 0) + (this.setBonuses.int || 0) + intBonus;
+        return this.baseInt + this.getEquippedItems().reduce((sum, item) => sum + (item.int || 0), 0) + (this.setBonuses.int || 0) + intBonus + this.passiveMods.int;
     }
 
     get wis() {
-        return this.baseWis + this.getEquippedItems().reduce((sum, item) => sum + (item.wis || 0), 0) + (this.setBonuses.wis || 0);
+        return this.baseWis + this.getEquippedItems().reduce((sum, item) => sum + (item.wis || 0), 0) + (this.setBonuses.wis || 0) + this.passiveMods.wis;
     }
 
     get cha() {
-        return this.baseCha + this.getEquippedItems().reduce((sum, item) => sum + (item.cha || 0), 0) + (this.setBonuses.cha || 0);
+        return this.baseCha + this.getEquippedItems().reduce((sum, item) => sum + (item.cha || 0), 0) + (this.setBonuses.cha || 0) + this.passiveMods.cha;
     }
 
     // Stat Modifiers
@@ -135,21 +159,22 @@ export class PlayerCharacter {
     get wisMod() { return Math.floor((this.wis - 10) / 2); }
     get chaMod() { return Math.floor((this.cha - 10) / 2); }
 
-    // Perception Metric: (DEX + INT + WIS) / 3 + Skill bonus + Set bonus
+    // Perception Metric: (DEX + INT + WIS) / 3 + Skill bonus + Set bonus + Feats/Race
     get per() {
         const setPer = this.setBonuses.perRadar || 0;
-        return Math.floor((this.dex + this.int + this.wis) / 3) + ((this.skills?.perception || 0) * 2) + setPer;
+        return Math.floor((this.dex + this.int + this.wis) / 3) + ((this.skills?.perception || 0) * 2) + setPer + this.passiveMods.per;
     }
     get perMod() {
         return Math.floor((this.per - 10) / 2);
     }
 
-    // Hit Points: Base 20 + CON modifier * 8 + Cumulative Level-Up Bonus HP + Athletics Skill Rank + Set Bonus
+    // Hit Points: class base HP + CON modifier * 8 + Cumulative Level-Up Bonus HP + Athletics + Set Bonus + Feats
     get maxHp() {
-        return 20 + (this.conMod * 8) + this.bonusHp + ((this.skills?.athletics || 0) * 2) + (this.setBonuses.maxHp || 0);
+        const base = this.characterClass.baseHp ?? 20;
+        return base + (this.conMod * 8) + this.bonusHp + ((this.skills?.athletics || 0) * 2) + (this.setBonuses.maxHp || 0) + this.passiveMods.maxHp;
     }
 
-    // Armor Class: 10 + Equipment AC + DEX Mod + Active Buffs + Status Modifiers + Acrobatics Skill Rank + Set AC
+    // Armor Class: 10 + Equipment AC + DEX Mod + Active Buffs + Status Modifiers + Acrobatics Skill Rank + Set AC + Feats
     get ac() {
         const equipAc = this.getEquippedItems().reduce((sum, item) => sum + (item.ac || 0), 0);
         const buffAc = this.activeBuffs
@@ -158,15 +183,20 @@ export class PlayerCharacter {
         const statusAc = EffectSystem.getStatusModifiers(this).acMod;
         const skillAcro = this.skills?.acrobatics || 0;
         const setAc = this.setBonuses.ac || 0;
-        return Math.max(5, 10 + equipAc + this.dexMod + buffAc + statusAc + skillAcro + setAc);
+        return Math.max(5, 10 + equipAc + this.dexMod + buffAc + statusAc + skillAcro + setAc + this.passiveMods.ac);
     }
 
     get regenRate() {
-        return Math.max(4, 12 - ((this.skills?.medicine || 0) * 2));
+        return Math.max(4, 12 - ((this.skills?.medicine || 0) * 2) - (this.passiveMods.regen * 2));
     }
 
     get weapon() {
-        return this.equipment[ITEM_SLOTS.MAIN_HAND] || { name: 'Fists', delivery: 'ADJACENT', range: 1, dice: 3, desc: '1d3 Unarmed' };
+        return this.equipment[ITEM_SLOTS.MAIN_HAND] || {
+            name: this.characterClass.unarmedDie ? 'Martial Arts' : 'Fists',
+            delivery: 'ADJACENT', range: 1,
+            dice: this.characterClass.unarmedDie || 3,
+            desc: `1d${this.characterClass.unarmedDie || 3} Unarmed`
+        };
     }
 
     get isStunned() {
@@ -192,12 +222,31 @@ export class PlayerCharacter {
         return item;
     }
 
-    equipFromBackpack(backpackIdx) {
+    // Every owned backpack item that may be worn in `slot` (rings fit either ring slot).
+    getEquipCandidates(slot) {
+        const out = [];
+        this.backpack.forEach((item, idx) => {
+            if (item && getCompatibleSlots(item).includes(slot)) out.push({ idx, item });
+        });
+        return out;
+    }
+
+    // Slot an item would be equipped into when no slot is specified: its first empty compatible slot,
+    // otherwise its preferred slot (so a 3rd ring swaps out the item in its natural ring slot).
+    pickAutoSlot(item) {
+        const slots = getCompatibleSlots(item);
+        return slots.find(s => !this.equipment[s]) || slots[0] || null;
+    }
+
+    // Equip backpack[backpackIdx] into targetSlot (defaults to auto-pick). The displaced item swaps into the bag.
+    equipFromBackpack(backpackIdx, targetSlot = null) {
         if (backpackIdx < 0 || backpackIdx >= this.backpack.length) return null;
         const item = this.backpack[backpackIdx];
         if (!item || !item.slot) return null;
 
-        const slot = item.slot;
+        const slot = targetSlot || this.pickAutoSlot(item);
+        if (!slot || !getCompatibleSlots(item).includes(slot)) return null;
+
         const previousItem = this.equipment[slot];
 
         // Clean swap: equipped item gets new item, backpack slot gets previous item (or null)
@@ -225,31 +274,34 @@ export class PlayerCharacter {
     // ==========================================
 
     getNextLevelXp() {
-        return XP_TABLE[this.level] || Infinity;
+        return XP_TABLE[this.level] ?? Infinity;
     }
 
+    // Applies HP + queues the data-driven grants for each level gained. Choices (skill / attribute / feat /
+    // mastery) are resolved afterwards by the UI via learnFeat / chooseMastery / boostSkill / boostAttribute.
     gainXp(amount) {
         this.xp += amount;
         const levelUps = [];
 
-        while (this.level < 20 && this.xp >= this.getNextLevelXp()) {
+        while (this.level < PROGRESSION.maxLevel && this.xp >= this.getNextLevelXp()) {
             this.level++;
             const hitDie = this.characterClass.hitDie || 8;
-            const hpGain = Math.max(2, Math.floor(hitDie / 2) + 1 + this.conMod);
+            const hpGain = PROGRESSION.hp.everyLevel
+                ? Math.max(PROGRESSION.hp.minHp, Math.floor(hitDie / 2) + 1 + this.conMod + (this.race?.hpPerLevel || 0))
+                : 0;
             this.bonusHp += hpGain;
-            this.hp = this.maxHp; // Full recovery on level milestone
-
-            const milestone = isAttributeMilestone(this.level);
-            if (milestone) {
-                this.attributePoints++;
-            }
+            this.hp = this.maxHp; // Full recovery on level-up
 
             const unlockedAbilities = this.characterClass.abilities.filter(a => a.level === this.level);
+            // Newly unlocked abilities are auto-slotted while a free slot (max 4) remains
+            for (const a of unlockedAbilities) {
+                if (this.activeFeats.length < 4 && !this.activeFeats.includes(a.id)) this.activeFeats.push(a.id);
+            }
 
             levelUps.push({
                 level: this.level,
                 hpGain,
-                milestone,
+                grants: getGrantsForLevel(this.level),
                 unlockedAbilities
             });
         }
@@ -258,7 +310,6 @@ export class PlayerCharacter {
     }
 
     boostAttribute(stat) {
-        if (this.attributePoints <= 0) return false;
         switch (stat.toLowerCase()) {
             case 'str': this.baseStr++; break;
             case 'dex': this.baseDex++; break;
@@ -268,7 +319,6 @@ export class PlayerCharacter {
             case 'cha': this.baseCha++; break;
             default: return false;
         }
-        this.attributePoints--;
         return true;
     }
 
@@ -281,13 +331,34 @@ export class PlayerCharacter {
         return true;
     }
 
-    recordProgression(level, hpGain, choiceType, choiceLabel, unlockedAbilities = []) {
+    learnFeat(featId) {
+        const feat = FEATS[featId];
+        if (!feat || this.generalFeats.includes(featId)) return null;
+        this.generalFeats.push(featId);
+        if (feat.mods?.maxHp || feat.mods?.con) this.hp = Math.min(this.maxHp, this.hp + (feat.mods.maxHp || 0));
+        return feat;
+    }
+
+    chooseMastery(masteryId) {
+        const m = MASTERIES[masteryId];
+        if (!m || this.masteries.includes(masteryId)) return null;
+        this.masteries.push(masteryId);
+        if (m.mods?.maxHp) this.hp = Math.min(this.maxHp, this.hp + m.mods.maxHp);
+        if (m.resetCooldowns) {
+            for (const k in this.cooldowns) this.cooldowns[k] = 0;
+        }
+        return m;
+    }
+
+    // `choices` = [{ type, label }] for each grant resolved at this level
+    recordProgression(level, hpGain, choices, unlockedAbilities = []) {
         if (!this.progressionHistory) this.progressionHistory = [];
+        const list = Array.isArray(choices) ? choices : [];
         this.progressionHistory.push({
             level,
             hpGain,
-            choiceType,
-            choiceLabel,
+            choiceType: list.map(c => c.type).join('+') || 'hp',
+            choiceLabel: list.map(c => c.label).join(' • ') || 'Hit points only',
             unlockedAbilities: unlockedAbilities.map(a => typeof a === 'string' ? a : a.name),
             skills: { ...this.skills },
             totalHp: this.maxHp,
@@ -304,7 +375,7 @@ export class PlayerCharacter {
         if (!cls) return false;
         this.characterClass = cls;
         this.setClassAttributes(cls.id);
-        this.activeFeats = ClassManager.getDefaultFeatsForClass(cls.id);
+        this.activeFeats = ClassManager.getDefaultFeatsForClass(cls.id, this.level);
         this.learnedFeats = [...this.activeFeats];
         this.cooldowns = {};
         this.hp = Math.min(this.hp, this.maxHp);
@@ -326,7 +397,7 @@ export class PlayerCharacter {
         } else {
             // Allow up to 4 active equipped feats
             if (this.activeFeats.length >= 4) {
-                const removedId = this.activeFeats.shift(); // rotate oldest
+                this.activeFeats.shift(); // rotate oldest
             }
             this.activeFeats.push(featId);
             return { success: true, active: true, featId, name: feat.name };

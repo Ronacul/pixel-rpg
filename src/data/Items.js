@@ -113,8 +113,24 @@ export const BASE_ITEMS = [
     // Rings & Trinkets
     { name: 'Band of Fortitude', slot: ITEM_SLOTS.RING_LEFT, con: 2, icon: '💍' },
     { name: 'Ring of Quickness', slot: ITEM_SLOTS.RING_RIGHT, dex: 2, icon: '💍' },
+    { name: 'Signet of Might', slot: ITEM_SLOTS.RING_LEFT, str: 2, icon: '💍' },
+    { name: 'Ring of Insight', slot: ITEM_SLOTS.RING_RIGHT, wis: 1, int: 1, icon: '💍' },
     { name: 'Amulet of the Owl', slot: ITEM_SLOTS.AMULET, wis: 2, int: 1, icon: '📿' },
     { name: 'Shadow Cloak', slot: ITEM_SLOTS.CLOAK, dex: 1, ac: 1, icon: '🧥' },
+
+    // Class starting-kit gear (also found as loot)
+    { name: 'Oak Quarterstaff', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'ADJACENT', range: 1, dice: 6, icon: '🪄' },
+    { name: 'Apprentice Wand', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'RANGED', range: 5, dice: 4, bonusFlat: 1, icon: '🪄' },
+    { name: 'Rapier', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'ADJACENT', range: 1, dice: 8, icon: '🤺' },
+    { name: 'Flanged Mace', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'ADJACENT', range: 1, dice: 8, icon: '🔨' },
+    { name: 'Druidic Sickle', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'ADJACENT', range: 1, dice: 6, icon: '🌙' },
+    { name: 'Padded Robes', slot: ITEM_SLOTS.ARMOR, ac: 1, icon: '🥋' },
+    { name: 'Hide Armor', slot: ITEM_SLOTS.ARMOR, ac: 3, icon: '🦺' },
+    { name: 'Monk Wraps', slot: ITEM_SLOTS.GAUNTLETS, dex: 1, ac: 1, icon: '🧤' },
+    { name: 'Holy Symbol', slot: ITEM_SLOTS.AMULET, wis: 1, icon: '📿' },
+    { name: 'Wooden Lute', slot: ITEM_SLOTS.OFF_HAND, cha: 1, icon: '🪕' },
+    { name: 'Druid Totem', slot: ITEM_SLOTS.AMULET, wis: 1, con: 1, icon: '🌿' },
+    { name: "Thieves' Hood", slot: ITEM_SLOTS.HELM, dex: 1, icon: '🪖' },
 
     // ==========================================
     // MODULAR SET PIECES (LORE-INFUSED ARTIFACTS)
@@ -368,6 +384,42 @@ export const AFFIXES = [
     { name: 'Venomous', statusOnHit: 'POISONED', statusDuration: 4 },
     { name: 'Serrated', statusOnHit: 'BLEEDING', statusDuration: 4 }
 ];
+
+// Slot compatibility: a ring may be worn on EITHER hand; every other item fits only its own slot.
+// Equipment is keyed by ITEM_SLOTS values, so ring items carry slot 'ring_left'/'ring_right' as a
+// default preference only and this function is the single source of truth for what fits where.
+export const SLOT_GROUPS = {
+    [ITEM_SLOTS.RING_LEFT]: [ITEM_SLOTS.RING_LEFT, ITEM_SLOTS.RING_RIGHT],
+    [ITEM_SLOTS.RING_RIGHT]: [ITEM_SLOTS.RING_LEFT, ITEM_SLOTS.RING_RIGHT]
+};
+
+export function getCompatibleSlots(item) {
+    if (!item || !item.slot) return [];
+    return SLOT_GROUPS[item.slot] ? [...SLOT_GROUPS[item.slot]] : [item.slot];
+}
+
+export const SLOT_LABELS = {
+    [ITEM_SLOTS.HELM]: 'Helm',
+    [ITEM_SLOTS.AMULET]: 'Amulet',
+    [ITEM_SLOTS.ARMOR]: 'Armor',
+    [ITEM_SLOTS.CLOAK]: 'Cloak',
+    [ITEM_SLOTS.MAIN_HAND]: 'Main Hand',
+    [ITEM_SLOTS.OFF_HAND]: 'Off Hand',
+    [ITEM_SLOTS.GAUNTLETS]: 'Gauntlets',
+    [ITEM_SLOTS.BOOTS]: 'Boots',
+    [ITEM_SLOTS.RING_LEFT]: 'Left Ring',
+    [ITEM_SLOTS.RING_RIGHT]: 'Right Ring'
+};
+
+// Build a concrete item from a base definition (no affix roll). Used by starting-gear tables and test tooling.
+export function createItemFromBase(base) {
+    const fakePrng = { choice: () => base, chance: () => false };
+    return generateLootItem(fakePrng, 1);
+}
+
+export function findBaseItem(name) {
+    return BASE_ITEMS.find(b => b.name === name) || null;
+}
 
 export function generateLootItem(prng, floorLevel = 1) {
     const base = prng.choice(BASE_ITEMS);
