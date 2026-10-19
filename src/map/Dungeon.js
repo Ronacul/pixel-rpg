@@ -1,8 +1,32 @@
-// 100x100 Dungeon Manager with 25 Floor Bi-directional Caching
+// Dungeon Manager with 25 Floor Bi-directional Caching and a configurable (per-run) map size
 
-export const MAP_WIDTH = 100;
-export const MAP_HEIGHT = 100;
-export const TOTAL_TILES = MAP_WIDTH * MAP_HEIGHT; // 10,000 tiles
+// Selectable square map sizes (tiles per side). 150x150 is the default.
+export const MAP_SIZES = [
+    { size: 50,  label: 'Tiny (50x50)' },
+    { size: 100, label: 'Small (100x100)' },
+    { size: 150, label: 'Standard (150x150)' },
+    { size: 200, label: 'Large (200x200)' }
+];
+export const DEFAULT_MAP_SIZE = 150;
+
+// Live ES-module bindings: every importer sees the new value after setMapSize().
+// A map size is fixed for the lifetime of a playthrough (floors are cached at that size).
+export let MAP_WIDTH = DEFAULT_MAP_SIZE;
+export let MAP_HEIGHT = DEFAULT_MAP_SIZE;
+export let TOTAL_TILES = MAP_WIDTH * MAP_HEIGHT;
+
+export function normalizeMapSize(size) {
+    const n = parseInt(size, 10);
+    return MAP_SIZES.some(s => s.size === n) ? n : DEFAULT_MAP_SIZE;
+}
+
+export function setMapSize(size) {
+    const n = normalizeMapSize(size);
+    MAP_WIDTH = n;
+    MAP_HEIGHT = n;
+    TOTAL_TILES = n * n;
+    return n;
+}
 
 export const TILES = {
     FLOOR: 0,
@@ -31,9 +55,11 @@ export const VISIBILITY = {
 };
 
 export class DungeonManager {
-    constructor(baseSeedString) {
+    constructor(baseSeedString, options = {}) {
         this.baseSeedString = baseSeedString;
         this.currentFloor = 1;
+        this.mapSize = MAP_WIDTH;
+        this.testMode = !!options.testMode; // Test seeds generate the kitchen-sink level
         this.floorCache = new Map(); // floorNumber -> FloorData
     }
 
@@ -53,4 +79,3 @@ export class DungeonManager {
         this.floorCache.set(this.getFloorKey(floorNum), floorData);
     }
 }
-

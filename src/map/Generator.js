@@ -1,9 +1,29 @@
-// Procedural 100x100 Dungeon Generator with Dense Small Rooms, Short Hallways, Doors & Secret Doors
+// Procedural Dungeon Generator (configurable map size, 150x150 default) with Dense Small Rooms, Short Hallways, Doors & Secret Doors
 
 import { MAP_WIDTH, MAP_HEIGHT, TILES, VISIBILITY } from './Dungeon.js';
 import { getBiomeForFloor } from '../data/Biomes.js';
 import { PRNG } from '../core/RNG.js';
 import { generateLootItem, MUSHROOM_TYPES } from '../data/Items.js';
+
+// Shared monster factory (also used by the test-level generator)
+export function makeMonster(def, id, x, y, floorLevel) {
+    const levelBonusHp = (floorLevel - 1) * 3;
+    const levelBonusAc = Math.floor((floorLevel - 1) / 3);
+    return {
+        id,
+        name: def.name,
+        icon: def.icon,
+        x,
+        y,
+        hp: def.hp + levelBonusHp,
+        maxHp: def.hp + levelBonusHp,
+        ac: def.ac + levelBonusAc,
+        dice: def.dice,
+        desc: def.desc,
+        alive: true,
+        unaware: true // Surprise mechanic: unaware until player steps into line of sight
+    };
+}
 
 export function generateFloor(baseSeed, floorLevel) {
     const floorSeed = `${baseSeed}_L${floorLevel}`;
@@ -18,7 +38,9 @@ export function generateFloor(baseSeed, floorLevel) {
 
     // Generate smaller, dense rooms (5-9 tiles wide/high)
     const rooms = [];
-    const roomAttempts = prng.nextInt(65, 85);
+    // Room attempts scale with map area (65-85 attempts on a 100x100 map)
+    const areaScale = (MAP_WIDTH * MAP_HEIGHT) / 10000;
+    const roomAttempts = Math.max(8, Math.round(prng.nextInt(65, 85) * areaScale));
 
     for (let i = 0; i < roomAttempts; i++) {
         const w = prng.nextInt(5, 9);
@@ -45,6 +67,16 @@ export function generateFloor(baseSeed, floorLevel) {
         if (!overlap) {
             rooms.push(newRoom);
         }
+    }
+
+    // Tiny maps may rarely roll fewer than 2 rooms: keep trying until stairs have somewhere to live
+    for (let guard = 0; rooms.length < 2 && guard < 200; guard++) {
+        const w = prng.nextInt(5, 7);
+        const h = prng.nextInt(5, 7);
+        const x = prng.nextInt(3, MAP_WIDTH - w - 3);
+        const y = prng.nextInt(3, MAP_HEIGHT - h - 3);
+        const clear = rooms.every(o => !(x <= o.x + o.w + 1 && x + w + 1 >= o.x && y <= o.y + o.h + 1 && y + h + 1 >= o.y));
+        if (clear) rooms.push({ x, y, w, h, cx: Math.floor(x + w / 2), cy: Math.floor(y + h / 2), isSecret: false });
     }
 
     // Carve floor utility
@@ -176,7 +208,7 @@ export function generateFloor(baseSeed, floorLevel) {
         }
 
         // Add 4-6 extra loop connections between close neighbors for non-linear exploration
-        const extraConnections = Math.min(6, Math.floor(rooms.length / 4));
+        const extraConnections = Math.min(Math.max(2, Math.round(6 * areaScale)), Math.floor(rooms.length / 4));
         for (let e = 0; e < extraConnections; e++) {
             const r1 = prng.choice(rooms);
             // find another close room
@@ -276,23 +308,7 @@ export function generateFloor(baseSeed, floorLevel) {
             const my = prng.nextInt(room.y + 1, room.y + room.h - 2);
 
             if (terrain[my * MAP_WIDTH + mx] === TILES.FLOOR) {
-                const levelBonusHp = (floorLevel - 1) * 3;
-                const levelBonusAc = Math.floor((floorLevel - 1) / 3);
-
-                monsters.push({
-                    id: `m_${floorLevel}_${idx}_${m}`,
-                    name: monsterDef.name,
-                    icon: monsterDef.icon,
-                    x: mx,
-                    y: my,
-                    hp: monsterDef.hp + levelBonusHp,
-                    maxHp: monsterDef.hp + levelBonusHp,
-                    ac: monsterDef.ac + levelBonusAc,
-                    dice: monsterDef.dice,
-                    desc: monsterDef.desc,
-                    alive: true,
-                    unaware: true // Surprise mechanic: unaware until player steps into line of sight
-                });
+                monsters.push(makeMonster(monsterDef, `m_${floorLevel}_${idx}_${m}`, mx, my, floorLevel));
             }
         }
 
