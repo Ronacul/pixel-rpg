@@ -249,6 +249,81 @@
             background: #1a1a26;
         }
 
+        .active-remote {
+            border-color: #64d8cb !important;
+            background: #16242c !important;
+            box-shadow: 0 0 8px rgba(100, 216, 203, 0.35) !important;
+        }
+
+        /* On-Screen Remote Controller (Virtual D-Pad) */
+        .remote-pad-container {
+            width: 100%;
+            max-width: 360px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-top: 6px;
+            padding: 8px 12px;
+            background: #0d0f17;
+            border: 1px solid #282b3d;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+        }
+
+        .remote-dpad-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 46px);
+            grid-template-rows: repeat(3, 44px);
+            gap: 6px;
+        }
+
+        .dpad-btn {
+            background: #181b29;
+            border: 1px solid #363a54;
+            border-radius: 6px;
+            color: #9aa1bc;
+            font-family: inherit;
+            font-size: 16px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+            transition: background 0.08s, transform 0.05s, border-color 0.08s;
+        }
+
+        .dpad-btn:active, .dpad-btn.pressed {
+            background: #2b3049;
+            border-color: #ffcc00;
+            color: #ffcc00;
+            transform: scale(0.93);
+        }
+
+        .dpad-cardinal {
+            background: #202538;
+            border-color: #444b6e;
+            color: #e2e6fa;
+            font-size: 18px;
+        }
+
+        .dpad-center {
+            background: #232014;
+            border-color: #736224;
+            color: #ffd700;
+            font-size: 16px;
+        }
+
+        .dpad-center:active {
+            background: #473a11;
+            border-color: #ffcc00;
+        }
+
         /* Modal Tabs */
         .modal-tab {
             flex: 1;
@@ -518,6 +593,11 @@
             <span><strong id="action-zoom-label" style="color: #64d8cb;">1x</strong></span>
         </button>
 
+        <button id="btn-remote-toggle" class="action-btn" title="Toggle Remote Control Gamepad / D-Pad (Touch Friendly)">
+            <span style="font-size: 13px;">🎮</span>
+            <span style="color: #64d8cb;">Pad</span>
+        </button>
+
         <button id="btn-wait-main" class="action-btn" title="Pass 1 turn / Rest & Heal (Hotkey: Space)">
             <span style="font-size: 13px;">⏳</span>
             <span>Wait</span>
@@ -526,6 +606,21 @@
 
     <!-- Single-Line Message Ticker -->
     <div id="message-bar">> Exploring dungeon depths... Tap floor to move | Long-press to inspect.</div>
+
+    <!-- On-Screen Remote Controller (Virtual D-Pad) -->
+    <div id="remote-control-pad" class="remote-pad-container" style="display: none;">
+        <div class="remote-dpad-grid">
+            <button class="dpad-btn" data-dx="-1" data-dy="-1" title="North-West (↖)">↖</button>
+            <button class="dpad-btn dpad-cardinal" data-dx="0" data-dy="-1" title="North / Up (⬆)">⬆</button>
+            <button class="dpad-btn" data-dx="1" data-dy="-1" title="North-East (↗)">↗</button>
+            <button class="dpad-btn dpad-cardinal" data-dx="-1" data-dy="0" title="West / Left (⬅)">⬅</button>
+            <button class="dpad-btn dpad-center" data-dx="0" data-dy="0" title="Wait / Pass Turn (⏳)">⏳</button>
+            <button class="dpad-btn dpad-cardinal" data-dx="1" data-dy="0" title="East / Right (➡)">➡</button>
+            <button class="dpad-btn" data-dx="-1" data-dy="1" title="South-West (↙)">↙</button>
+            <button class="dpad-btn dpad-cardinal" data-dx="0" data-dy="1" title="South / Down (⬇)">⬇</button>
+            <button class="dpad-btn" data-dx="1" data-dy="1" title="South-East (↘)">↘</button>
+        </div>
+    </div>
 
     <!-- 1. Character Sheet Modal Popup (Visual Paperdoll & 25 Slots) -->
     <div id="sheet-modal" class="modal-overlay" onclick="closeSheetModal(event)">
@@ -825,9 +920,11 @@
             equipSelectedBackpackItem,
             unequipSelectedBodyItem,
             dropSelectedBackpackItem,
-            boostStat
-        } from './src/main.js?v=8.0';
-        import { PRNG } from './src/core/RNG.js?v=8.0';
+            boostStat,
+            moveRelative,
+            toggleRemoteControl
+        } from './src/main.js?v=8.2';
+        import { PRNG } from './src/core/RNG.js?v=8.2';
 
         window.openSheetModal = function() {
             populateSheet();
@@ -859,6 +956,8 @@
         window.campRest = campRest;
         window.throwItemFromBackpack = throwItemFromBackpack;
         window.cancelTargeting = cancelTargeting;
+        window.moveRelative = moveRelative;
+        window.toggleRemoteControl = toggleRemoteControl;
 
         window.chooseMilestoneStat = function(stat) {
             boostStat(stat);
@@ -879,8 +978,34 @@
         document.getElementById('btn-spells-main').addEventListener('click', openSpellsModal);
         document.getElementById('btn-camp-main').addEventListener('click', campRest);
         document.getElementById('btn-zoom-main').addEventListener('click', cycleZoom);
+        document.getElementById('btn-remote-toggle').addEventListener('click', () => toggleRemoteControl());
         document.getElementById('btn-wait-main').addEventListener('click', waitTurn);
         document.getElementById('btn-cancel-target').addEventListener('click', cancelTargeting);
+
+        // Connect Remote Control D-Pad Buttons (Instant Touch + Click)
+        document.querySelectorAll('.dpad-btn').forEach(btn => {
+            let lastTouchTime = 0;
+            const handleDpadAction = (e) => {
+                if (e.type === 'touchstart') {
+                    e.preventDefault();
+                    lastTouchTime = Date.now();
+                } else if (e.type === 'click') {
+                    // Prevent duplicate execution from synthetic click following touchstart
+                    if (Date.now() - lastTouchTime < 450) {
+                        return;
+                    }
+                }
+
+                const dx = parseInt(btn.dataset.dx, 10);
+                const dy = parseInt(btn.dataset.dy, 10);
+                btn.classList.add('pressed');
+                setTimeout(() => btn.classList.remove('pressed'), 120);
+                moveRelative(dx, dy);
+            };
+
+            btn.addEventListener('touchstart', handleDpadAction, { passive: false });
+            btn.addEventListener('click', handleDpadAction);
+        });
 
         document.getElementById('btn-reroll').addEventListener('click', () => {
             const newSeed = PRNG.generateRandomSeed();

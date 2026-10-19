@@ -37,6 +37,9 @@ let player = null;
 let prng = null;
 let targetCursor = null;
 let walkTimer = null;
+let levelUpQueue = [];
+let currentLevelUpData = null;
+let currentSheetTab = 'gear'; // 'gear' | 'stats'
 
 // Targeting Mode State Machine
 let targetingMode = false;
@@ -50,7 +53,6 @@ export function startPlaythrough(seedString) {
     if (walkTimer) clearTimeout(walkTimer);
     walkTimer = null;
     targetCursor = null;
-    cancelTargeting();
     levelUpQueue = [];
     currentLevelUpData = null;
     currentSheetTab = 'gear';
@@ -59,10 +61,12 @@ export function startPlaythrough(seedString) {
     dungeonManager = new DungeonManager(seedString);
     player = new PlayerCharacter();
 
+    cancelTargeting();
     loadFloor(1, true);
 
     updateHUD();
     draw();
+    initRemoteControl();
 }
 
 export function restartSameSeed() {
@@ -190,6 +194,7 @@ function postMessage(text, className = '') {
 // 4. RENDERING LOOP (BLOOD, HAZARD ZONES, COVER, TARGETING)
 // ==========================================
 function draw() {
+    if (!player || !currentFloorData) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // Dynamic Hallucination Canvas Filter (psychedelic fungal spores)
@@ -1243,7 +1248,9 @@ export function cancelTargeting() {
     const targetLabel = document.getElementById('action-target-label');
     if (targetLabel) targetLabel.innerText = 'Aim';
 
-    draw();
+    if (player && currentFloorData) {
+        draw();
+    }
 }
 
 function fireTargetedAction(targetX, targetY) {
@@ -1795,8 +1802,6 @@ export function waitTurn() {
 // ==========================================
 // 13. LEVEL UP & PROGRESSION ADVANCEMENT
 // ==========================================
-let levelUpQueue = [];
-let currentLevelUpData = null;
 
 export function handleLevelUps(levelUps) {
     if (!levelUps || levelUps.length === 0) return;
@@ -2025,6 +2030,51 @@ window.addEventListener('keydown', (e) => {
         handleTap(player.x + dx, player.y + dy);
     }
 });
+
+// ==========================================
+// REMOTE CONTROL (VIRTUAL D-PAD & GAMEPAD)
+// ==========================================
+export function moveRelative(dx, dy) {
+    if (!player || !player.alive) return;
+    if (dx === 0 && dy === 0) {
+        waitTurn();
+        return;
+    }
+    handleTap(player.x + dx, player.y + dy);
+}
+
+export function toggleRemoteControl(forceState) {
+    const pad = document.getElementById('remote-control-pad');
+    const btn = document.getElementById('btn-remote-toggle');
+    if (!pad) return;
+
+    const isCurrentlyVisible = pad.style.display !== 'none';
+    const newState = (typeof forceState === 'boolean') ? forceState : !isCurrentlyVisible;
+
+    pad.style.display = newState ? 'flex' : 'none';
+    if (btn) {
+        if (newState) {
+            btn.classList.add('active-remote');
+        } else {
+            btn.classList.remove('active-remote');
+        }
+    }
+    try {
+        localStorage.setItem('pixel_rpg_remote_control', newState ? '1' : '0');
+    } catch (e) {}
+}
+
+export function initRemoteControl() {
+    let saved = null;
+    try {
+        saved = localStorage.getItem('pixel_rpg_remote_control');
+    } catch (e) {}
+
+    // Default to true on touch/mobile devices or if user explicitly enabled it
+    const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.innerWidth <= 768);
+    const shouldEnable = (saved !== null) ? (saved === '1') : isTouch;
+    toggleRemoteControl(shouldEnable);
+}
 
 // ==========================================
 // 15. CHARACTER SHEET & PAPERDOLL RENDERER
@@ -2324,8 +2374,6 @@ export function campRest() {
         postMessage(`⚠️ ${res.reason}`, 'msg-miss');
     }
 }
-
-let currentSheetTab = 'gear'; // 'gear' | 'stats'
 
 export function switchSheetTab(tabId) {
     currentSheetTab = tabId;
