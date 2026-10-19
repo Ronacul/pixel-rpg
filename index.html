@@ -210,11 +210,12 @@
             max-width: 360px;
             display: flex;
             gap: 6px;
+            flex-wrap: wrap;
             margin-top: 6px;
         }
 
         .action-btn {
-            flex: 1;
+            flex: 1 1 18%;
             background: #141521;
             border: 1px solid #36394f;
             border-radius: 6px;
@@ -527,6 +528,15 @@
         }
 
         .modal-btn:active { background: #354252; }
+
+        .set-label { display: block; font-size: 11px; color: #ffcc00; font-weight: bold; margin: 8px 0 3px 0; }
+        .set-select { width: 100%; background: #0e101a; color: #e0e0f0; border: 1px solid #41556b; border-radius: 6px; padding: 6px; font-family: inherit; font-size: 12px; }
+        .picker-row { display: flex; gap: 6px; align-items: center; background: #0d0f17; border: 1px solid #262b3f; border-radius: 6px; padding: 6px 8px; }
+        .picker-row.picker-current { border-color: #64d8cb; }
+        .levelup-choice { padding: 5px 6px; font-size: 10px; text-align: left; display: flex; justify-content: space-between; gap: 6px; align-items: center; }
+        .dbg-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+        .dbg-btn { background: #2a1818; border: 1px solid #7a3d3d; color: #ffb199; border-radius: 4px; padding: 5px 4px; font-family: inherit; font-size: 10px; font-weight: bold; cursor: pointer; }
+        .dbg-btn:active { filter: brightness(1.3); }
     </style>
 </head>
 <body>
@@ -598,6 +608,11 @@
             <span style="color: #64d8cb;">Pad</span>
         </button>
 
+        <button id="btn-settings" class="action-btn" title="Settings: map size, class, race, debug tools">
+            <span style="font-size: 13px;">⚙️</span>
+            <span style="color: #aab;">Menu</span>
+        </button>
+
         <button id="btn-wait-main" class="action-btn" title="Pass 1 turn / Rest & Heal (Hotkey: Space)">
             <span style="font-size: 13px;">⏳</span>
             <span>Wait</span>
@@ -667,7 +682,7 @@
                 <!-- Visual Paperdoll Body Layout -->
                 <div style="font-size: 11px; color: #ffcc00; margin-top: 6px; font-weight: bold; display: flex; justify-content: space-between;">
                     <span>👤 EQUIPPED ON BODY (10 SLOTS):</span>
-                    <span style="font-size: 10px; color: #888ea6;">Tap slot to inspect/unequip</span>
+                    <span style="font-size: 10px; color: #888ea6;">Tap a slot to choose gear</span>
                 </div>
                 <div id="paperdoll-body" style="background: #090a0f; border: 1px solid #232535; border-radius: 6px; padding: 6px; margin-top: 2px;">
                     <!-- Generated dynamically -->
@@ -763,6 +778,7 @@
                 <!-- Class Proficiencies & Feats Info -->
                 <div style="background: #0d0f17; border: 1px solid #222638; border-radius: 6px; padding: 8px; font-size: 11px; line-height: 1.4;">
                     <div style="color: #ffcc00; font-weight: bold; margin-bottom: 2px;">⚡ CLASS PROFICIENCIES & FEATS:</div>
+                    <div id="sheet-traits" style="color: #ddd; font-size: 10px; margin-bottom: 4px; display: flex; flex-direction: column; gap: 2px;"></div>
                     <div id="sheet-proficiencies" style="color: #aaa; font-size: 10px;">Proficiencies: Armor, Weapons, Skills</div>
                     <div id="sheet-abilities" style="margin-top: 4px; font-size: 10px; color: #64d8cb;">Class Abilities: Ready</div>
                 </div>
@@ -807,7 +823,7 @@
         </div>
     </div>
 
-    <!-- 4. Level-Up Milestone Modal -->
+    <!-- 4. Level-Up Modal (choices are generated from the data-driven grants in src/data/Progression.js) -->
     <div id="levelup-modal" class="modal-overlay">
         <div class="modal-card" style="text-align: center; border-color: #ffcc00; max-height: 88vh; overflow-y: auto;">
             <div style="font-size: 36px; margin-top: 2px;">⭐</div>
@@ -815,66 +831,88 @@
             <div id="levelup-subtitle" style="font-size: 13px; color: #64d8cb; margin-top: 1px;">You reached Level 2!</div>
 
             <div style="background: #0e101a; border: 1px solid #2d334d; border-radius: 6px; padding: 10px; margin: 8px 0; text-align: left; font-size: 12px; line-height: 1.5;">
-                <div style="color: #55ff77; font-weight: bold; font-size: 13px;">❤️ <span id="levelup-hp-gain">+6 Max HP</span> (Full HP Restored!)</div>
-                
+                <div style="color: #55ff77; font-weight: bold; font-size: 13px;">❤️ <span id="levelup-hp-gain">+6 Max HP</span></div>
+
                 <div id="levelup-feat-section" style="margin-top: 8px; display: none; background: #131722; border: 1px solid #2e3b52; border-radius: 4px; padding: 6px;">
-                    <div style="color: #ffcc00; font-weight: bold; font-size: 11px;">✨ Class Feats Unlocked at this Level:</div>
+                    <div style="color: #ffcc00; font-weight: bold; font-size: 11px;">✨ Class Abilities Unlocked at this Level:</div>
                     <div id="levelup-feat-desc" style="color: #ddd; font-size: 11px; margin-top: 2px;"></div>
                 </div>
 
-                <div style="margin-top: 10px; border-top: 1px solid #252a3d; padding-top: 8px;">
-                    <div style="color: #ffcc00; font-weight: bold; font-size: 12px; margin-bottom: 3px;">🌟 CHOOSE YOUR LEVEL ADVANCEMENT:</div>
-                    <div style="font-size: 10px; color: #888ea6; margin-bottom: 8px;">Select 1 bonus to empower your hero for this level:</div>
-
-                    <!-- Option A: Attribute (+1 Stat) -->
-                    <div style="background: #11131c; border: 1px solid #292d3f; border-radius: 6px; padding: 6px; margin-bottom: 6px;">
-                        <div style="font-size: 10px; font-weight: bold; color: #64d8cb;">Option A: Boost an Attribute (+1 Stat)</div>
-                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 4px;">
-                            <button class="modal-btn" style="padding: 4px 2px; font-size: 10px;" onclick="window.chooseLevelUpAdvancement('attribute', 'str')">+1 STR (Melee)</button>
-                            <button class="modal-btn" style="padding: 4px 2px; font-size: 10px;" onclick="window.chooseLevelUpAdvancement('attribute', 'dex')">+1 DEX (Range/AC)</button>
-                            <button class="modal-btn" style="padding: 4px 2px; font-size: 10px;" onclick="window.chooseLevelUpAdvancement('attribute', 'con')">+1 CON (HP)</button>
-                            <button class="modal-btn" style="padding: 4px 2px; font-size: 10px;" onclick="window.chooseLevelUpAdvancement('attribute', 'int')">+1 INT (Spells)</button>
-                            <button class="modal-btn" style="padding: 4px 2px; font-size: 10px;" onclick="window.chooseLevelUpAdvancement('attribute', 'wis')">+1 WIS (Healing)</button>
-                            <button class="modal-btn" style="padding: 4px 2px; font-size: 10px;" onclick="window.chooseLevelUpAdvancement('attribute', 'cha')">+1 CHA (Buffs)</button>
-                        </div>
-                    </div>
-
-                    <!-- Option B: Skill Rank (+1 Rank) -->
-                    <div style="background: #11131c; border: 1px solid #292d3f; border-radius: 6px; padding: 6px; margin-bottom: 6px;">
-                        <div style="font-size: 10px; font-weight: bold; color: #ffcc00;">Option B: Train a Skill (+1 Rank)</div>
-                        <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 4px;">
-                            <button class="modal-btn" style="padding: 5px 6px; font-size: 10px; text-align: left; display: flex; justify-content: space-between;" onclick="window.chooseLevelUpAdvancement('skill', 'athletics')">
-                                <span>🏋️ <strong>Athletics</strong></span>
-                                <span style="color: #ffcc00; font-size: 9px;">+2 Max HP, +1 Melee Strike Dmg</span>
-                            </button>
-                            <button class="modal-btn" style="padding: 5px 6px; font-size: 10px; text-align: left; display: flex; justify-content: space-between;" onclick="window.chooseLevelUpAdvancement('skill', 'acrobatics')">
-                                <span>🤸 <strong>Acrobatics</strong></span>
-                                <span style="color: #64d8cb; font-size: 9px;">+1 Dodge Armor Class (AC)</span>
-                            </button>
-                            <button class="modal-btn" style="padding: 5px 6px; font-size: 10px; text-align: left; display: flex; justify-content: space-between;" onclick="window.chooseLevelUpAdvancement('skill', 'perception')">
-                                <span>👁️ <strong>Perception</strong></span>
-                                <span style="color: #ff9944; font-size: 9px;">+1 Sight Radar & Trap Detection</span>
-                            </button>
-                            <button class="modal-btn" style="padding: 5px 6px; font-size: 10px; text-align: left; display: flex; justify-content: space-between;" onclick="window.chooseLevelUpAdvancement('skill', 'arcana')">
-                                <span>🔮 <strong>Arcana</strong></span>
-                                <span style="color: #bd93f9; font-size: 9px;">+2 Magic Damage & +1 Range</span>
-                            </button>
-                            <button class="modal-btn" style="padding: 5px 6px; font-size: 10px; text-align: left; display: flex; justify-content: space-between;" onclick="window.chooseLevelUpAdvancement('skill', 'medicine')">
-                                <span>🩹 <strong>Medicine</strong></span>
-                                <span style="color: #55ff77; font-size: 9px;">Accelerate Passive HP Regen</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Option C: Heroic Reserve Feat -->
-                    <div style="background: #11131c; border: 1px solid #292d3f; border-radius: 6px; padding: 6px;">
-                        <div style="font-size: 10px; font-weight: bold; color: #ff7788;">Option C: Heroic Mastery & Reserve</div>
-                        <button class="modal-btn" style="width: 100%; margin-top: 4px; padding: 6px; font-size: 10px; background: #2b181e; border-color: #7a2d3f; color: #ff99aa;" onclick="window.chooseLevelUpAdvancement('feat', 'mastery')">
-                            ⚡ <strong>Heroic Mastery:</strong> +4 Max HP & Reset all ability cooldowns!
-                        </button>
-                    </div>
-                </div>
+                <div id="levelup-choices"></div>
             </div>
+        </div>
+    </div>
+
+    <!-- Equipment Slot Picker: tap a paperdoll slot to see every owned item that fits -->
+    <div id="slot-picker-modal" class="modal-overlay" style="z-index: 120;" onclick="closeSlotPicker()">
+        <div class="modal-card" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <div>
+                    <span class="modal-title" id="slot-picker-title">SLOT</span>
+                    <div style="font-size: 10px; color: #888;">Choose gear for this slot:</div>
+                </div>
+                <button class="close-btn" onclick="closeSlotPicker()">✕</button>
+            </div>
+            <div id="slot-picker-list" style="display: flex; flex-direction: column; gap: 4px; max-height: 60vh; overflow-y: auto; font-size: 11px;"></div>
+            <button class="modal-btn" style="margin-top: 8px;" onclick="closeSlotPicker()">Close</button>
+        </div>
+    </div>
+
+    <!-- Settings Screen: map size, class, race, and hidden debug/test tools -->
+    <div id="settings-modal" class="modal-overlay" onclick="closeSettings()">
+        <div class="modal-card" onclick="event.stopPropagation()" style="max-height: 90vh; overflow-y: auto;">
+            <div class="modal-header">
+                <span class="modal-title">⚙️ SETTINGS & NEW RUN</span>
+                <button class="close-btn" onclick="closeSettings()">✕</button>
+            </div>
+
+            <label class="set-label">🗺️ Map size (tiles per side)</label>
+            <select id="set-map-size" class="set-select"></select>
+
+            <label class="set-label">🎭 Class</label>
+            <select id="set-class" class="set-select" onchange="updateSettingsPreview()"></select>
+
+            <label class="set-label">🧬 Race</label>
+            <select id="set-race" class="set-select" onchange="updateSettingsPreview()"></select>
+
+            <div id="set-preview" style="background: #0e101a; border: 1px solid #2d334d; border-radius: 6px; padding: 8px; margin-top: 8px; font-size: 10px; line-height: 1.4; color: #cfd3e6;"></div>
+
+            <div style="display: flex; gap: 6px; margin-top: 10px;">
+                <button class="modal-btn" style="flex: 1; font-size: 11px;" onclick="applySettings(true)">🎲 New Run (random seed)</button>
+                <button class="modal-btn" style="flex: 1; font-size: 11px;" onclick="applySettings(false)">🔄 Restart Same Seed</button>
+            </div>
+            <button class="modal-btn" style="width: 100%; margin-top: 6px; font-size: 11px;" onclick="saveSettingsOnly(); closeSettings();">💾 Save Only (apply on next run)</button>
+
+            <div style="margin-top: 10px; font-size: 10px; color: #888ea6;">
+                <label><input type="checkbox" id="set-debug" onchange="saveSettingsOnly()"> Enable debug / test tools</label>
+            </div>
+
+            <div id="debug-panel" style="display: none; margin-top: 8px; background: #140f0f; border: 1px solid #5a2a2a; border-radius: 6px; padding: 8px;">
+                <div style="color: #ff9966; font-weight: bold; font-size: 11px;">🛠️ DEBUG / TEST TOOLS</div>
+                <div id="debug-info" style="font-size: 9px; color: #a88; margin: 3px 0 6px 0; word-break: break-word;"></div>
+                <div class="dbg-grid">
+                    <button class="dbg-btn" onclick="pixelDebug.loadTestSeed()">🧪 Load TEST level (every feature)</button>
+                    <div style="display: flex; gap: 4px;">
+                        <select id="dbg-floor" class="set-select" style="flex: 1; margin: 0;"></select>
+                        <button class="dbg-btn" style="flex: none;" onclick="pixelDebug.jumpToFloor(document.getElementById('dbg-floor').value); closeSettings();">Go to floor</button>
+                    </div>
+                    <button class="dbg-btn" onclick="pixelDebug.addLevels(1)">+1 Level</button>
+                    <button class="dbg-btn" onclick="pixelDebug.addLevels(5)">+5 Levels</button>
+                    <button class="dbg-btn" onclick="pixelDebug.addXp(500)">+500 XP</button>
+                    <button class="dbg-btn" onclick="pixelDebug.heal()">Full heal</button>
+                    <button class="dbg-btn" onclick="pixelDebug.toggleGod()">Toggle god mode</button>
+                    <button class="dbg-btn" onclick="pixelDebug.addRations(5)">+5 rations</button>
+                    <button class="dbg-btn" onclick="pixelDebug.grantSlotItems()">Give 1 item per slot (+2 rings)</button>
+                    <button class="dbg-btn" onclick="pixelDebug.revealMap()">Reveal whole floor</button>
+                    <button class="dbg-btn" onclick="pixelDebug.teleportToStairs(true)">Teleport: stairs down</button>
+                    <button class="dbg-btn" onclick="pixelDebug.teleportToStairs(false)">Teleport: stairs up</button>
+                    <button class="dbg-btn" onclick="pixelDebug.killAllVisible()">Remove visible foes</button>
+                    <button class="dbg-btn" onclick="pixelDebug.clearBag()">Empty bag</button>
+                </div>
+                <div style="font-size: 9px; color: #866; margin-top: 6px;">URL shortcuts: ?seed=TEST-0001 &middot; ?debug=1 &middot; ?map=50|100|150|200 &middot; ?class=monk &middot; ?race=elf &middot; ?floor=12 &middot; ?level=10. Console: <code>pixelDebug.state()</code></div>
+            </div>
+
+            <button class="modal-btn" style="width: 100%; margin-top: 8px;" onclick="closeSettings()">Close</button>
         </div>
     </div>
 
@@ -922,9 +960,19 @@
             dropSelectedBackpackItem,
             boostStat,
             moveRelative,
-            toggleRemoteControl
-        } from './src/main.js?v=8.2';
-        import { PRNG } from './src/core/RNG.js?v=8.2';
+            toggleRemoteControl,
+            openSlotPicker,
+            closeSlotPicker,
+            pickerEquip,
+            pickerUnequip,
+            openSettings,
+            closeSettings,
+            applySettings,
+            saveSettingsOnly,
+            updateSettingsPreview,
+            pixelDebug
+        } from './src/main.js?v=9.0';
+        import { PRNG } from './src/core/RNG.js?v=9.0';
 
         window.openSheetModal = function() {
             populateSheet();
@@ -969,6 +1017,21 @@
         window.unequipSelectedBodyItem = unequipSelectedBodyItem;
         window.dropSelectedBackpackItem = dropSelectedBackpackItem;
         window.boostStat = boostStat;
+
+        window.openSlotPicker = openSlotPicker;
+        window.closeSlotPicker = closeSlotPicker;
+        window.pickerEquip = pickerEquip;
+        window.pickerUnequip = pickerUnequip;
+        window.openSettings = openSettings;
+        window.closeSettings = closeSettings;
+        window.applySettings = applySettings;
+        window.saveSettingsOnly = saveSettingsOnly;
+        window.updateSettingsPreview = updateSettingsPreview;
+        window.pixelDebug = pixelDebug;
+
+        // Debug floor selector (1-25)
+        document.getElementById('dbg-floor').innerHTML = Array.from({ length: 25 }, (_, i) => `<option value="${i + 1}">F${i + 1}</option>`).join('');
+        document.getElementById('btn-settings').addEventListener('click', openSettings);
 
         // Connect Header & Action Bar buttons
         document.getElementById('btn-sheet-open').addEventListener('click', window.openSheetModal);

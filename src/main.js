@@ -4,14 +4,18 @@
 // Tactical Terrain: Pillars (Cover), Pits, Destructible Barrels, Ancient Altars, Flammable Foliage, Traps
 
 import { PRNG } from './core/RNG.js';
-import { MAP_WIDTH, MAP_HEIGHT, TILES, VISIBILITY, DungeonManager } from './map/Dungeon.js';
+import { MAP_WIDTH, MAP_HEIGHT, TILES, VISIBILITY, DungeonManager, MAP_SIZES, DEFAULT_MAP_SIZE, setMapSize, normalizeMapSize } from './map/Dungeon.js';
 import { generateFloor } from './map/Generator.js';
+import { generateTestFloor, isTestSeed, TEST_MIN_MAP_SIZE } from './map/TestLevel.js';
 import { PlayerCharacter } from './entities/Character.js';
 import { PerceptionSystem } from './systems/Perception.js';
 import { CombatSystem } from './systems/Combat.js';
 import { findPath } from './systems/Pathfinding.js';
-import { ITEM_SLOTS, generateLootItem, EQUIPMENT_SETS, calculateEquippedSetBonuses, MUSHROOM_TYPES } from './data/Items.js';
-import { CLASSES, XP_TABLE, SKILLS, ClassManager, isAttributeMilestone } from './data/Classes.js';
+import { ITEM_SLOTS, SLOT_LABELS, getCompatibleSlots, BASE_ITEMS, createItemFromBase, generateLootItem, EQUIPMENT_SETS, calculateEquippedSetBonuses, MUSHROOM_TYPES } from './data/Items.js';
+import { CLASSES, SKILLS, ClassManager } from './data/Classes.js';
+import { RaceManager, DEFAULT_RACE_ID } from './data/Races.js';
+import { FeatManager, FEATS } from './data/Feats.js';
+import { PROGRESSION, XP_TABLE, XP_REWARDS, MASTERIES, monsterXp } from './data/Progression.js';
 import { EffectSystem, STATUS_TYPES, ZONE_TYPES, DELIVERY_TYPES } from './systems/Effects.js';
 
 // Viewport Camera & Zoom Settings
@@ -46,20 +50,55 @@ let targetingMode = false;
 let targetingAction = null; // { name, delivery, range, radius, isPositive, isItem, backpackIdx, ... }
 let hoverWorldPos = null;   // { x, y } currently targeted by cursor
 
+// ---- Persistent settings (map size, class, race, debug tools) ----
+const SETTINGS_KEY = 'pixel_rpg_settings_v1';
+let settings = { mapSize: DEFAULT_MAP_SIZE, classId: 'warrior', raceId: DEFAULT_RACE_ID, debug: false };
+let godMode = false;
+
+function loadSettings() {
+    try {
+        const raw = localStorage.getItem(SETTINGS_KEY);
+        if (raw) settings = { ...settings, ...JSON.parse(raw) };
+    } catch (e) {}
+    settings.mapSize = normalizeMapSize(settings.mapSize);
+    settings.classId = ClassManager.getClass(settings.classId).id;
+    settings.raceId = RaceManager.getRace(settings.raceId).id;
+}
+
+function saveSettings() {
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) {}
+}
+
+export function getSettings() {
+    return { ...settings };
+}
+
+export function isDebugEnabled() {
+    return !!settings.debug || (dungeonManager && dungeonManager.testMode);
+}
+
 // ==========================================
 // 1. GAME INITIALIZATION
 // ==========================================
-export function startPlaythrough(seedString) {
+// opts: { mapSize, classId, raceId } override the saved settings for this run only.
+export function startPlaythrough(seedString, opts = {}) {
     if (walkTimer) clearTimeout(walkTimer);
     walkTimer = null;
     targetCursor = null;
     levelUpQueue = [];
     currentLevelUpData = null;
     currentSheetTab = 'gear';
+    selectedSlot = null;
+    godMode = false;
+
+    const testMode = isTestSeed(seedString);
+    let mapSize = normalizeMapSize(opts.mapSize ?? settings.mapSize);
+    if (testMode) mapSize = Math.max(mapSize, TEST_MIN_MAP_SIZE); // the test layout needs >= 100x100
+    setMapSize(mapSize);
 
     prng = new PRNG(seedString);
-    dungeonManager = new DungeonManager(seedString);
-    player = new PlayerCharacter();
+    dungeonManager = new DungeonManager(seedString, { testMode });
+    player = new PlayerCharacter(opts.classId ?? settings.classId, opts.raceId ?? settings.raceId);
 
     cancelTargeting();
     loadFloor(1, true);
@@ -67,6 +106,7 @@ export function startPlaythrough(seedString) {
     updateHUD();
     draw();
     initRemoteControl();
+    refreshDebugPanel();
 }
 
 export function restartSameSeed() {
@@ -77,7 +117,9 @@ function loadFloor(floorNum, enterFromAbove = true) {
     dungeonManager.currentFloor = floorNum;
 
     if (!dungeonManager.hasFloor(floorNum)) {
-        const newFloor = generateFloor(dungeonManager.baseSeedString, floorNum);
+        const newFloor = dungeonManager.testMode
+            ? generateTestFloor(dungeonManager.baseSeedString, floorNum)
+            : generateFloor(dungeonManager.baseSeedString, floorNum);
         dungeonManager.storeFloor(floorNum, newFloor);
     }
 
@@ -105,15 +147,15 @@ function runPerceptionRadar() {
         player.per,
         player.perMod,
         (sx, sy) => {
-            postMessage(`👁️ Secret Door spotted at (${sx}, ${sy})! +25 XP`, 'msg-loot');
-            const levelUps = player.gainXp(25);
+            postMessage(`👁️ Secret Door spotted at (${sx}, ${sy})! +${XP_REWARDS.secretDoor} XP`, 'msg-loot');
+            const levelUps = player.gainXp(XP_REWARDS.secretDoor);
             if (levelUps.length > 0) handleLevelUps(levelUps);
             updateHUD();
         },
         (tx, ty, trapTile) => {
             const trapName = (trapTile === TILES.TRAP_SPIKE) ? 'Spike Trap' : (trapTile === TILES.TRAP_FIRE ? 'Fire Plate' : 'Gas Spores');
-            postMessage(`⚠️ TRAP SPOTTED! ${trapName} detected at (${tx}, ${ty})! +15 XP`, 'msg-loot');
-            const levelUps = player.gainXp(15);
+            postMessage(`⚠️ TRAP SPOTTED! ${trapName} detected at (${tx}, ${ty})! +${XP_REWARDS.trap} XP`, 'msg-loot');
+            const levelUps = player.gainXp(XP_REWARDS.trap);
             if (levelUps.length > 0) handleLevelUps(levelUps);
             updateHUD();
         }
@@ -604,7 +646,7 @@ function endTurn() {
             if (m.hp <= 0) {
                 m.alive = false;
                 addCorpse(m);
-                const xp = 10 * currentFloorData.floorLevel + Math.max(5, m.maxHp);
+                const xp = monsterXp(m, currentFloorData.floorLevel);
                 const lvs = player.gainXp(xp);
                 postMessage(`💀 ${m.name} perished in ${zoneType}! +${xp} XP`, 'msg-victory');
                 if (lvs.length > 0) handleLevelUps(lvs);
@@ -627,7 +669,7 @@ function endTurn() {
         if (m.hp <= 0) {
             m.alive = false;
             addCorpse(m);
-            const xp = 10 * currentFloorData.floorLevel + Math.max(5, m.maxHp);
+            const xp = monsterXp(m, currentFloorData.floorLevel);
             const lvs = player.gainXp(xp);
             postMessage(`💀 ${m.name} succumbed to lingering affliction! +${xp} XP`, 'msg-victory');
             if (lvs.length > 0) handleLevelUps(lvs);
@@ -711,11 +753,14 @@ function getStepTowards(sx, sy, tx, ty, terrain, monsters) {
         { dx: 1, dy: 0 }
     ];
 
-    while (queue.length > 0) {
+    // Bounded: monsters only chase within ~12 tiles, so cap the flood so large maps never stall a turn
+    let expansions = 0;
+    while (queue.length > 0 && expansions++ < 900) {
         const [cx, cy] = queue.shift();
         if (cx === tx && cy === ty) {
             return firstStep.get(`${cx},${cy}`);
         }
+        if (Math.abs(cx - sx) + Math.abs(cy - sy) > 24) continue;
 
         for (const d of dirs) {
             const nx = cx + d.dx;
@@ -744,6 +789,12 @@ function getStepTowards(sx, sy, tx, ty, terrain, monsters) {
 // 6. PERMADEATH & GAME OVER
 // ==========================================
 function handlePlayerDeath(slainBy) {
+    if (godMode) { // debug: refuse to die
+        player.hp = player.maxHp;
+        updateHUD();
+        draw();
+        return;
+    }
     player.alive = false;
     cancelWalking();
     cancelTargeting();
@@ -920,7 +971,7 @@ function stepPath(path) {
     const chest = chests.find(c => !c.opened && c.x === nextX && c.y === nextY);
     if (chest) {
         chest.opened = true;
-        const xpReward = 20 * currentFloorData.floorLevel;
+        const xpReward = XP_REWARDS.chestPerFloor * currentFloorData.floorLevel;
         const levelUps = player.gainXp(xpReward);
         const added = player.addToBackpack(chest.item);
         if (added) {
@@ -949,7 +1000,7 @@ function stepPath(path) {
 
         const added = player.addToBackpack(mushroomItem);
         if (added) {
-            postMessage(`🍄 Foraged ${shroom.name}! Stowed in backpack (+10 XP).`, 'msg-loot');
+            postMessage(`🍄 Foraged ${shroom.name}! Stowed in backpack (+${XP_REWARDS.forage} XP).`, 'msg-loot');
         } else {
             let effectNote = '';
             if (shroom.rations) player.rations += shroom.rations;
@@ -961,9 +1012,9 @@ function stepPath(path) {
                 EffectSystem.applyStatus(player, shroom.status, shroom.duration || 20, 1, shroom.name);
                 effectNote += ` Gained ${shroom.status}!`;
             }
-            postMessage(`🍄 Bag full! Consumed ${shroom.name} on the spot!${effectNote} (+10 XP)`, 'msg-loot');
+            postMessage(`🍄 Bag full! Consumed ${shroom.name} on the spot!${effectNote} (+${XP_REWARDS.forage} XP)`, 'msg-loot');
         }
-        const levelUps = player.gainXp(10);
+        const levelUps = player.gainXp(XP_REWARDS.forage);
         if (levelUps.length > 0) handleLevelUps(levelUps);
         updateHUD();
     }
@@ -990,13 +1041,13 @@ function stepPath(path) {
 
         const added = player.addToBackpack(harvestItem);
         if (added) {
-            postMessage(`🥩 Harvested ${harvestItem.name} from carcass! Stowed in bag (+10 XP).`, 'msg-loot');
+            postMessage(`🥩 Harvested ${harvestItem.name} from carcass! Stowed in bag (+${XP_REWARDS.harvest} XP).`, 'msg-loot');
         } else {
             if (harvestItem.rations) player.rations += harvestItem.rations;
             if (harvestItem.healPotency) player.hp = Math.min(player.maxHp, player.hp + harvestItem.healPotency);
-            postMessage(`🥩 Bag full! Ate fresh meat on spot (+1 Ration, +8 HP, +10 XP)!`, 'msg-loot');
+            postMessage(`🥩 Bag full! Ate fresh meat on spot (+1 Ration, +8 HP, +${XP_REWARDS.harvest} XP)!`, 'msg-loot');
         }
-        const levelUps = player.gainXp(10);
+        const levelUps = player.gainXp(XP_REWARDS.harvest);
         if (levelUps.length > 0) handleLevelUps(levelUps);
         updateHUD();
     }
@@ -1056,7 +1107,7 @@ function resolveCombatTurn(monster, attackSource = null) {
 
     if (result.monsterDied) {
         addCorpse(monster);
-        const xpReward = 15 * currentFloorData.floorLevel + Math.max(10, monster.maxHp * 2);
+        const xpReward = monsterXp(monster, currentFloorData.floorLevel);
         const levelUps = player.gainXp(xpReward);
         postMessage(`🏆 Defeated ${monster.name}! +${xpReward} XP`, 'msg-victory');
         if (levelUps.length > 0) handleLevelUps(levelUps);
@@ -1138,7 +1189,7 @@ export function autoTargetAndAttack() {
 
                 if (res.monsterDied) {
                     addCorpse(target);
-                    const xp = 15 * currentFloorData.floorLevel + Math.max(10, target.maxHp * 2);
+                    const xp = monsterXp(target, currentFloorData.floorLevel);
                     const lvs = player.gainXp(xp);
                     postMessage(`🏆 Defeated ${target.name}! +${xp} XP`, 'msg-victory');
                     if (lvs.length > 0) handleLevelUps(lvs);
@@ -1288,7 +1339,7 @@ function fireTargetedAction(targetX, targetY) {
 
                 if (res.monsterDied) {
                     addCorpse(monster);
-                    const xp = 15 * currentFloorData.floorLevel + Math.max(10, monster.maxHp * 2);
+                    const xp = monsterXp(monster, currentFloorData.floorLevel);
                     const lvs = player.gainXp(xp);
                     postMessage(`🏆 Defeated ${monster.name}! +${xp} XP`, 'msg-victory');
                     if (lvs.length > 0) handleLevelUps(lvs);
@@ -1329,7 +1380,7 @@ function fireTargetedAction(targetX, targetY) {
                 if (h.died) {
                     deadCount++;
                     addCorpse(h.monster);
-                    const xp = 15 * currentFloorData.floorLevel + Math.max(10, h.monster.maxHp * 2);
+                    const xp = monsterXp(h.monster, currentFloorData.floorLevel);
                     const lvs = player.gainXp(xp);
                     if (lvs.length > 0) handleLevelUps(lvs);
                 }
@@ -1505,6 +1556,10 @@ export function useAbilityById(abilityId) {
 
     if (!player.canUseAbility(ability.id)) {
         const cd = player.cooldowns[ability.id] || 0;
+        if (cd <= 0) {
+            postMessage(`⚠️ ${ability.name} isn't slotted. Open Spells & Feats (F) and slot it first.`, 'msg-miss');
+            return;
+        }
         postMessage(`⏳ ${ability.name} is on cooldown (${cd}t remaining).`, 'msg-miss');
         return;
     }
@@ -1555,6 +1610,10 @@ function executeSelfAction(action) {
             EffectSystem.applyStatus(player, action.statusEffect.type, action.statusEffect.duration, 1, action.name);
         }
         postMessage(`${action.icon} ${action.name} sung! Rapid cell regeneration active (+3 HP/turn).`, 'msg-victory');
+    } else if (action.statusEffect) {
+        // Generic self-buff (e.g. buff_def: Shield Wall, Mana Shield, Barkskin): apply its status effect
+        EffectSystem.applyStatus(player, action.statusEffect.type, action.statusEffect.duration, 1, action.name);
+        postMessage(`${action.icon} ${action.name} active for ${action.statusEffect.duration} turns!`, 'msg-victory');
     }
 
     if (action.id) player.triggerAbilityCooldown(action.id);
@@ -1586,7 +1645,7 @@ export function inspectTileAt(worldX, worldY) {
                 <strong>HP:</strong> ${player.hp} / ${player.maxHp}<br>
                 <strong>AC:</strong> ${player.ac}<br>
                 <strong>Perception:</strong> ${player.per} (+${player.perMod})<br>
-                <strong>Regen:</strong> 1 HP every ${player.REGEN_RATE} turns<br>
+                <strong>Regen:</strong> 1 HP every ${player.regenRate} turns<br>
                 <strong>Active Statuses:</strong><br>${statusesText}
             `
         };
@@ -1817,11 +1876,14 @@ function showNextLevelUp() {
         return;
     }
     currentLevelUpData = levelUpQueue[0];
-    const { level, hpGain, unlockedAbilities } = currentLevelUpData;
+    // Resolve choices one grant at a time (feat -> attribute -> mastery -> skill, per PROGRESSION.grantOrder)
+    currentLevelUpData.pendingGrants = [...(currentLevelUpData.grants || [])];
+    currentLevelUpData.choices = [];
 
+    const { level, hpGain, unlockedAbilities } = currentLevelUpData;
     const modal = document.getElementById('levelup-modal');
     if (modal) {
-        document.getElementById('levelup-subtitle').innerText = `You reached Level ${level} (${player.characterClass.title})!`;
+        document.getElementById('levelup-subtitle').innerText = `${player.race.name} ${player.characterClass.name} reached Level ${level}!`;
         document.getElementById('levelup-hp-gain').innerText = `+${hpGain} Max HP (Full HP Restored!)`;
 
         const featSec = document.getElementById('levelup-feat-section');
@@ -1834,59 +1896,107 @@ function showNextLevelUp() {
             featSec.style.display = 'none';
         }
 
+        renderLevelUpChoices();
         modal.classList.add('active');
     }
     updateHUD();
 }
 
+function renderLevelUpChoices() {
+    const box = document.getElementById('levelup-choices');
+    if (!box || !currentLevelUpData) return;
+    const pending = currentLevelUpData.pendingGrants;
+    if (pending.length === 0) {
+        box.innerHTML = '';
+        return;
+    }
+
+    const grantId = pending[0];
+    const grantDef = PROGRESSION.grants[grantId];
+    const stepText = `Choice ${currentLevelUpData.grants.length - pending.length + 1} of ${currentLevelUpData.grants.length}`;
+    const btn = (type, id, html) => `<button class="modal-btn levelup-choice" data-type="${type}" data-id="${id}" onclick="window.chooseLevelUpAdvancement('${type}', '${id}')">${html}</button>`;
+
+    let options = '';
+    if (grantId === 'skill') {
+        options = Object.values(SKILLS).map(s => btn('skill', s.id,
+            `<span>${s.icon} <strong>${s.name}</strong> <span style="color:#888ea6;">(Rank ${player.skills[s.id] || 0})</span></span><span style="color:#ffcc00; font-size: 9px;">${s.desc}</span>`)).join('');
+    } else if (grantId === 'attribute') {
+        const labels = { str: 'STR (Melee)', dex: 'DEX (Range/AC)', con: 'CON (HP)', int: 'INT (Spells)', wis: 'WIS (Healing)', cha: 'CHA (Buffs)' };
+        options = `<div style="display:grid; grid-template-columns: repeat(3, 1fr); gap: 4px;">` +
+            Object.entries(labels).map(([k, label]) => btn('attribute', k, `+1 ${label}`)).join('') + `</div>`;
+    } else if (grantId === 'feat') {
+        const feats = FeatManager.getAvailableFeats(player);
+        options = feats.length
+            ? feats.map(f => btn('feat', f.id, `<span>${f.icon} <strong>${f.name}</strong></span><span style="color:#ffcc00; font-size: 9px;">${f.desc}</span>`)).join('')
+            : `<div style="color:#888;">No feats left to learn.</div>`;
+    } else if (grantId === 'mastery') {
+        options = Object.values(MASTERIES).filter(m => !player.masteries.includes(m.id))
+            .map(m => btn('mastery', m.id, `<span>${m.icon} <strong>${m.name}</strong></span><span style="color:#ff99aa; font-size: 9px;">${m.desc}</span>`)).join('');
+    }
+
+    const stackStyle = grantId === 'attribute' ? '' : 'display:flex; flex-direction:column; gap:4px;';
+    box.innerHTML = `
+        <div style="border-top: 1px solid #252a3d; padding-top: 8px; margin-top: 8px;">
+            <div style="color:#ffcc00; font-weight:bold; font-size:12px;">🌟 ${grantDef.label.toUpperCase()} <span style="color:#888ea6; font-weight:normal; font-size:10px;">(${stepText})</span></div>
+            <div style="font-size:10px; color:#888ea6; margin: 2px 0 6px 0;">${grantDef.desc}</div>
+            <div style="${stackStyle}">${options}</div>
+        </div>`;
+}
+
+// Resolves the CURRENT grant of the current level-up; advances to the next grant / level when done.
 export function chooseLevelUpAdvancement(type, id) {
     if (!currentLevelUpData) {
         const modal = document.getElementById('levelup-modal');
         if (modal) modal.classList.remove('active');
         return;
     }
+    const cur = currentLevelUpData;
+    const expected = cur.pendingGrants[0];
+    if (expected && expected !== type) return; // stale click
 
-    const { level, hpGain, unlockedAbilities } = currentLevelUpData;
-    let choiceLabel = '';
+    const { level } = cur;
+    let label = '';
 
     if (type === 'attribute') {
         const statName = id.toUpperCase();
-        switch (id.toLowerCase()) {
-            case 'str': player.baseStr++; break;
-            case 'dex': player.baseDex++; break;
-            case 'con': player.baseCon++; player.hp = player.maxHp; break;
-            case 'int': player.baseInt++; break;
-            case 'wis': player.baseWis++; break;
-            case 'cha': player.baseCha++; break;
-        }
-        choiceLabel = `+1 ${statName}`;
-        postMessage(`⭐ Level ${level} Milestone! Increased ${statName} by +1!`, 'msg-victory');
+        player.boostAttribute(id);
+        label = `+1 ${statName}`;
+        postMessage(`⭐ Level ${level}: Increased ${statName} by +1!`, 'msg-victory');
     } else if (type === 'skill') {
-        player.boostSkill(id);
+        if (!player.boostSkill(id)) return;
         const skillName = id.charAt(0).toUpperCase() + id.slice(1);
-        choiceLabel = `+1 ${skillName} Rank (Rank ${player.skills[id]})`;
-        postMessage(`⭐ Level ${level} Milestone! Trained ${skillName} to Rank ${player.skills[id]}!`, 'msg-victory');
+        label = `${skillName} Rank ${player.skills[id]}`;
+        postMessage(`⭐ Level ${level}: Trained ${skillName} to Rank ${player.skills[id]}!`, 'msg-victory');
     } else if (type === 'feat') {
-        player.bonusHp += 4;
-        player.hp = player.maxHp;
-        for (const k in player.cooldowns) {
-            player.cooldowns[k] = 0;
-        }
-        choiceLabel = `Heroic Reserve (+4 Max HP & Cooldowns Reset)`;
-        postMessage(`⭐ Level ${level} Milestone! Gained Heroic Reserve (+4 Max HP & Cooldowns Reset)!`, 'msg-victory');
+        const feat = player.learnFeat(id);
+        if (!feat) return;
+        label = `Feat: ${feat.name}`;
+        postMessage(`⭐ Level ${level}: Learned feat ${feat.icon} ${feat.name}!`, 'msg-victory');
+    } else if (type === 'mastery') {
+        const m = player.chooseMastery(id);
+        if (!m) return;
+        label = `Mastery: ${m.name}`;
+        postMessage(`⭐ Level ${level}: Gained ${m.icon} ${m.name}!`, 'msg-victory');
+    } else {
+        return;
     }
 
-    // Record into progression history
-    player.recordProgression(level, hpGain, type, choiceLabel, unlockedAbilities || []);
+    cur.choices.push({ type, label });
+    cur.pendingGrants.shift();
 
-    // Pop current level-up from queue
-    levelUpQueue.shift();
-    if (levelUpQueue.length > 0) {
-        showNextLevelUp();
+    if (cur.pendingGrants.length > 0) {
+        renderLevelUpChoices();
     } else {
-        currentLevelUpData = null;
-        const modal = document.getElementById('levelup-modal');
-        if (modal) modal.classList.remove('active');
+        // Level fully resolved: log it, then move on to the next queued level (if any)
+        player.recordProgression(cur.level, cur.hpGain, cur.choices, cur.unlockedAbilities || []);
+        levelUpQueue.shift();
+        if (levelUpQueue.length > 0) {
+            showNextLevelUp();
+        } else {
+            currentLevelUpData = null;
+            const modal = document.getElementById('levelup-modal');
+            if (modal) modal.classList.remove('active');
+        }
     }
 
     updateHUD();
@@ -1895,15 +2005,12 @@ export function chooseLevelUpAdvancement(type, id) {
 }
 
 export function boostStat(stat) {
+    if (player.attributePoints <= 0) return;
     if (player.boostAttribute(stat)) {
-        postMessage(`⭐ Milestone Attribute Boost! ${stat.toUpperCase()} increased by +1!`, 'msg-victory');
+        player.attributePoints--;
+        postMessage(`⭐ Attribute Boost! ${stat.toUpperCase()} increased by +1!`, 'msg-victory');
         updateHUD();
         populateSheet();
-        const modal = document.getElementById('levelup-modal');
-        if (modal && player.attributePoints === 0) {
-            const msSec = document.getElementById('levelup-milestone-section');
-            if (msSec) msSec.style.display = 'none';
-        }
     }
 }
 
@@ -1917,14 +2024,94 @@ export function selectSlot(type, id) {
     populateSheet();
 }
 
-export function equipSelectedBackpackItem() {
+// Equip the selected backpack item. `targetSlot` (optional) picks a specific slot, e.g. the 2nd ring slot.
+export function equipSelectedBackpackItem(targetSlot = null) {
     if (!selectedSlot || selectedSlot.type !== 'backpack') return;
-    const res = player.equipFromBackpack(selectedSlot.id);
+    const res = player.equipFromBackpack(selectedSlot.id, targetSlot);
     if (res) {
-        postMessage(`⚔️ Equipped ${res.equipped.name} into ${res.slot.replace('_', ' ')}!`, 'msg-loot');
+        postMessage(`⚔️ Equipped ${res.equipped.name} into ${SLOT_LABELS[res.slot] || res.slot}!`, 'msg-loot');
         selectedSlot = { type: 'body', id: res.slot };
         updateHUD();
         populateSheet();
+        draw();
+    }
+}
+
+// ---- Equipment slot picker: click a paperdoll slot -> choose from every owned item that fits ----
+let pickerSlot = null;
+
+export function openSlotPicker(slotKey) {
+    if (!player) return;
+    pickerSlot = slotKey;
+    selectedSlot = { type: 'body', id: slotKey };
+    populateSheet();
+    renderSlotPicker();
+    const modal = document.getElementById('slot-picker-modal');
+    if (modal) modal.classList.add('active');
+}
+
+export function closeSlotPicker() {
+    pickerSlot = null;
+    const modal = document.getElementById('slot-picker-modal');
+    if (modal) modal.classList.remove('active');
+}
+
+function renderSlotPicker() {
+    if (!pickerSlot) return;
+    const title = document.getElementById('slot-picker-title');
+    const body = document.getElementById('slot-picker-list');
+    if (!title || !body) return;
+
+    const label = SLOT_LABELS[pickerSlot] || pickerSlot;
+    const equipped = player.equipment[pickerSlot];
+    const candidates = player.getEquipCandidates(pickerSlot);
+    title.innerText = `${label.toUpperCase()}`;
+
+    const equippedHtml = equipped ? `
+        <div class="picker-row picker-current">
+            <div style="flex:1; min-width:0;">
+                <div style="color:#64d8cb; font-weight:bold;">${equipped.icon} ${equipped.name} <span style="color:#888ea6; font-weight:normal;">(equipped)</span></div>
+                <div style="color:#ffcc00; font-size:10px;">${equipped.desc || ''}</div>
+            </div>
+            <button class="btn-action-small" style="flex:none;" onclick="window.pickerUnequip()">🎒 Unequip</button>
+        </div>` : `<div class="picker-row" style="color:#888;">Nothing equipped in this slot.</div>`;
+
+    const listHtml = candidates.length ? candidates.map(({ idx, item }) => `
+        <div class="picker-row" data-bag-idx="${idx}">
+            <div style="flex:1; min-width:0;">
+                <div style="color:#e0e0f0; font-weight:bold;">${item.icon} ${item.name} <span style="color:#666; font-weight:normal;">(bag slot ${idx + 1})</span></div>
+                <div style="color:#ffcc00; font-size:10px;">${item.desc || ''}</div>
+            </div>
+            <button class="btn-action-small" style="flex:none; background:#193826; border-color:#55ff77; color:#aaffaa;" onclick="window.pickerEquip(${idx})">⚔️ Equip</button>
+        </div>`).join('') : `<div class="picker-row" style="color:#888;">No other owned items fit this slot.</div>`;
+
+    body.innerHTML = equippedHtml + `<div style="font-size:10px; color:#888ea6; margin:6px 0 2px 0;">OWNED ITEMS THAT FIT (${candidates.length}):</div>` + listHtml;
+}
+
+export function pickerEquip(backpackIdx) {
+    if (!pickerSlot) return;
+    const res = player.equipFromBackpack(backpackIdx, pickerSlot);
+    if (res) {
+        postMessage(`⚔️ Equipped ${res.equipped.name} into ${SLOT_LABELS[res.slot] || res.slot}!`, 'msg-loot');
+        selectedSlot = { type: 'body', id: res.slot };
+        updateHUD();
+        populateSheet();
+        draw();
+    }
+    closeSlotPicker();
+}
+
+export function pickerUnequip() {
+    if (!pickerSlot) return;
+    const res = player.unequipToBackpack(pickerSlot);
+    if (res.success) {
+        postMessage(`🎒 Unequipped ${res.item.name} to backpack slot ${res.backpackIdx + 1}.`, 'msg-info');
+        updateHUD();
+        populateSheet();
+        draw();
+        renderSlotPicker();
+    } else {
+        postMessage(`⚠️ ${res.reason}`, 'msg-miss');
     }
 }
 
@@ -1963,6 +2150,10 @@ window.addEventListener('keydown', (e) => {
         const inspect = document.getElementById('inspect-modal');
         const levelup = document.getElementById('levelup-modal');
         const spells = document.getElementById('spells-modal');
+        const picker = document.getElementById('slot-picker-modal');
+        const settingsM = document.getElementById('settings-modal');
+        if (picker && picker.classList.contains('active')) { picker.classList.remove('active'); return; }
+        if (settingsM && settingsM.classList.contains('active')) { settingsM.classList.remove('active'); return; }
         if (sheet && sheet.classList.contains('active')) sheet.classList.remove('active');
         if (inspect && inspect.classList.contains('active')) inspect.classList.remove('active');
         if (levelup && levelup.classList.contains('active')) levelup.classList.remove('active');
@@ -2085,7 +2276,7 @@ export function populateSheet() {
 
     // Header info & XP Progress
     const titleEl = document.getElementById('sheet-title');
-    if (titleEl) titleEl.innerText = `${pClass.icon} ${pClass.name.toUpperCase()} (LV. ${player.level})`;
+    if (titleEl) titleEl.innerText = `${pClass.icon} ${player.race.name.toUpperCase()} ${pClass.name.toUpperCase()} (LV. ${player.level})`;
 
     const xpText = document.getElementById('sheet-xp-text');
     if (xpText) xpText.innerText = `XP: ${player.xp} / ${player.getNextLevelXp()} • ${pClass.title}`;
@@ -2166,7 +2357,7 @@ export function populateSheet() {
         const isEquipped = !!item;
         return `
             <div class="paperdoll-slot ${isEquipped ? 'equipped' : 'unequipped'} ${isSel ? 'selected' : ''}" 
-                 onclick="window.selectSlot('body', '${slotKey}')"
+                 onclick="window.openSlotPicker('${slotKey}')"
                  title="${slotName}: ${isEquipped ? item.name : 'Unequipped (Tap to inspect)'}">
                 <div class="slot-label">${slotName}</div>
                 <div class="slot-icon">${isEquipped ? item.icon : iconPlaceholder}</div>
@@ -2260,13 +2451,19 @@ export function populateSheet() {
                     throwAimBtn = `<button class="btn-action-small" style="background: #1b2e2d; border-color: #64d8cb; color: #64d8cb;" onclick="window.throwItemFromBackpack(${selectedSlot.id})">🎯 Aim & Throw / Fire</button>`;
                 }
 
+                // One Equip button per compatible slot (rings get "Left Ring" / "Right Ring")
+                const compatSlots = getCompatibleSlots(item);
+                const equipButtonsHtml = compatSlots.length > 1
+                    ? compatSlots.map(sl => `<button class="btn-action-small" style="background: #193826; border-color: #55ff77; color: #aaffaa;" onclick="window.equipSelectedBackpackItem('${sl}')">⚔️ ${SLOT_LABELS[sl]}</button>`).join('')
+                    : (item.slot ? `<button class="btn-action-small" style="background: #193826; border-color: #55ff77; color: #aaffaa;" onclick="window.equipSelectedBackpackItem()">⚔️ Equip</button>` : '');
+
                 let consumeBtn = '';
                 if (item.isConsumable) {
                     consumeBtn = `<button class="btn-action-small" style="background: #2a3a19; border-color: #77cc33; color: #ccff77;" onclick="window.consumeBackpackItem(${selectedSlot.id})">🍴 Eat / Consume</button>`;
                 }
 
                 cardActions.innerHTML = `
-                    ${item.slot ? `<button class="btn-action-small" style="background: #193826; border-color: #55ff77; color: #aaffaa;" onclick="window.equipSelectedBackpackItem()">⚔️ Equip</button>` : ''}
+                    ${equipButtonsHtml}
                     ${consumeBtn}
                     ${throwAimBtn}
                     <button class="btn-action-small" style="background: #381919; border-color: #ff6666; color: #ffaaaa;" onclick="window.dropSelectedBackpackItem()">🗑️ Drop</button>
@@ -2279,6 +2476,17 @@ export function populateSheet() {
     } else {
         cardTitle.innerText = 'Tap an item in your backpack to equip/throw, or tap equipped gear to unequip:';
         cardContent.style.display = 'none';
+    }
+
+    // Race traits, learned feats and heroic masteries
+    const traitsEl = document.getElementById('sheet-traits');
+    if (traitsEl) {
+        const rows = [];
+        rows.push(`<div><strong style="color:#ffcc00;">${player.race.icon} ${player.race.name}:</strong> ${player.race.traits.map(t => `${t.name} (${t.desc})`).join('; ')}</div>`);
+        player.generalFeats.forEach(id => { const f = FEATS[id]; if (f) rows.push(`<div>${f.icon} <strong>${f.name}:</strong> ${f.desc}</div>`); });
+        player.masteries.forEach(id => { const m = MASTERIES[id]; if (m) rows.push(`<div>${m.icon} <strong>${m.name}:</strong> ${m.desc}</div>`); });
+        if (player.generalFeats.length === 0 && player.masteries.length === 0) rows.push(`<div style="color:#666;">No feats yet (first feat at level 2, then every 3 levels).</div>`);
+        traitsEl.innerHTML = rows.join('');
     }
 
     // Proficiencies & Abilities
@@ -2391,7 +2599,237 @@ export function switchSheetTab(tabId) {
     populateSheet();
 }
 
-// Initial launch
+// ==========================================
+// 16. SETTINGS SCREEN (map size, class, race, debug tools)
+// ==========================================
+function fillSelect(id, options, selectedValue) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.innerHTML = options.map(o => `<option value="${o.value}" ${String(o.value) === String(selectedValue) ? 'selected' : ''}>${o.label}</option>`).join('');
+}
+
+export function updateSettingsPreview() {
+    const cls = ClassManager.getClass(document.getElementById('set-class')?.value);
+    const race = RaceManager.getRace(document.getElementById('set-race')?.value);
+    const el = document.getElementById('set-preview');
+    if (!el) return;
+    const a = cls.attributes;
+    const fmt = (k) => Math.max(3, a[k] + (race.attrs[k] || 0));
+    const gear = Object.values(cls.startingGear || {}).join(', ') || 'Bare hands';
+    el.innerHTML = `
+        <div><strong>${cls.icon} ${cls.name}</strong> — ${cls.title}. ${cls.desc}</div>
+        <div style="margin-top:3px;"><strong>${race.icon} ${race.name}:</strong> ${race.traits.map(t => `${t.name} (${t.desc})`).join('; ')}</div>
+        <div style="margin-top:3px;">Hit die d${cls.hitDie} • Base HP ${cls.baseHp} • STR ${fmt('str')} DEX ${fmt('dex')} CON ${fmt('con')} INT ${fmt('int')} WIS ${fmt('wis')} CHA ${fmt('cha')}</div>
+        <div style="margin-top:3px; color:#888ea6;">Starting kit: ${gear}</div>`;
+}
+
+export function openSettings() {
+    fillSelect('set-map-size', MAP_SIZES.map(s => ({ value: s.size, label: s.label })), settings.mapSize);
+    fillSelect('set-class', ClassManager.getSelectableClasses().map(c => ({ value: c.id, label: `${c.icon} ${c.name}` })), settings.classId);
+    fillSelect('set-race', RaceManager.getAllRaces().map(r => ({ value: r.id, label: `${r.icon} ${r.name}` })), settings.raceId);
+    const dbg = document.getElementById('set-debug');
+    if (dbg) dbg.checked = !!settings.debug;
+    updateSettingsPreview();
+    refreshDebugPanel();
+    const modal = document.getElementById('settings-modal');
+    if (modal) modal.classList.add('active');
+}
+
+export function closeSettings() {
+    const modal = document.getElementById('settings-modal');
+    if (modal) modal.classList.remove('active');
+}
+
+function readSettingsFromModal() {
+    settings.mapSize = normalizeMapSize(document.getElementById('set-map-size')?.value);
+    settings.classId = ClassManager.getClass(document.getElementById('set-class')?.value).id;
+    settings.raceId = RaceManager.getRace(document.getElementById('set-race')?.value).id;
+    settings.debug = !!document.getElementById('set-debug')?.checked;
+    saveSettings();
+}
+
+// Settings that change the world (map size / class / race) take effect on a NEW run.
+export function applySettings(newSeed = true) {
+    readSettingsFromModal();
+    closeSettings();
+    const seed = newSeed ? PRNG.generateRandomSeed() : dungeonManager.baseSeedString;
+    startPlaythrough(seed);
+    postMessage(`⚙️ New run: ${player.race.name} ${player.characterClass.name} on a ${MAP_WIDTH}x${MAP_HEIGHT} map.`, 'msg-info');
+}
+
+export function saveSettingsOnly() {
+    readSettingsFromModal();
+    refreshDebugPanel();
+    postMessage('⚙️ Settings saved (map size / class / race apply to the next run).', 'msg-info');
+}
+
+// ==========================================
+// 17. DEBUG / TEST TOOLS (hidden: settings toggle, ?debug=1, or any TEST* seed)
+// ==========================================
+function refreshDebugPanel() {
+    const panel = document.getElementById('debug-panel');
+    if (panel) panel.style.display = isDebugEnabled() ? 'block' : 'none';
+    const info = document.getElementById('debug-info');
+    if (info && player && currentFloorData && isDebugEnabled()) {
+        const f = currentFloorData;
+        info.innerText = `Seed ${dungeonManager.baseSeedString} | Map ${MAP_WIDTH}x${MAP_HEIGHT} | F${dungeonManager.currentFloor} | Lv${player.level} | ${f.monsters.filter(m => m.alive).length} foes, ${f.chests.length} chests | god:${godMode ? 'on' : 'off'}`;
+    }
+}
+
+function afterDebugChange(msg) {
+    if (msg) postMessage(`🛠️ ${msg}`, 'msg-info');
+    runPerceptionRadar();
+    updateHUD();
+    populateSheet();
+    refreshDebugPanel();
+    draw();
+}
+
+export const pixelDebug = {
+    startRun(seed, opts = {}) { startPlaythrough(seed, opts); return this.state(); },
+    jumpToFloor(n) {
+        n = Math.max(1, Math.min(25, parseInt(n, 10) || 1));
+        cancelWalking();
+        cancelTargeting();
+        loadFloor(n, true);
+        afterDebugChange(`Jumped to floor ${n}.`);
+        return n;
+    },
+    // Raises the hero to `level` (queues the real level-up choices so the UI can be exercised)
+    setLevel(level) {
+        level = Math.max(1, Math.min(PROGRESSION.maxLevel, parseInt(level, 10) || 1));
+        if (level <= player.level) return player.level;
+        const lvs = player.gainXp(XP_TABLE[level - 1] - player.xp);
+        handleLevelUps(lvs);
+        afterDebugChange(`Granted XP up to level ${level}.`);
+        return player.level;
+    },
+    addLevels(n = 1) { return this.setLevel(Math.min(PROGRESSION.maxLevel, player.level + n)); },
+    addXp(n = 100) {
+        const lvs = player.gainXp(n);
+        if (lvs.length) handleLevelUps(lvs);
+        afterDebugChange(`+${n} XP.`);
+    },
+    heal() { player.hp = player.maxHp; afterDebugChange('Fully healed.'); },
+    addRations(n = 5) { player.rations += n; afterDebugChange(`+${n} rations.`); },
+    toggleGod() { godMode = !godMode; afterDebugChange(`God mode ${godMode ? 'ON' : 'OFF'}.`); return godMode; },
+    // One distinct item per equipment slot (2 spare rings so both ring slots + a swap can be tested) into the bag
+    grantSlotItems() {
+        const equippedNames = new Set(player.getEquippedItems().map(i => i.name));
+        const pickFor = (slot, count = 1) => BASE_ITEMS.filter(b => b.slot === slot && !b.isConsumable && !equippedNames.has(b.name)).slice(0, count);
+        const bases = [];
+        for (const slot of Object.values(ITEM_SLOTS)) {
+            const count = (slot === ITEM_SLOTS.RING_LEFT || slot === ITEM_SLOTS.RING_RIGHT) ? 2 : 1;
+            bases.push(...pickFor(slot, count));
+        }
+        let added = 0;
+        for (const b of bases) { if (player.addToBackpack(createItemFromBase(b))) added++; }
+        afterDebugChange(`Added ${added} slot items to the bag.`);
+        return added;
+    },
+    clearBag() { player.backpack.fill(null); afterDebugChange('Bag emptied.'); },
+    revealMap() {
+        currentFloorData.visibility.fill(VISIBILITY.EXPLORED);
+        afterDebugChange('Whole floor revealed.');
+    },
+    teleportToStairs(down = true) {
+        const p = down ? currentFloorData.stairsDownPos : currentFloorData.stairsUpPos;
+        player.x = p.x; player.y = p.y;
+        afterDebugChange(`Teleported to stairs ${down ? 'down' : 'up'}.`);
+    },
+    teleport(x, y) {
+        player.x = x; player.y = y;
+        afterDebugChange(`Teleported to (${x}, ${y}).`);
+    },
+    loadTestSeed() {
+        closeSettings();
+        startPlaythrough('TEST-0001');
+        postMessage('🛠️ Test level loaded: the spine corridor east of spawn leads to every feature room and the item vault.', 'msg-info');
+    },
+    killAllVisible() {
+        const { monsters, visibility } = currentFloorData;
+        let n = 0;
+        for (const m of monsters) {
+            if (m.alive && visibility[m.y * MAP_WIDTH + m.x] === VISIBILITY.VISIBLE) { m.hp = 0; m.alive = false; addCorpse(m); n++; }
+        }
+        afterDebugChange(`Removed ${n} visible foes.`);
+    },
+    // Snapshot for automated verification
+    state() {
+        const f = currentFloorData;
+        const tileCounts = {};
+        for (let i = 0; i < f.terrain.length; i++) tileCounts[f.terrain[i]] = (tileCounts[f.terrain[i]] || 0) + 1;
+        return {
+            seed: dungeonManager.baseSeedString, floor: dungeonManager.currentFloor, mapW: MAP_WIDTH, mapH: MAP_HEIGHT,
+            terrainLen: f.terrain.length, visLen: f.visibility.length, tileCounts,
+            rooms: f.rooms.length, monsters: f.monsters.length, chests: f.chests.length, mushrooms: f.mushrooms.length,
+            stairsUp: f.stairsUpPos, stairsDown: f.stairsDownPos, player: { x: player.x, y: player.y },
+            level: player.level, xp: player.xp, hp: player.hp, maxHp: player.maxHp, ac: player.ac, per: player.per,
+            cls: player.characterClass.id, race: player.race.id,
+            attrs: { str: player.str, dex: player.dex, con: player.con, int: player.int, wis: player.wis, cha: player.cha },
+            equipment: Object.fromEntries(Object.entries(player.equipment).map(([k, v]) => [k, v ? v.name : null])),
+            backpack: player.backpack.map(i => i ? i.name : null),
+            feats: [...player.generalFeats], masteries: [...player.masteries], statuses: (player.statuses || []).map(s => s.id + ':' + s.duration),
+            pendingLevelUps: levelUpQueue.length
+        };
+    },
+    // Reachability check: flood fill over non-solid tiles (doors, secret doors and barrels count as passable) from stairs up
+    reachableStairsDown() {
+        const f = currentFloorData;
+        const W = MAP_WIDTH, H = MAP_HEIGHT;
+        const seen = new Uint8Array(W * H);
+        const q = [f.stairsUpPos.y * W + f.stairsUpPos.x];
+        seen[q[0]] = 1;
+        const blocked = new Set([TILES.WALL, TILES.PILLAR, TILES.PIT, TILES.RUBBLE]);
+        for (let h = 0; h < q.length; h++) {
+            const i = q[h], x = i % W, y = (i - x) / W;
+            for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+                const nx = x + dx, ny = y + dy;
+                if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+                const ni = ny * W + nx;
+                if (seen[ni] || blocked.has(f.terrain[ni])) continue;
+                seen[ni] = 1; q.push(ni);
+            }
+        }
+        const d = f.stairsDownPos;
+        return { reachable: !!seen[d.y * W + d.x], tilesReached: q.length };
+    },
+    // Samples reachable-looking floor tiles within `radius` of the hero and times A* to each
+    pathBench(radius = 30, samples = 60) {
+        const f = currentFloorData;
+        const W = MAP_WIDTH;
+        let tried = 0, found = 0, maxMs = 0, totalLen = 0;
+        for (let n = 0; n < samples * 20 && tried < samples; n++) {
+            const x = player.x + Math.floor((Math.random() * 2 - 1) * radius);
+            const y = player.y + Math.floor((Math.random() * 2 - 1) * radius);
+            if (x < 0 || y < 0 || x >= W || y >= MAP_HEIGHT || f.terrain[y * W + x] !== TILES.FLOOR) continue;
+            tried++;
+            const t0 = performance.now();
+            const path = findPath(player.x, player.y, x, y, f.terrain, f.monsters);
+            maxMs = Math.max(maxMs, performance.now() - t0);
+            if (path.length) { found++; totalLen += path.length; }
+        }
+        return { tried, found, maxMs: +maxMs.toFixed(2), avgLen: found ? +(totalLen / found).toFixed(1) : 0 };
+    },
+    pathTest(x, y) {
+        const t0 = performance.now();
+        const path = findPath(player.x, player.y, x, y, currentFloorData.terrain, currentFloorData.monsters);
+        return { len: path.length, ms: +(performance.now() - t0).toFixed(2) };
+    }
+};
+
+// ==========================================
+// Initial launch: URL params ?seed= ?map= ?class= ?race= ?debug=1 ?floor= ?level=
+// ==========================================
+loadSettings();
 const urlParams = new URLSearchParams(window.location.search);
 const initSeed = urlParams.get('seed') || PRNG.generateRandomSeed();
-startPlaythrough(initSeed);
+if (urlParams.get('debug') === '1') settings.debug = true;
+startPlaythrough(initSeed, {
+    mapSize: urlParams.get('map') ?? undefined,
+    classId: urlParams.get('class') ?? undefined,
+    raceId: urlParams.get('race') ?? undefined
+});
+if (urlParams.get('floor')) pixelDebug.jumpToFloor(urlParams.get('floor'));
+if (urlParams.get('level')) pixelDebug.setLevel(urlParams.get('level'));
+window.pixelDebug = pixelDebug;
