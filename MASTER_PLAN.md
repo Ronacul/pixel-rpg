@@ -47,3 +47,5 @@ Legend: `[x]` done, `[~]` partially done (note says what is left), `[ ]` not sta
 - [x] Slower XP curve and unified XP rewards (`XP_REWARDS`, `monsterXp`)
 - [ ] Persist / resume a run (nothing is saved except settings)
 - [ ] Automated browser regression script for the `pixelDebug` checks
+- [x] Locked doors + keys + active Search (`E`); traps are rarer and never lethal; healing potions in loot; faster natural regen
+- [x] Touch controls: pinch zoom, drag pan; inventory shows large icons with colour-coded set highlighting

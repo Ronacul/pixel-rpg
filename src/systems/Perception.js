@@ -64,7 +64,7 @@ export class PerceptionSystem {
                 }
 
                 // Vision blockers: walls, closed doors, rubble, and solid stone pillars
-                if (tile === TILES.WALL || tile === TILES.DOOR_CLOSED || tile === TILES.RUBBLE || tile === TILES.PILLAR) {
+                if (tile === TILES.WALL || tile === TILES.DOOR_CLOSED || tile === TILES.LOCKED_DOOR || tile === TILES.RUBBLE || tile === TILES.PILLAR) {
                     break;
                 }
             }

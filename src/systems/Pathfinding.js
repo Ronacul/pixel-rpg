@@ -84,7 +84,7 @@ export function findPath(startX, startY, endX, endY, terrain, monsters, maxRadiu
         // Target can be an entity, barrel, or door to interact with
         if (x === endX && y === endY) return true;
         // Avoid walking through closed doors, destructible barrels, or live monsters mid-path
-        if (tile === TILES.DOOR_CLOSED || tile === TILES.BARREL) return false;
+        if (tile === TILES.DOOR_CLOSED || tile === TILES.LOCKED_DOOR || tile === TILES.BARREL) return false;
         if (occupied.has(y * MAP_WIDTH + x)) return false;
         return true;
     };

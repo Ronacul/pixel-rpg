@@ -187,7 +187,7 @@ export class PlayerCharacter {
     }
 
     get regenRate() {
-        return Math.max(4, 12 - ((this.skills?.medicine || 0) * 2) - (this.passiveMods.regen * 2));
+        return Math.max(3, 9 - ((this.skills?.medicine || 0) * 2) - (this.passiveMods.regen * 2));
     }
 
     get weapon() {

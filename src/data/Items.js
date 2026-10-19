@@ -167,6 +167,10 @@ export const BASE_ITEMS = [
     { name: 'Ironhide Morel', isConsumable: true, isMushroom: true, mushroomType: 'IRONHIDE', rations: 1, healPotency: 5, icon: '🍄', desc: 'Mineral fungus. Restores 1 Ration and grants Stoneskin (+3 AC) for 25t.' },
     { name: 'Fresh Beast Meat', isConsumable: true, rations: 1, healPotency: 8, icon: '🥩', desc: 'Harvested creature meat. Restores 1 Camp Ration and 8 HP.' },
     { name: 'Spider Venom Sac', isConsumable: true, statusOnHit: 'POISONED', statusDuration: 5, icon: '🧪', desc: 'Harvested venom gland. Coat weapon or throw: inflicts Poison.' },
+    { name: 'Minor Healing Potion', isConsumable: true, healPotency: 15, icon: '🍷', desc: 'Restores 15 HP.' },
+    { name: 'Minor Healing Potion', isConsumable: true, healPotency: 15, icon: '🍷', desc: 'Restores 15 HP.' },
+    { name: 'Healing Potion', isConsumable: true, healPotency: 30, icon: '🧴', desc: 'Restores 30 HP.' },
+    { name: 'Healing Potion', isConsumable: true, healPotency: 30, icon: '🧴', desc: 'Restores 30 HP.' },
     { name: 'Wild Briar Herbs', isConsumable: true, rations: 1, healPotency: 10, cleansesBleed: true, icon: '🌿', desc: 'Foraged medicinal herbs. Restores 10 HP, cleanses Bleeding, +1 Ration.' }
 ];
 
@@ -233,6 +237,7 @@ export const EQUIPMENT_SETS = {
         name: 'Regalia of the King of Kings',
         lore: 'Imperial regalia of an ancient sovereign dynasty whose overwhelming majesty breaks enemy morale.',
         icon: '👑',
+        color: '#ffcc00',
         thresholds: {
             2: {
                 name: 'Sovereign Majesty',
@@ -251,6 +256,7 @@ export const EQUIPMENT_SETS = {
         name: 'Elven Craftsmanship',
         lore: 'Hand-woven and tempered under ancient canopy leaves, infused with the swiftness of sylvan winds.',
         icon: '🌿',
+        color: '#55dd77',
         thresholds: {
             2: {
                 name: 'Sylvan Agility',
@@ -269,6 +275,7 @@ export const EQUIPMENT_SETS = {
         name: 'Dwarven Deep-Forge',
         lore: 'Forged in subterranean magma and stamped with the unbreakable mountain anvil seal.',
         icon: '⚒️',
+        color: '#ff8844',
         thresholds: {
             2: {
                 name: 'Anvil Tempering',
@@ -287,6 +294,7 @@ export const EQUIPMENT_SETS = {
         name: 'Shadowstalker Shroud',
         lore: 'Woven from spectral gloom for master infiltrators who strike from the unlit dark.',
         icon: '🌑',
+        color: '#b08aff',
         thresholds: {
             2: {
                 name: 'Veil of Shadows',
@@ -479,4 +487,9 @@ export function generateLootItem(prng, floorLevel = 1) {
     item.desc = stats.join(', ') || 'Standard equipment';
 
     return item;
+}
+
+// Number of catalogued pieces in a set (used for "2/3 pieces" displays)
+export function getSetPieceTotal(setId) {
+    return BASE_ITEMS.filter(b => b.setId === setId).length;
 }

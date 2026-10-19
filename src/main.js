@@ -11,7 +11,7 @@ import { PlayerCharacter } from './entities/Character.js';
 import { PerceptionSystem } from './systems/Perception.js';
 import { CombatSystem } from './systems/Combat.js';
 import { findPath } from './systems/Pathfinding.js';
-import { ITEM_SLOTS, SLOT_LABELS, getCompatibleSlots, BASE_ITEMS, createItemFromBase, generateLootItem, EQUIPMENT_SETS, calculateEquippedSetBonuses, MUSHROOM_TYPES } from './data/Items.js';
+import { ITEM_SLOTS, SLOT_LABELS, getCompatibleSlots, getSetPieceTotal, BASE_ITEMS, createItemFromBase, generateLootItem, EQUIPMENT_SETS, calculateEquippedSetBonuses, MUSHROOM_TYPES } from './data/Items.js';
 import { CLASSES, SKILLS, ClassManager } from './data/Classes.js';
 import { RaceManager, DEFAULT_RACE_ID } from './data/Races.js';
 import { FeatManager, FEATS } from './data/Feats.js';
@@ -19,19 +19,21 @@ import { PROGRESSION, XP_TABLE, XP_REWARDS, MASTERIES, monsterXp } from './data/
 import { EffectSystem, STATUS_TYPES, ZONE_TYPES, DELIVERY_TYPES } from './systems/Effects.js';
 
 // Viewport Camera & Zoom Settings
-const ZOOM_LEVELS = [
-    { label: '1x', cols: 11, rows: 11, size: 32 },
-    { label: '1.5x', cols: 17, rows: 17, size: 21 },
-    { label: '2x', cols: 25, rows: 25, size: 15 }
-];
-let currentZoomIndex = 0;
+// Zoom levels from closest to widest (tiles visible across). Pinch, mouse wheel or the Zoom button step through them.
+const ZOOM_LEVELS = [7, 9, 11, 15, 19, 25, 33].map(n => ({ label: `${n}t`, cols: n, rows: n, size: Math.floor(352 / n) }));
+const DEFAULT_ZOOM_INDEX = 2; // 11x11 as before
+let currentZoomIndex = DEFAULT_ZOOM_INDEX;
+
+// Camera pan offset (in tiles) while the hero is not centred. Dragging the map pans; any move recentres.
+let panX = 0;
+let panY = 0;
 
 const canvas = document.getElementById('stage');
 const ctx = canvas.getContext('2d');
 
-let VIEW_COLS = ZOOM_LEVELS[0].cols;
-let VIEW_ROWS = ZOOM_LEVELS[0].rows;
-let TILE_SIZE = ZOOM_LEVELS[0].size;
+let VIEW_COLS = ZOOM_LEVELS[DEFAULT_ZOOM_INDEX].cols;
+let VIEW_ROWS = ZOOM_LEVELS[DEFAULT_ZOOM_INDEX].rows;
+let TILE_SIZE = ZOOM_LEVELS[DEFAULT_ZOOM_INDEX].size;
 canvas.width = VIEW_COLS * TILE_SIZE;
 canvas.height = VIEW_ROWS * TILE_SIZE;
 
@@ -114,6 +116,7 @@ export function restartSameSeed() {
 }
 
 function loadFloor(floorNum, enterFromAbove = true) {
+    resetPan();
     dungeonManager.currentFloor = floorNum;
 
     if (!dungeonManager.hasFloor(floorNum)) {
@@ -165,8 +168,8 @@ function runPerceptionRadar() {
 // ==========================================
 // 2. ZOOM SYSTEM
 // ==========================================
-export function cycleZoom() {
-    currentZoomIndex = (currentZoomIndex + 1) % ZOOM_LEVELS.length;
+export function setZoomIndex(index, announce = true) {
+    currentZoomIndex = Math.max(0, Math.min(ZOOM_LEVELS.length - 1, index));
     const z = ZOOM_LEVELS[currentZoomIndex];
     VIEW_COLS = z.cols;
     VIEW_ROWS = z.rows;
@@ -176,8 +179,29 @@ export function cycleZoom() {
 
     const azl = document.getElementById('action-zoom-label');
     if (azl) azl.innerText = z.label;
-    postMessage(`🔍 Map Zoom set to ${z.label} (${VIEW_COLS}x${VIEW_ROWS} tiles view)`, 'msg-info');
-    draw();
+    if (announce) postMessage(`🔍 Map zoom: ${VIEW_COLS}x${VIEW_ROWS} tiles in view`, 'msg-info');
+    if (player && currentFloorData) draw();
+}
+
+// Button / Z key: cycle closest -> widest -> closest
+export function cycleZoom() {
+    setZoomIndex((currentZoomIndex + 1) % ZOOM_LEVELS.length);
+}
+
+// Pinch / wheel: direction > 0 zooms IN (fewer tiles), < 0 zooms OUT
+export function stepZoom(direction) {
+    setZoomIndex(currentZoomIndex - Math.sign(direction), false);
+}
+
+function panBy(dxTiles, dyTiles) {
+    const limit = 40;
+    panX = Math.max(-limit, Math.min(limit, panX + dxTiles));
+    panY = Math.max(-limit, Math.min(limit, panY + dyTiles));
+}
+
+function resetPan() {
+    panX = 0;
+    panY = 0;
 }
 
 // ==========================================
@@ -246,8 +270,8 @@ function draw() {
         canvas.style.filter = 'none';
     }
 
-    const camX = player.x - Math.floor(VIEW_COLS / 2);
-    const camY = player.y - Math.floor(VIEW_ROWS / 2);
+    const camX = player.x - Math.floor(VIEW_COLS / 2) + panX;
+    const camY = player.y - Math.floor(VIEW_ROWS / 2) + panY;
 
     const { terrain, visibility, biome, monsters, chests, mushrooms, corpses, bloodStains, hazardZones, trapsRevealed } = currentFloorData;
 
@@ -314,6 +338,12 @@ function draw() {
                 ctx.strokeStyle = '#1b3820';
                 ctx.strokeRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
                 drawGlyph('🌿', screenX, screenY, isDim ? 0.45 : 0.9);
+            } else if (tile === TILES.LOCKED_DOOR) {
+                ctx.fillStyle = isDim ? '#181922' : '#2a1d0e';
+                ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+                ctx.strokeStyle = '#ffcc00';
+                ctx.strokeRect(screenX + 1, screenY + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+                drawGlyph('🔒', screenX, screenY, isDim ? 0.5 : 1.0);
             } else if (tile === TILES.DOOR_CLOSED) {
                 ctx.fillStyle = isDim ? '#181922' : biome.floorColor;
                 ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
@@ -385,6 +415,12 @@ function draw() {
                 drawGlyph(chest.opened ? '📭' : '📦', screenX, screenY, isDim ? 0.5 : 1.0);
             }
 
+            // Keys lying on the floor
+            const floorKey = currentFloorData.keys?.find(k => !k.hidden && k.x === worldX && k.y === worldY);
+            if (floorKey && vis !== VISIBILITY.UNEXPLORED) {
+                drawGlyph('🗝️', screenX, screenY, isDim ? 0.5 : 1.0);
+            }
+
             // Forageable Mushrooms
             const shroom = mushrooms?.find(m => m.x === worldX && m.y === worldY);
             if (shroom && vis !== VISIBILITY.UNEXPLORED) {
@@ -436,8 +472,8 @@ function draw() {
 
     // Render Player at Viewport Center (if alive)
     if (player.alive) {
-        const centerScreenX = Math.floor(VIEW_COLS / 2) * TILE_SIZE;
-        const centerScreenY = Math.floor(VIEW_ROWS / 2) * TILE_SIZE;
+        const centerScreenX = (player.x - camX) * TILE_SIZE;
+        const centerScreenY = (player.y - camY) * TILE_SIZE;
         drawGlyph('🛡️', centerScreenX, centerScreenY, 1.0);
 
         // Player status effect badge icons
@@ -469,8 +505,8 @@ function draw() {
         ctx.lineWidth = 2;
         ctx.setLineDash([4, 4]);
 
-        const startScreenX = Math.floor(VIEW_COLS / 2) * TILE_SIZE + TILE_SIZE / 2;
-        const startScreenY = Math.floor(VIEW_ROWS / 2) * TILE_SIZE + TILE_SIZE / 2;
+        const startScreenX = (player.x - camX) * TILE_SIZE + TILE_SIZE / 2;
+        const startScreenY = (player.y - camY) * TILE_SIZE + TILE_SIZE / 2;
         ctx.moveTo(startScreenX, startScreenY);
 
         const endScreenX = (hoverWorldPos.x - camX) * TILE_SIZE + TILE_SIZE / 2;
@@ -562,7 +598,7 @@ function getStepAwayFrom(sx, sy, px, py, terrain, monsters) {
         const ny = sy + d.dy;
         if (nx < 0 || nx >= MAP_WIDTH || ny < 0 || ny >= MAP_HEIGHT) continue;
         const t = terrain[ny * MAP_WIDTH + nx];
-        const isImpassable = (t === TILES.WALL || t === TILES.PILLAR || t === TILES.PIT || t === TILES.RUBBLE || t === TILES.DOOR_CLOSED || t === TILES.BARREL);
+        const isImpassable = (t === TILES.WALL || t === TILES.PILLAR || t === TILES.PIT || t === TILES.RUBBLE || t === TILES.DOOR_CLOSED || t === TILES.LOCKED_DOOR || t === TILES.BARREL);
         const occupied = monsters.some(other => other.alive && other.x === nx && other.y === ny);
         const isPlayerTile = (nx === px && ny === py);
         if (!isImpassable && !occupied && !isPlayerTile) {
@@ -580,6 +616,7 @@ function getStepAwayFrom(sx, sy, px, py, terrain, monsters) {
 // 5. TURN CYCLE & LINGERING HAZARDS / STATUS TICKS
 // ==========================================
 function endTurn() {
+    resetPan(); // any action recentres the camera on the hero
     if (!player.alive) return;
 
     // Check if player is stunned: skip player's next turn
@@ -771,7 +808,7 @@ function getStepTowards(sx, sy, tx, ty, terrain, monsters) {
             if (visited.has(k)) continue;
 
             const t = terrain[ny * MAP_WIDTH + nx];
-            const isImpassable = (t === TILES.WALL || t === TILES.PILLAR || t === TILES.PIT || t === TILES.RUBBLE || t === TILES.DOOR_CLOSED || t === TILES.BARREL);
+            const isImpassable = (t === TILES.WALL || t === TILES.PILLAR || t === TILES.PIT || t === TILES.RUBBLE || t === TILES.DOOR_CLOSED || t === TILES.LOCKED_DOOR || t === TILES.BARREL);
             const occupied = monsters.some(m => m.alive && m.x === nx && m.y === ny);
 
             if ((!isImpassable || (nx === tx && ny === ty)) && !occupied) {
@@ -864,6 +901,26 @@ function stepPath(path) {
     const targetIdx = nextY * MAP_WIDTH + nextX;
     const tile = terrain[targetIdx];
 
+    // 0. Locked door: needs the matching key from the bag
+    if (tile === TILES.LOCKED_DOOR) {
+        cancelWalking();
+        const lock = currentFloorData.lockedDoors?.find(l => l.x === nextX && l.y === nextY);
+        const keyIdx = lock ? player.backpack.findIndex(i => i && i.isKey && i.keyId === lock.keyId) : -1;
+        if (keyIdx === -1) {
+            const hint = lock ? `Needs the ${lock.keyName}.` : 'It is locked.';
+            postMessage(`🔒 Locked door! ${hint} Search rooms (E) for a key.`, 'msg-miss');
+        } else {
+            player.removeFromBackpack(keyIdx);
+            terrain[targetIdx] = TILES.DOOR_OPEN;
+            postMessage(`🗝️ The ${lock.keyName} turns! The lock clicks open and the key crumbles to rust.`, 'msg-loot');
+            runPerceptionRadar();
+            endTurn();
+        }
+        updateHUD();
+        draw();
+        return;
+    }
+
     // 1. Closed Door Breach
     if (tile === TILES.DOOR_CLOSED) {
         terrain[targetIdx] = TILES.DOOR_OPEN;
@@ -936,15 +993,15 @@ function stepPath(path) {
         cancelWalking();
 
         if (tile === TILES.TRAP_SPIKE) {
-            const dmg = prng.nextInt(2, 8);
-            player.hp = Math.max(0, player.hp - dmg);
+            const dmg = prng.nextInt(1, 4) + Math.floor(currentFloorData.floorLevel / 5);
+            player.hp = Math.max(1, player.hp - dmg); // traps maim but never kill outright
             EffectSystem.applyStatus(player, 'BLEEDING', 4, 1, 'Floor Spikes');
             addBlood(player.x, player.y);
             postMessage(`⚡ FLOOR SPIKES SPRUNG! Took ${dmg} piercing damage and bleeding!`, 'msg-miss');
         } else if (tile === TILES.TRAP_FIRE) {
             EffectSystem.addAoEZones(currentFloorData, nextX, nextY, 1, 'FIRE', 4, 1);
-            const dmg = prng.nextInt(3, 10);
-            player.hp = Math.max(0, player.hp - dmg);
+            const dmg = prng.nextInt(2, 5) + Math.floor(currentFloorData.floorLevel / 5);
+            player.hp = Math.max(1, player.hp - dmg); // traps maim but never kill outright
             EffectSystem.applyStatus(player, 'BURNING', 3, 1, 'Fire Trap');
             postMessage(`🔥 FIRE TRAP DETONATED! Took ${dmg} fire damage and caught burning!`, 'msg-miss');
         } else if (tile === TILES.TRAP_GAS) {
@@ -981,6 +1038,19 @@ function stepPath(path) {
         }
         if (levelUps.length > 0) handleLevelUps(levelUps);
         updateHUD();
+    }
+
+    // Pick up a floor key
+    const keyPickIdx = currentFloorData.keys?.findIndex(k => k.x === nextX && k.y === nextY);
+    if (keyPickIdx !== undefined && keyPickIdx !== -1) {
+        const k = currentFloorData.keys[keyPickIdx];
+        const keyItem = { name: k.name, icon: '🗝️', isKey: true, keyId: k.keyId, desc: `Opens the matching locked door on floor ${currentFloorData.floorLevel}.` };
+        if (player.addToBackpack(keyItem)) {
+            currentFloorData.keys.splice(keyPickIdx, 1);
+            postMessage(`🗝️ Found the ${k.name}! Somewhere a locked door awaits.`, 'msg-loot');
+        } else {
+            postMessage(`🗝️ A ${k.name} lies here, but your bag is full!`, 'msg-miss');
+        }
     }
 
     // Forage Mushrooms
@@ -1698,7 +1768,10 @@ export function inspectTileAt(worldX, worldY) {
             zoneInfo = `<div style="color: #ff9944; margin-top: 4px;"><strong>Active Hazard:</strong> ${zDef.icon} ${zDef.name} (${zone.duration} turns left)<br>${zDef.desc}</div>`;
         }
 
-        if (tile === TILES.PILLAR) {
+        if (tile === TILES.LOCKED_DOOR) {
+            const lock = currentFloorData.lockedDoors?.find(l => l.x === worldX && l.y === worldY);
+            data = { icon: '🔒', name: 'Locked Door', desc: 'Reinforced and bolted.', details: `Opens with the ${lock ? lock.keyName : 'matching key'}. Keys lie somewhere else on this floor: use Search (E) in rooms to find hidden things.${zoneInfo}` };
+        } else if (tile === TILES.PILLAR) {
             data = { icon: '🏛️', name: 'Marble Stone Pillar', desc: 'Solid architectural column.', details: `Impassable structure. Blocks projectiles and provides +2 Tactical Cover AC to adjacent combatants against ranged attacks.${zoneInfo}` };
         } else if (tile === TILES.PIT) {
             data = { icon: '🕳️', name: 'Bottomless Chasm', desc: 'Deep abyssal drop into the unknown.', details: `Impassable terrain hazard. Falling into it causes fatal fall damage.${zoneInfo}` };
@@ -1752,8 +1825,8 @@ function screenToWorld(clientX, clientY) {
     const screenTileX = Math.floor(((clientX - rect.left) * scaleX) / TILE_SIZE);
     const screenTileY = Math.floor(((clientY - rect.top) * scaleY) / TILE_SIZE);
 
-    const camX = player.x - Math.floor(VIEW_COLS / 2);
-    const camY = player.y - Math.floor(VIEW_ROWS / 2);
+    const camX = player.x - Math.floor(VIEW_COLS / 2) + panX;
+    const camY = player.y - Math.floor(VIEW_ROWS / 2) + panY;
 
     return {
         x: camX + screenTileX,
@@ -1768,11 +1841,66 @@ let holdTimer = null;
 let holdTriggered = false;
 let startPos = { x: 0, y: 0 };
 
+// Gesture state: 1-finger drag pans the map, 2-finger pinch zooms, a still tap walks / fires, a long press inspects
+const DRAG_THRESHOLD_PX = 10;
+let dragging = false;       // finger/mouse moved far enough to count as a pan (suppresses the tap)
+let pinching = false;       // two fingers down (suppresses tap + pan until all fingers lift)
+let dragLast = { x: 0, y: 0 };
+let panCarry = { x: 0, y: 0 };   // sub-tile pixel remainder while dragging
+let pinchBaseDist = 0;
+
+function pxPerTile() {
+    const rect = canvas.getBoundingClientRect();
+    return TILE_SIZE * (rect.width / canvas.width);
+}
+
+function dragPan(clientX, clientY) {
+    // Dragging the map right shows what is to the left, so the camera moves opposite to the finger
+    const ppt = pxPerTile();
+    panCarry.x -= (clientX - dragLast.x) / ppt;
+    panCarry.y -= (clientY - dragLast.y) / ppt;
+    dragLast = { x: clientX, y: clientY };
+    const tx = Math.trunc(panCarry.x);
+    const ty = Math.trunc(panCarry.y);
+    if (tx !== 0 || ty !== 0) {
+        panCarry.x -= tx;
+        panCarry.y -= ty;
+        panBy(tx, ty);
+        draw();
+    }
+}
+
+function cancelHold() {
+    if (holdTimer) {
+        clearTimeout(holdTimer);
+        holdTimer = null;
+    }
+}
+
+function touchDistance(e) {
+    const a = e.touches[0], b = e.touches[1];
+    return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+}
+
 canvas.addEventListener('touchstart', (e) => {
     e.preventDefault();
+
+    if (e.touches.length >= 2) {
+        // Pinch begins: drop any pending tap / long-press
+        cancelHold();
+        pinching = true;
+        dragging = false;
+        pinchBaseDist = touchDistance(e);
+        return;
+    }
+
     const touch = e.touches[0];
     startPos = { x: touch.clientX, y: touch.clientY };
+    dragLast = { x: touch.clientX, y: touch.clientY };
+    panCarry = { x: 0, y: 0 };
     holdTriggered = false;
+    dragging = false;
+    pinching = false;
 
     const world = screenToWorld(touch.clientX, touch.clientY);
     hoverWorldPos = world;
@@ -1786,32 +1914,79 @@ canvas.addEventListener('touchstart', (e) => {
 }, { passive: false });
 
 canvas.addEventListener('touchmove', (e) => {
-    const touch = e.touches[0];
-    if (holdTimer && Math.hypot(touch.clientX - startPos.x, touch.clientY - startPos.y) > 8) {
-        clearTimeout(holdTimer);
-        holdTimer = null;
+    e.preventDefault();
+
+    if (pinching && e.touches.length >= 2) {
+        const d = touchDistance(e);
+        if (pinchBaseDist > 0) {
+            const ratio = d / pinchBaseDist;
+            if (ratio > 1.3) { stepZoom(1); pinchBaseDist = d; }       // fingers apart -> zoom in
+            else if (ratio < 0.77) { stepZoom(-1); pinchBaseDist = d; } // fingers together -> zoom out
+        }
+        return;
     }
+    if (pinching) return; // one finger left after a pinch: ignore until all fingers lift
+
+    const touch = e.touches[0];
+    const moved = Math.hypot(touch.clientX - startPos.x, touch.clientY - startPos.y);
+    if (moved > DRAG_THRESHOLD_PX) cancelHold();
+
     if (targetingMode) {
         hoverWorldPos = screenToWorld(touch.clientX, touch.clientY);
         draw();
+        return;
     }
-});
+
+    if (moved > DRAG_THRESHOLD_PX && !holdTriggered) {
+        if (!dragging) {
+            dragging = true;
+            dragLast = { x: touch.clientX, y: touch.clientY }; // start panning from here, no jump
+        }
+        dragPan(touch.clientX, touch.clientY);
+    }
+}, { passive: false });
 
 canvas.addEventListener('touchend', (e) => {
     e.preventDefault();
-    if (holdTimer) {
-        clearTimeout(holdTimer);
-        holdTimer = null;
-    }
-    if (!holdTriggered) {
+    cancelHold();
+
+    if (e.touches.length > 0) return; // still fingers down (end of a pinch)
+
+    const wasGesture = pinching || dragging;
+    pinching = false;
+    dragging = false;
+
+    if (!wasGesture && !holdTriggered) {
         const touch = e.changedTouches[0];
         const world = screenToWorld(touch.clientX, touch.clientY);
         handleTap(world.x, world.y);
     }
     holdTriggered = false;
+}, { passive: false });
+
+canvas.addEventListener('touchcancel', () => {
+    cancelHold();
+    pinching = false;
+    dragging = false;
+    holdTriggered = false;
 });
 
+// ---- Mouse: click = tap, drag = pan, wheel = zoom, right-click / long-press = inspect ----
+let mouseDown = false;
+
 canvas.addEventListener('mousemove', (e) => {
+    if (mouseDown && !targetingMode) {
+        const moved = Math.hypot(e.clientX - startPos.x, e.clientY - startPos.y);
+        if (moved > DRAG_THRESHOLD_PX) {
+            cancelHold();
+            if (!dragging) {
+                dragging = true;
+                dragLast = { x: e.clientX, y: e.clientY };
+            }
+            dragPan(e.clientX, e.clientY);
+        }
+        return;
+    }
     if (targetingMode) {
         hoverWorldPos = screenToWorld(e.clientX, e.clientY);
         draw();
@@ -1820,7 +1995,11 @@ canvas.addEventListener('mousemove', (e) => {
 
 canvas.addEventListener('mousedown', (e) => {
     if (e.button === 2) return;
+    mouseDown = true;
+    dragging = false;
     startPos = { x: e.clientX, y: e.clientY };
+    dragLast = { x: e.clientX, y: e.clientY };
+    panCarry = { x: 0, y: 0 };
     holdTriggered = false;
     const world = screenToWorld(e.clientX, e.clientY);
     hoverWorldPos = world;
@@ -1831,23 +2010,96 @@ canvas.addEventListener('mousedown', (e) => {
     }, 400);
 });
 
-canvas.addEventListener('mouseup', (e) => {
-    if (holdTimer) {
-        clearTimeout(holdTimer);
-        holdTimer = null;
-    }
-    if (e.button === 0 && !holdTriggered) {
+window.addEventListener('mouseup', (e) => {
+    if (!mouseDown) return;
+    mouseDown = false;
+    cancelHold();
+    const wasDrag = dragging;
+    dragging = false;
+    if (e.button === 0 && !holdTriggered && !wasDrag && e.target === canvas) {
         const world = screenToWorld(e.clientX, e.clientY);
         handleTap(world.x, world.y);
     }
     holdTriggered = false;
 });
 
+canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    stepZoom(e.deltaY < 0 ? 1 : -1);
+}, { passive: false });
+
 canvas.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     const world = screenToWorld(e.clientX, e.clientY);
     inspectTileAt(world.x, world.y);
 });
+
+// ==========================================
+// ACTIVE SEARCH (hotkey E / Search button): spends a turn to find secret doors, traps and hidden keys nearby
+// ==========================================
+export function searchArea() {
+    if (!player || !player.alive) return;
+    cancelWalking();
+    cancelTargeting();
+
+    const f = currentFloorData;
+    const radius = Math.min(8, 3 + Math.max(0, player.perMod) + (player.skills.perception || 0));
+    const bonus = 5 + player.perMod; // active searching is far better than passive detection
+    const found = [];
+    let hiddenLeft = 0;
+
+    for (let y = player.y - radius; y <= player.y + radius; y++) {
+        for (let x = player.x - radius; x <= player.x + radius; x++) {
+            if (x < 0 || y < 0 || x >= MAP_WIDTH || y >= MAP_HEIGHT) continue;
+            if (Math.hypot(x - player.x, y - player.y) > radius + 0.5) continue;
+            const idx = y * MAP_WIDTH + x;
+            const t = f.terrain[idx];
+            const roll = () => prng.nextInt(1, 20) + bonus;
+
+            if (t === TILES.SECRET_DOOR) {
+                if (roll() >= 10) {
+                    f.terrain[idx] = TILES.DOOR_CLOSED;
+                    f.visibility[idx] = Math.max(f.visibility[idx], VISIBILITY.EXPLORED);
+                    found.push('a secret door');
+                    const lvs = player.gainXp(XP_REWARDS.secretDoor);
+                    if (lvs.length) handleLevelUps(lvs);
+                } else hiddenLeft++;
+            } else if (t === TILES.TRAP_SPIKE || t === TILES.TRAP_FIRE || t === TILES.TRAP_GAS) {
+                if (!f.trapsRevealed.has(idx)) {
+                    if (roll() >= 10) {
+                        f.trapsRevealed.add(idx);
+                        f.visibility[idx] = Math.max(f.visibility[idx], VISIBILITY.EXPLORED);
+                        found.push('a trap');
+                        const lvs = player.gainXp(XP_REWARDS.trap);
+                        if (lvs.length) handleLevelUps(lvs);
+                    } else hiddenLeft++;
+                }
+            }
+        }
+    }
+
+    // Hidden keys are only revealed (made visible on the map) by an active search
+    for (const k of f.keys || []) {
+        if (k.hidden && Math.hypot(k.x - player.x, k.y - player.y) <= radius + 0.5) {
+            if (prng.nextInt(1, 20) + bonus >= 10) {
+                k.hidden = false;
+                f.visibility[k.y * MAP_WIDTH + k.x] = Math.max(f.visibility[k.y * MAP_WIDTH + k.x], VISIBILITY.EXPLORED);
+                found.push(`the ${k.name}`);
+            } else hiddenLeft++;
+        }
+    }
+
+    if (found.length) {
+        postMessage(`🔍 Search (radius ${radius}) uncovered ${found.join(', ')}!`, 'msg-loot');
+    } else if (hiddenLeft > 0) {
+        postMessage(`🔍 Search (radius ${radius}): you sense something hidden nearby... try again.`, 'msg-info');
+    } else {
+        postMessage(`🔍 Search (radius ${radius}): nothing hidden within reach.`, 'msg-info');
+    }
+    endTurn();
+    updateHUD();
+    draw();
+}
 
 export function waitTurn() {
     if (!player || !player.alive) return;
@@ -2193,6 +2445,12 @@ window.addEventListener('keydown', (e) => {
         return;
     }
 
+    // Hotkey: E searches the surroundings (secret doors, traps, hidden keys)
+    if (e.key === 'e' || e.key === 'E') {
+        searchArea();
+        return;
+    }
+
     // Hotkey: Z cycles Zoom
     if (e.key === 'z' || e.key === 'Z') {
         cycleZoom();
@@ -2351,14 +2609,35 @@ export function populateSheet() {
     const eq = player.equipment;
     const isBodySelected = (slot) => selectedSlot?.type === 'body' && selectedSlot?.id === slot;
 
+    // Set highlighting: every item belonging to a set gets the set's colour; pieces you own 2+ of glow and show "owned/total"
+    const ownedSetCounts = {};
+    const equippedSetCounts = {};
+    player.getEquippedItems().forEach(i => { if (i.setId) { ownedSetCounts[i.setId] = (ownedSetCounts[i.setId] || 0) + 1; equippedSetCounts[i.setId] = (equippedSetCounts[i.setId] || 0) + 1; } });
+    player.backpack.forEach(i => { if (i && i.setId) ownedSetCounts[i.setId] = (ownedSetCounts[i.setId] || 0) + 1; });
+    const setLook = (item) => {
+        const def = item && item.setId ? EQUIPMENT_SETS[item.setId] : null;
+        if (!def) return { style: '', badge: '' };
+        const owned = ownedSetCounts[item.setId] || 1;
+        const equipped = equippedSetCounts[item.setId] || 0;
+        const total = getSetPieceTotal(item.setId);
+        const shared = owned >= 2;
+        const active = equipped >= 2;
+        const color = def.color || '#ffcc00';
+        const style = `border: 2px solid ${color} !important; ${shared ? `box-shadow: 0 0 10px ${color}99, inset 0 0 8px ${color}33;` : ''} background-image: linear-gradient(180deg, ${color}${shared ? '30' : '14'}, transparent);`;
+        const badge = `<div class="set-chip" style="background:${color}; color:#111;" title="${def.name}: you own ${owned} of ${total} pieces${active ? ` (${equipped} equipped: bonus active!)` : ''}">${def.icon} ${owned}/${total}${active ? ' ✓' : ''}</div>`;
+        return { style, badge };
+    };
+
     const slotCard = (slotName, slotKey, iconPlaceholder) => {
         const item = eq[slotKey];
         const isSel = isBodySelected(slotKey);
         const isEquipped = !!item;
+        const look = setLook(item);
         return `
-            <div class="paperdoll-slot ${isEquipped ? 'equipped' : 'unequipped'} ${isSel ? 'selected' : ''}" 
+            <div class="paperdoll-slot ${isEquipped ? 'equipped' : 'unequipped'} ${isSel ? 'selected' : ''}" style="${look.style}"
                  onclick="window.openSlotPicker('${slotKey}')"
                  title="${slotName}: ${isEquipped ? item.name : 'Unequipped (Tap to inspect)'}">
+                ${look.badge}
                 <div class="slot-label">${slotName}</div>
                 <div class="slot-icon">${isEquipped ? item.icon : iconPlaceholder}</div>
                 ${isEquipped ? `
@@ -2396,11 +2675,12 @@ export function populateSheet() {
     const isBagSelected = (idx) => selectedSlot?.type === 'backpack' && selectedSlot?.id === idx;
     const bagHtml = player.backpack.map((item, idx) => {
         const isSel = isBagSelected(idx);
+        const look = setLook(item);
         return `
-            <div class="backpack-slot ${item ? 'equipped' : ''} ${isSel ? 'selected' : ''}"
+            <div class="backpack-slot ${item ? 'equipped' : ''} ${isSel ? 'selected' : ''}" style="${look.style}"
                  onclick="window.selectSlot('backpack', ${idx})"
                  title="Slot ${idx + 1}: ${item ? item.name : 'Empty'}">
-                ${item ? `${item.icon} <span style="color:#ddd">${item.name}</span>` : `<span style="color:#444">Slot ${idx+1}</span>`}
+                ${item ? `${look.badge}<div class="bag-icon">${item.icon}</div><div class="bag-name">${item.name}</div>` : `<span style="color:#444">Slot ${idx+1}</span>`}
             </div>
         `;
     }).join('');
@@ -2729,6 +3009,16 @@ export const pixelDebug = {
         afterDebugChange(`Added ${added} slot items to the bag.`);
         return added;
     },
+    // Put every piece of one equipment set (or all sets) into the bag to check set highlighting
+    grantSets(setId = null) {
+        let added = 0;
+        for (const b of BASE_ITEMS) {
+            if (b.setId && (!setId || b.setId === setId) && player.addToBackpack(createItemFromBase(b))) added++;
+        }
+        afterDebugChange(`Added ${added} set pieces to the bag.`);
+        return added;
+    },
+    camera() { return { zoomIndex: currentZoomIndex, cols: VIEW_COLS, panX, panY, player: { x: player.x, y: player.y } }; },
     clearBag() { player.backpack.fill(null); afterDebugChange('Bag emptied.'); },
     revealMap() {
         currentFloorData.visibility.fill(VISIBILITY.EXPLORED);
@@ -2782,7 +3072,7 @@ export const pixelDebug = {
         const seen = new Uint8Array(W * H);
         const q = [f.stairsUpPos.y * W + f.stairsUpPos.x];
         seen[q[0]] = 1;
-        const blocked = new Set([TILES.WALL, TILES.PILLAR, TILES.PIT, TILES.RUBBLE]);
+        const blocked = new Set([TILES.WALL, TILES.PILLAR, TILES.PIT, TILES.RUBBLE, TILES.LOCKED_DOOR]); // locked doors count as solid: stairs must be reachable without any key
         for (let h = 0; h < q.length; h++) {
             const i = q[h], x = i % W, y = (i - x) / W;
             for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
@@ -2812,6 +3102,29 @@ export const pixelDebug = {
             if (path.length) { found++; totalLen += path.length; }
         }
         return { tried, found, maxMs: +maxMs.toFixed(2), avgLen: found ? +(totalLen / found).toFixed(1) : 0 };
+    },
+    // Locks / keys on this floor, and whether every key lies in the area reachable without keys
+    lockCheck() {
+        const f = currentFloorData;
+        const W = MAP_WIDTH, H = MAP_HEIGHT;
+        const seen = new Uint8Array(W * H);
+        const q = [f.stairsUpPos.y * W + f.stairsUpPos.x];
+        seen[q[0]] = 1;
+        const blocked = new Set([TILES.WALL, TILES.PILLAR, TILES.PIT, TILES.RUBBLE, TILES.LOCKED_DOOR]);
+        for (let h = 0; h < q.length; h++) {
+            const i = q[h], x = i % W, y = (i - x) / W;
+            for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+                const nx = x + dx, ny = y + dy;
+                if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+                const ni = ny * W + nx;
+                if (seen[ni] || blocked.has(f.terrain[ni])) continue;
+                seen[ni] = 1; q.push(ni);
+            }
+        }
+        const keys = (f.keys || []);
+        return { locks: (f.lockedDoors || []).length, keys: keys.length, hiddenKeys: keys.filter(k => k.hidden).length,
+            keysReachable: keys.every(k => seen[k.y * W + k.x] === 1), stairsReachable: seen[f.stairsDownPos.y * W + f.stairsDownPos.x] === 1,
+            vaultChests: f.chests.filter(c => c.isVault).length };
     },
     pathTest(x, y) {
         const t0 = performance.now();

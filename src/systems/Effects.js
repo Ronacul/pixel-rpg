@@ -509,7 +509,7 @@ export class EffectSystem {
             const tile = terrain[pt.y * MAP_WIDTH + pt.x];
 
             // Obstacles that block projectile trajectory
-            if (tile === TILES.WALL || tile === TILES.PILLAR || tile === TILES.DOOR_CLOSED || tile === TILES.RUBBLE) {
+            if (tile === TILES.WALL || tile === TILES.PILLAR || tile === TILES.DOOR_CLOSED || tile === TILES.LOCKED_DOOR || tile === TILES.RUBBLE) {
                 clear = false;
                 hitPoint = pt;
                 // Truncate path to collision point

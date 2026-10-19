@@ -45,7 +45,8 @@ export const TILES = {
     BARREL: 13,           // Destructible obstacle: drops loot or explosive blast
     ALTAR: 14,            // Sacred shrine: grants full heal and blessed buff
     ALTAR_INERT: 15,      // Depleted shrine
-    FOLIAGE: 16           // Dense brush: slow passage, flammable into fire zone
+    FOLIAGE: 16,          // Dense brush: slow passage, flammable into fire zone
+    LOCKED_DOOR: 17       // Needs the matching key (floor.lockedDoors[].keyId) to open
 };
 
 export const VISIBILITY = {

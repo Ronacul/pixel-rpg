@@ -255,7 +255,7 @@ export function generateFloor(baseSeed, floorLevel) {
                         terrain[y * MAP_WIDTH + x] = prng.chance(0.12) ? TILES.SECRET_DOOR : TILES.DOOR_CLOSED;
                     }
                     doors.push({ x, y, type: terrain[y * MAP_WIDTH + x] });
-                } else if ((isHorizontalChoke || isVerticalChoke) && prng.chance(0.08)) {
+                } else if ((isHorizontalChoke || isVerticalChoke) && prng.chance(0.035)) {
                     // Hidden Floor Traps in chokepoint hallways (Avoid spawn room cx/cy)
                     const isNearSpawn = Math.hypot(rooms[0].cx - x, rooms[0].cy - y) < 4;
                     if (!isNearSpawn) {
@@ -362,6 +362,87 @@ export function generateFloor(baseSeed, floorLevel) {
         }
     });
 
+    // ------------------------------------------------------------------
+    // Locked vault door(s) + matching key(s). A door is only locked if the stairs stay reachable without
+    // it, so locks always guard OPTIONAL areas; a bonus chest is placed in the sealed-off part.
+    // ------------------------------------------------------------------
+    const lockedDoors = [];
+    const keys = [];
+    const KEY_NAMES = ['Iron Key', 'Brass Key', 'Silver Key'];
+    const SOLID = new Set([TILES.WALL, TILES.PILLAR, TILES.PIT, TILES.RUBBLE, TILES.LOCKED_DOOR]);
+    const flood = (start) => {
+        const seen = new Uint8Array(MAP_WIDTH * MAP_HEIGHT);
+        const q = [start.y * MAP_WIDTH + start.x];
+        seen[q[0]] = 1;
+        for (let h = 0; h < q.length; h++) {
+            const i = q[h];
+            const x = i % MAP_WIDTH;
+            const y = (i - x) / MAP_WIDTH;
+            if (x > 0 && !seen[i - 1] && !SOLID.has(terrain[i - 1])) { seen[i - 1] = 1; q.push(i - 1); }
+            if (x < MAP_WIDTH - 1 && !seen[i + 1] && !SOLID.has(terrain[i + 1])) { seen[i + 1] = 1; q.push(i + 1); }
+            if (y > 0 && !seen[i - MAP_WIDTH] && !SOLID.has(terrain[i - MAP_WIDTH])) { seen[i - MAP_WIDTH] = 1; q.push(i - MAP_WIDTH); }
+            if (y < MAP_HEIGHT - 1 && !seen[i + MAP_WIDTH] && !SOLID.has(terrain[i + MAP_WIDTH])) { seen[i + MAP_WIDTH] = 1; q.push(i + MAP_WIDTH); }
+        }
+        return seen;
+    };
+    const isFree = (x, y) => terrain[y * MAP_WIDTH + x] === TILES.FLOOR &&
+        !chests.some(c => c.x === x && c.y === y) && !monsters.some(m => m.x === x && m.y === y) &&
+        !mushrooms.some(m => m.x === x && m.y === y) && !keys.some(k => k.x === x && k.y === y);
+
+    const wantedLocks = Math.min(2, Math.max(1, Math.round(areaScale * 0.8)));
+    const baseSeen = flood(stairsUpPos);
+    const doorCandidates = doors.filter(d => terrain[d.y * MAP_WIDTH + d.x] === TILES.DOOR_CLOSED);
+    for (let tries = 0; tries < 30 && lockedDoors.length < wantedLocks && doorCandidates.length > 0; tries++) {
+        const cand = doorCandidates.splice(prng.nextInt(0, doorCandidates.length - 1), 1)[0];
+        const ci = cand.y * MAP_WIDTH + cand.x;
+        terrain[ci] = TILES.LOCKED_DOOR;
+        const seen = flood(stairsUpPos);
+        const stairsOk = seen[stairsDownPos.y * MAP_WIDTH + stairsDownPos.x] === 1;
+        const behind = [];
+        if (stairsOk) {
+            for (let i = 0; i < seen.length; i++) {
+                if (baseSeen[i] && !seen[i] && terrain[i] === TILES.FLOOR) behind.push(i);
+            }
+        }
+        if (stairsOk && behind.length >= 12) {
+            const keyDef = { x: cand.x, y: cand.y, keyId: `key_${floorLevel}_${lockedDoors.length}`, keyName: KEY_NAMES[lockedDoors.length % KEY_NAMES.length] };
+            lockedDoors.push(keyDef);
+            // Bonus vault loot in the sealed-off section (2 chests, better loot)
+            for (let c = 0; c < 2 && behind.length > 0; c++) {
+                for (let attempt = 0; attempt < 10; attempt++) {
+                    const i = behind[prng.nextInt(0, behind.length - 1)];
+                    const bx = i % MAP_WIDTH, by = (i - bx) / MAP_WIDTH;
+                    if (isFree(bx, by)) {
+                        chests.push({ x: bx, y: by, opened: false, isSecret: false, isVault: true, item: generateLootItem(prng, floorLevel + 3) });
+                        break;
+                    }
+                }
+            }
+        } else {
+            terrain[ci] = TILES.DOOR_CLOSED; // would trap the stairs or guard nothing: revert
+        }
+    }
+
+    // Place each key somewhere reachable WITHOUT any lock (the first is lying in plain sight, later ones are hidden until searched)
+    if (lockedDoors.length > 0) {
+        const finalSeen = flood(stairsUpPos);
+        const reachableFloors = [];
+        for (let i = 0; i < finalSeen.length; i++) {
+            if (finalSeen[i] && terrain[i] === TILES.FLOOR) reachableFloors.push(i);
+        }
+        lockedDoors.forEach((lock, n) => {
+            for (let attempt = 0; attempt < 40; attempt++) {
+                const i = reachableFloors[prng.nextInt(0, reachableFloors.length - 1)];
+                const kx = i % MAP_WIDTH, ky = (i - kx) / MAP_WIDTH;
+                const nearStart = Math.hypot(kx - stairsUpPos.x, ky - stairsUpPos.y) < 6;
+                if (isFree(kx, ky) && !nearStart) {
+                    keys.push({ x: kx, y: ky, keyId: lock.keyId, name: lock.keyName, hidden: n > 0 || prng.chance(0.35) });
+                    break;
+                }
+            }
+        });
+    }
+
     return {
         floorLevel,
         biome,
@@ -369,6 +450,8 @@ export function generateFloor(baseSeed, floorLevel) {
         visibility,
         rooms,
         doors,
+        keys,
+        lockedDoors,
         stairsUpPos,
         stairsDownPos,
         monsters,

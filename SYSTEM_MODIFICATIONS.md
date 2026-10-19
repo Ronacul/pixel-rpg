@@ -54,3 +54,11 @@
   4. **Combat Rolls:** Deterministic d20 attack rolls, weapon damage dice, and monster retaliation checks.
   5. **Shareability:** Deep linking via `?seed=XXXX-XXXX` (add `&map=`, `&class=`, `&race=` to reproduce a run exactly).
 - **Test seeds:** any seed starting with `TEST` (e.g. `TEST-0001`) loads the fixed kitchen-sink test floor instead of a procedural one.
+
+---
+
+## 🔒 KEYS, SEARCH & SURVIVABILITY
+- **Locked doors:** `LOCKED_DOOR` tile; generator locks a door only if the stairs stay reachable without it (flood-fill check) and there is a sealed-off area of 12+ tiles behind it, which receives 2 better-quality vault chests. Each lock has a matching key placed in the key-free reachable area; keys after the first (and 35% of first keys) are `hidden` until found by Search.
+- **Active Search (`E`):** costs one turn. Radius = `3 + max(0, PER mod) + Perception ranks` (cap 8). Each hidden secret door / trap / key in range is found on `d20 + 5 + PER mod >= 10`. Awards the same XP as passive discovery.
+- **Traps:** 3.5% of chokepoints (was 8%), damage 1-4 (spike) / 2-5 (fire) + floor/5, and floor traps can never drop you below 1 HP.
+- **Healing:** Minor (15 HP) and regular (30 HP) healing potions drop from chests/barrels; natural regen is 1 HP every 9 turns (was 12).

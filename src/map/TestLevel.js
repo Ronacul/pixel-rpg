@@ -10,7 +10,8 @@
 //     S2  closed door   | easy rats + chest (XP / level-up fodder)
 //     S3  open door     | empty camp room (rest test)
 //     S4  SECRET door   | two secret chests
-//     S5/S6             | empty rooms
+//     S5  LOCKED door   | two vault chests (needs the Iron Key)
+//     S6  closed door   | the Iron Key, HIDDEN until you Search (E)
 //   Far east: a vault (closed door) holding one chest per BASE_ITEM (every equipment slot incl. both ring slots).
 
 import { MAP_WIDTH, MAP_HEIGHT, TILES } from './Dungeon.js';
@@ -41,6 +42,8 @@ export function generateTestFloor(baseSeed, floorLevel) {
     const chests = [];
     const mushrooms = [];
     const corpses = [];
+    const keys = [];
+    const lockedDoors = [];
     let mId = 0;
 
     const addMonster = (def, x, y) => monsters.push(makeMonster(def, `t_${floorLevel}_${mId++}`, x, y, floorLevel));
@@ -65,7 +68,7 @@ export function generateTestFloor(baseSeed, floorLevel) {
         N0: TILES.DOOR_CLOSED, N1: TILES.SECRET_DOOR, N2: TILES.DOOR_OPEN, N3: TILES.DOOR_CLOSED,
         N4: TILES.DOOR_CLOSED, N5: TILES.DOOR_CLOSED, N6: TILES.DOOR_CLOSED,
         S0: TILES.DOOR_CLOSED, S1: TILES.DOOR_CLOSED, S2: TILES.DOOR_CLOSED, S3: TILES.DOOR_OPEN,
-        S4: TILES.SECRET_DOOR, S5: TILES.DOOR_CLOSED, S6: TILES.DOOR_CLOSED
+        S4: TILES.SECRET_DOOR, S5: TILES.LOCKED_DOOR, S6: TILES.DOOR_CLOSED
     };
 
     const biomeMonsterRooms = { N3: 0, N4: 1, N5: 2, N6: 3, S0: 4 };
@@ -116,6 +119,12 @@ export function generateTestFloor(baseSeed, floorLevel) {
             addMonster(rat, x0 + 2, ry + 2);
             addMonster(rat, x0 + 5, ry + 4);
             addChest(x0 + 4, ry + 1, createItemFromBase(BASE_ITEMS.find(b => b.name === 'Ring of Quickness')));
+        } else if (name === 'S5') {
+            lockedDoors.push({ x: ex, y: 53, keyId: 'key_test_0', keyName: 'Iron Key' });
+            addChest(x0 + 2, ry + 2, createItemFromBase(BASE_ITEMS.find(b => b.name === 'Plate Cuirass')));
+            addChest(x0 + 5, ry + 2, createItemFromBase(BASE_ITEMS.find(b => b.name === 'Elven Longbow')));
+        } else if (name === 'S6') {
+            keys.push({ x: x0 + 4, y: ry + 3, keyId: 'key_test_0', name: 'Iron Key', hidden: true }); // reveal with Search (E)
         } else if (name === 'S4') {
             addChest(x0 + 2, ry + 2, createItemFromBase(BASE_ITEMS.find(b => b.name === 'Band of Fortitude')), true);
             addChest(x0 + 5, ry + 2, createItemFromBase(BASE_ITEMS.find(b => b.name === 'Signet of Might')), true);
@@ -148,6 +157,8 @@ export function generateTestFloor(baseSeed, floorLevel) {
         monsters,
         chests,
         mushrooms,
+        keys,
+        lockedDoors,
         corpses,
         hazardZones: [],
         trapsRevealed: new Set(),

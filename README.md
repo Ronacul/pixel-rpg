@@ -31,8 +31,13 @@ A modular 2D retro RPG engine featuring procedural dungeons (50 / 100 / **150 de
    * Breaching closed doors or striking unaware monsters from blindspots triggers a **Surprise Attack**:
      * **Advantage:** Roll $2\text{d}20$ and take the highest roll!
      * **Denied DEX:** The surprised monster loses their DEX bonus to AC for that strike ($AC = 10$).
-7. **Single Common Interface & Tile Query:**
+7. **Locked Doors, Keys & Searching:**
+   * Each floor has 1-2 **locked doors (`🔒`)** guarding optional vaults with bonus chests. A door is only ever locked when the stairs stay reachable without it.
+   * The matching **key (`🗝️`)** lies elsewhere on the floor; the first is usually in plain sight, others are **hidden until you Search**.
+   * **Search (🔎 button or `E`)** spends a turn to reveal secret doors, traps and hidden keys within a radius that grows with Perception.
+8. **Single Common Interface & Tile Query:**
    * **Tap/Click on map:** Bounded A* pathfinds and steps hero around obstacles.
+   * **Pinch** (phone) or **mouse wheel** zooms between 7 and 33 tiles across; **drag the map** to pan, and any move recentres on the hero. The Zoom button / `Z` cycles levels.
    * **Long-press / Right-click:** Queries any tile, door, monster, chest, or stairs for detailed lore and stats.
    * **Character Sheet Popup:** Tap the top HP chip (or **Gear**) to view attributes, Perception, feats and equipped items. **Tap any equipment slot** to pop up every owned item that fits it (rings fit either ring slot).
 

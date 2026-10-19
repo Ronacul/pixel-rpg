@@ -356,7 +356,8 @@
             padding: 4px 2px;
             text-align: center;
             min-width: 0;
-            min-height: 44px;
+            min-height: 82px;
+            position: relative;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -391,7 +392,8 @@
         }
 
         .paperdoll-slot .slot-icon {
-            font-size: 19px;
+            font-size: 34px;
+            line-height: 1.1;
             margin: 2px 0;
         }
 
@@ -414,9 +416,9 @@
         /* 15 Backpack Grid */
         #backpack-grid {
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
+            grid-template-columns: repeat(3, minmax(0, 1fr));
             gap: 5px;
-            max-height: 125px;
+            max-height: 300px;
             overflow-y: auto;
             background: #090a0f;
             padding: 6px;
@@ -424,7 +426,31 @@
             border-radius: 6px;
         }
 
+        .set-chip {
+            position: absolute;
+            top: -6px;
+            right: 6px;
+            font-size: 9px;
+            font-weight: bold;
+            padding: 0 4px;
+            border-radius: 8px;
+            line-height: 14px;
+            white-space: nowrap;
+            z-index: 1;
+        }
+
+        .backpack-slot .bag-icon { font-size: 30px; line-height: 1.15; }
+        .backpack-slot .bag-name { font-size: 9px; color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; text-align: center; }
+        .backpack-slot .set-chip { top: 2px; right: 2px; }
+        .backpack-slot { min-width: 0; }
+
         .backpack-slot {
+            position: relative;
+            min-height: 70px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
             background: #101118;
             border: 1px dashed #232635;
             border-radius: 4px;
@@ -598,14 +624,19 @@
             <span style="color: #aaff77;">Rest</span>
         </button>
 
-        <button id="btn-zoom-main" class="action-btn" title="Toggle Map Zoom: 1x, 1.5x, 2x (Hotkey: Z)">
+        <button id="btn-zoom-main" class="action-btn" title="Cycle map zoom (Hotkey: Z). Also pinch or mouse-wheel; drag the map to pan">
             <span style="font-size: 13px;">🔍</span>
-            <span><strong id="action-zoom-label" style="color: #64d8cb;">1x</strong></span>
+            <span><strong id="action-zoom-label" style="color: #64d8cb;">11t</strong></span>
         </button>
 
         <button id="btn-remote-toggle" class="action-btn" title="Toggle Remote Control Gamepad / D-Pad (Touch Friendly)">
             <span style="font-size: 13px;">🎮</span>
             <span style="color: #64d8cb;">Pad</span>
+        </button>
+
+        <button id="btn-search-main" class="action-btn" title="Search nearby for secret doors, traps and hidden keys: costs a turn (Hotkey: E)">
+            <span style="font-size: 13px;">🔎</span>
+            <span style="color: #ffd166;">Search</span>
         </button>
 
         <button id="btn-settings" class="action-btn" title="Settings: map size, class, race, debug tools">
@@ -903,6 +934,7 @@
                     <button class="dbg-btn" onclick="pixelDebug.toggleGod()">Toggle god mode</button>
                     <button class="dbg-btn" onclick="pixelDebug.addRations(5)">+5 rations</button>
                     <button class="dbg-btn" onclick="pixelDebug.grantSlotItems()">Give 1 item per slot (+2 rings)</button>
+                    <button class="dbg-btn" onclick="pixelDebug.grantSets()">Give all set pieces</button>
                     <button class="dbg-btn" onclick="pixelDebug.revealMap()">Reveal whole floor</button>
                     <button class="dbg-btn" onclick="pixelDebug.teleportToStairs(true)">Teleport: stairs down</button>
                     <button class="dbg-btn" onclick="pixelDebug.teleportToStairs(false)">Teleport: stairs up</button>
@@ -961,6 +993,7 @@
             boostStat,
             moveRelative,
             toggleRemoteControl,
+            searchArea,
             openSlotPicker,
             closeSlotPicker,
             pickerEquip,
@@ -971,8 +1004,8 @@
             saveSettingsOnly,
             updateSettingsPreview,
             pixelDebug
-        } from './src/main.js?v=9.1';
-        import { PRNG } from './src/core/RNG.js?v=9.1';
+        } from './src/main.js?v=9.2';
+        import { PRNG } from './src/core/RNG.js?v=9.2';
 
         window.openSheetModal = function() {
             populateSheet();
@@ -1032,6 +1065,8 @@
         // Debug floor selector (1-25)
         document.getElementById('dbg-floor').innerHTML = Array.from({ length: 25 }, (_, i) => `<option value="${i + 1}">F${i + 1}</option>`).join('');
         document.getElementById('btn-settings').addEventListener('click', openSettings);
+        document.getElementById('btn-search-main').addEventListener('click', searchArea);
+        window.searchArea = searchArea;
 
         // Connect Header & Action Bar buttons
         document.getElementById('btn-sheet-open').addEventListener('click', window.openSheetModal);
