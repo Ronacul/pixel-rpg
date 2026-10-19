@@ -862,7 +862,7 @@
     <div id="settings-modal" class="modal-overlay" onclick="closeSettings()">
         <div class="modal-card" onclick="event.stopPropagation()" style="max-height: 90vh; overflow-y: auto;">
             <div class="modal-header">
-                <span class="modal-title">⚙️ SETTINGS & NEW RUN</span>
+                <span class="modal-title" id="settings-title">⚙️ SETTINGS & NEW RUN</span>
                 <button class="close-btn" onclick="closeSettings()">✕</button>
             </div>
 
@@ -971,8 +971,8 @@
             saveSettingsOnly,
             updateSettingsPreview,
             pixelDebug
-        } from './src/main.js?v=9.0';
-        import { PRNG } from './src/core/RNG.js?v=9.0';
+        } from './src/main.js?v=9.1';
+        import { PRNG } from './src/core/RNG.js?v=9.1';
 
         window.openSheetModal = function() {
             populateSheet();

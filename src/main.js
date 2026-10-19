@@ -2623,7 +2623,9 @@ export function updateSettingsPreview() {
         <div style="margin-top:3px; color:#888ea6;">Starting kit: ${gear}</div>`;
 }
 
-export function openSettings() {
+export function openSettings(newGame = false) {
+    const title = document.getElementById("settings-title");
+    if (title) title.innerText = newGame === true ? "🧙 NEW GAME: CREATE YOUR CHARACTER" : "⚙️ SETTINGS & NEW RUN";
     fillSelect('set-map-size', MAP_SIZES.map(s => ({ value: s.size, label: s.label })), settings.mapSize);
     fillSelect('set-class', ClassManager.getSelectableClasses().map(c => ({ value: c.id, label: `${c.icon} ${c.name}` })), settings.classId);
     fillSelect('set-race', RaceManager.getAllRaces().map(r => ({ value: r.id, label: `${r.icon} ${r.name}` })), settings.raceId);
@@ -2833,3 +2835,6 @@ startPlaythrough(initSeed, {
 if (urlParams.get('floor')) pixelDebug.jumpToFloor(urlParams.get('floor'));
 if (urlParams.get('level')) pixelDebug.setLevel(urlParams.get('level'));
 window.pixelDebug = pixelDebug;
+
+// A fresh visit (no seed / class / race in the URL) opens on character creation
+if (!urlParams.get("seed") && !urlParams.get("class") && !urlParams.get("race")) openSettings(true);
