@@ -171,7 +171,16 @@ export function bossTurn(boss, ctx) {
     if (boss.telegraph) return resolveTelegraph(boss, ctx);
 
     const script = def.phases[boss.phaseIdx].script;
-    const move = script[boss.scriptIdx % script.length];
+    boss.fightTurns = (boss.fightTurns || 0) + 1;
+    const frenzy = Math.max(0, boss.fightTurns - 18); // long fights get nastier: +4% damage per turn after 18
+    boss.enrageMult = 1 + 0.04 * frenzy;
+    if (frenzy === 1) ctx.post(`🔥 ${boss.name} grows frenzied as the fight drags on!`, 'msg-miss');
+    let move = script[boss.scriptIdx % script.length];
+    // Unpredictability: about one turn in five the boss improvises instead of following its script
+    if (!boss.airborne && prng.chance(0.22)) {
+        const pool = [...new Set(script.filter(m => m !== 'fly' && m !== 'land'))];
+        if (pool.length > 1) move = prng.choice(pool);
+    }
     boss.scriptIdx++;
     const dist = Math.hypot(player.x - boss.x, player.y - boss.y);
 

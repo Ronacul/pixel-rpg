@@ -8,7 +8,7 @@ export function rollMonsterDamage(prng, monster) {
     const count = monster.diceCount || 1;
     let total = monster.bonusDmg || 0;
     for (let i = 0; i < count; i++) total += prng.nextInt(1, monster.dice || 4);
-    return total;
+    return Math.max(1, Math.round(total * (monster.enrageMult || 1)));
 }
 
 export class CombatSystem {
@@ -165,6 +165,15 @@ export class CombatSystem {
             if (dmgCtx.reflectKill) reflectKill = true;
             if (hurtProcs.length) appliedStatus = appliedStatus || null;
             reflectTexts.push(...hurtProcs);
+
+            // Elite affixes: on-hit status and life drain
+            if (monster.onHitStatus && prng.chance(monster.onHitStatus.chance ?? 0.5)) {
+                EffectSystem.applyStatus(player, monster.onHitStatus.status, monster.onHitStatus.duration || 3, 1, monster.name);
+                appliedStatus = monster.onHitStatus.status;
+            }
+            if (monster.lifesteal && monster.hp > 0) {
+                monster.hp = Math.min(monster.maxHp, monster.hp + Math.max(1, Math.round(damage * monster.lifesteal)));
+            }
 
             // Monster status on hit based on type
             const mNameLower = monster.name.toLowerCase();

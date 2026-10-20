@@ -1,7 +1,7 @@
 // Socketable gems. Items roll 0-3 sockets; a gem set into a socket permanently adds a bonus that depends on the
 // gem colour, its tier (1 Chipped, 2 Flawed, 3 Perfect) and the kind of item it is set into.
 
-import { powerCategoryForSlot } from './Powers.js';
+import { powerCategoryForSlot, describePower } from './Powers.js';
 
 export const GEM_TYPES = {
     ruby:     { id: 'ruby',     name: 'Ruby',     icon: '🔴', color: '#ff4455' },
@@ -60,7 +60,7 @@ export function createGem(type, tier = 1) {
         isGem: true,
         gemType: type,
         tier,
-        desc: `${name}: set into an item socket (Gear → item → Socket Gem). Weapons, armor and jewelry each get a different bonus.`
+        desc: `${name} (set it into a socket via Gear → item → Socket Gem). Gives: ${describeGemEffects(type, tier)}`
     };
 }
 
@@ -156,4 +156,15 @@ export function rollSockets(prng, floorLevel = 1) {
     if (r < 0.15 + bonus) return 2;
     if (r < 0.40 + bonus) return 1;
     return 0;
+}
+
+// What a gem of this type and tier gives in each kind of item, as one readable line
+export function describeGemEffects(gemType, tier) {
+    const cats = [['weapon', '⚔️ Weapon'], ['armor', '🛡️ Armor'], ['jewelry', '💍 Jewelry']];
+    return cats.map(([cat, label]) => {
+        const e = GEM_TABLE[gemType]?.[cat];
+        if (!e) return `${label}: nothing`;
+        const preview = { stats: e.s ? e.s(tier) : {}, mods: e.m ? e.m(tier) : {}, power: e.p ? e.p(tier) : null };
+        return `${label}: ${describePreview(preview, describePower)}`;
+    }).join(' · ');
 }

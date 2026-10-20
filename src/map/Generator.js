@@ -8,41 +8,52 @@ import { getBossForFloor } from '../data/Bosses.js';
 import { rollFloorModifier, FLOOR_MODIFIERS } from '../data/FloorModifiers.js';
 import { buildMerchantStock } from '../data/Economy.js';
 import { SHRINE_OFFERS } from '../data/Shrines.js';
+import { DIFFICULTY, applyDifficulty, labelDread, scaleMonsterStats, rollMonsterLevel, rollAffixes, assignFloorXp, floorXpBudget } from '../data/Difficulty.js';
 
-// Shared monster factory (also used by the test-level generator)
-export function makeMonster(def, id, x, y, floorLevel) {
-    const levelBonusHp = (floorLevel - 1) * 3;
-    const levelBonusAc = Math.floor((floorLevel - 1) / 3);
-    return {
+// Shared monster factory (also used by the test-level generator and runtime spawns).
+// opts: { level, affixes } override the floor-based level and elite affixes.
+export function makeMonster(def, id, x, y, floorLevel, opts = {}) {
+    const level = opts.level ?? floorLevel;
+    const m = {
         id,
         name: def.name,
+        baseName: def.name,
         icon: def.icon,
         spriteId: def.sprite ? `monster.${def.sprite}` : null,
         x,
         y,
-        hp: def.hp + levelBonusHp,
-        maxHp: def.hp + levelBonusHp,
-        ac: def.ac + levelBonusAc,
+        hp: def.hp,
+        maxHp: def.hp,
+        ac: def.ac,
         dice: def.dice,
         desc: def.desc,
         alive: true,
         unaware: true // Surprise mechanic: unaware until player steps into line of sight
     };
+    applyDifficulty(m, def, level, opts.affixes || []);
+    labelDread(m, floorLevel);
+    return m;
 }
 
-// Boss monster: a large, scripted foe (see data/Bosses.js and systems/BossAI.js)
+// Boss monster: a large, scripted foe (see data/Bosses.js and systems/BossAI.js).
+// HP follows the depth curve times the boss's multiplier; damage, attack and XP scale with the floor too.
 export function makeBoss(def, x, y, floorLevel) {
+    const standard = scaleMonsterStats({ hp: 20, ac: def.ac }, floorLevel);
+    const hp = Math.max(def.hp, Math.round(standard.hp * (def.hpMult || 4)));
     return {
         id: `boss_${def.id}`,
         name: def.name,
+        baseName: def.name,
         icon: def.icon,
         spriteId: def.sprite ? `monster.${def.sprite.id}` : null,
         spriteRoles: def.sprite?.roles || {},
         x, y,
-        hp: def.hp, maxHp: def.hp,
-        ac: def.ac,
-        dice: def.dice, diceCount: def.diceCount, bonusDmg: def.bonusDmg,
-        attackBonus: 2 + Math.floor(floorLevel / 5),
+        hp, maxHp: hp,
+        ac: def.ac + Math.floor((floorLevel - 1) / 6),
+        dice: def.dice, diceCount: def.diceCount, bonusDmg: (def.bonusDmg || 0) + Math.round(floorLevel * 0.12),
+        attackBonus: 2 + Math.floor(floorLevel * DIFFICULTY.attackPerLevel),
+        level: floorLevel + 2,
+        xp: Math.round(floorXpBudget(floorLevel) * DIFFICULTY.bossBudgetShare),
         desc: def.desc,
         alive: true,
         unaware: false,
@@ -53,7 +64,8 @@ export function makeBoss(def, x, y, floorLevel) {
         scriptIdx: 0,
         telegraph: null,
         airborne: false,
-        dmgMult: 1
+        dmgMult: 1,
+        fightTurns: 0
     };
 }
 
@@ -365,7 +377,7 @@ export function generateFloor(baseSeed, floorLevel) {
             const my = prng.nextInt(room.y + 1, room.y + room.h - 2);
 
             if (terrain[my * MAP_WIDTH + mx] === TILES.FLOOR) {
-                const mon = makeMonster(monsterDef, `m_${floorLevel}_${idx}_${m}`, mx, my, floorLevel);
+                const mon = makeMonster(monsterDef, `m_${floorLevel}_${idx}_${m}`, mx, my, floorLevel, { level: rollMonsterLevel(prng, floorLevel), affixes: rollAffixes(prng, floorLevel) });
                 if (mod.monsterHpMult) { mon.hp = Math.round(mon.hp * mod.monsterHpMult); mon.maxHp = mon.hp; }
                 monsters.push(mon);
             }
@@ -469,6 +481,9 @@ export function generateFloor(baseSeed, floorLevel) {
         monsters.push(makeBoss(bossDef, bossArena.cx, bossArena.cy - 1, floorLevel));
     }
 
+    // Divide this floor's XP budget across its monsters (floors give steady XP no matter the map size)
+    const avgMonsterXp = assignFloorXp(monsters, floorLevel);
+
     // ------------------------------------------------------------------
     // Locked vault door(s) + matching key(s). A door is only locked if the stairs stay reachable without
     // it, so locks always guard OPTIONAL areas; a bonus chest is placed in the sealed-off part.
@@ -561,6 +576,8 @@ export function generateFloor(baseSeed, floorLevel) {
         keys,
         lockedDoors,
         bossArena,
+        avgMonsterXp,
+        spawnClock: 0,
         merchant,
         shrineOffers,
         modifier: modifierId,

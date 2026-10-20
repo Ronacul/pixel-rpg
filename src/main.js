@@ -25,6 +25,7 @@ import { FeatManager, FEATS } from './data/Feats.js';
 import { COMPARTMENTS, compartmentRange, compartmentOfIndex, compartmentOf } from './data/Inventory.js';
 import { KEY_ACTIONS, KEY_PRESETS, DEFAULT_PRESET, RESERVED_KEYS, normalizeKey, keyLabel, resolveBinds, buildKeyMap } from './data/Keybinds.js';
 import { PROGRESSION, XP_TABLE, XP_REWARDS, MASTERIES, monsterXp } from './data/Progression.js';
+import { DIFFICULTY, killXpFor, floorForLevel, expectedPlayerLevel, floorXpBudget, rollMonsterLevel, rollAffixes, MONSTER_AFFIXES } from './data/Difficulty.js';
 import { itemValue, buyPrice, sellPrice, goldForKill, goldForChest } from './data/Economy.js';
 import { SHRINE_OFFERS } from './data/Shrines.js';
 import { FLOOR_MODIFIERS } from './data/FloorModifiers.js';
@@ -600,6 +601,12 @@ function draw() {
                         ctx.fillRect(screenX + 1, screenY + TILE_SIZE - barH - 1, barW + 2, barH + 2);
                         ctx.fillStyle = pct > 0.6 ? '#44dd55' : (pct > 0.3 ? '#ffcc00' : '#ff3344');
                         ctx.fillRect(screenX + 2, screenY + TILE_SIZE - barH, Math.max(1, Math.round(barW * pct)), barH);
+                        if (monster.isElite || monster.isDread) {
+                            ctx.fillStyle = monster.isDread ? '#ff4455' : '#ffcc00';
+                            ctx.font = `${Math.max(9, Math.floor(TILE_SIZE * 0.34))}px sans-serif`;
+                            ctx.textAlign = 'left';
+                            ctx.fillText(monster.isDread ? '☠' : '★', screenX + 2, screenY + Math.max(10, TILE_SIZE * 0.34));
+                        }
                         if (monster.id === selectedTargetId) {
                             ctx.strokeStyle = '#ff4466';
                             ctx.lineWidth = 2;
@@ -736,6 +743,13 @@ function addBlood(x, y) {
 
 let lastKillGold = 0;
 function addCorpse(monster) {
+    // Lock in this kill's XP (level-relative challenge, familiarity with the type) BEFORE counting the kill
+    const typeKey = monster.baseName || monster.name;
+    const kills = player.stats.killsByType[typeKey] || 0;
+    const award = killXpFor(monster, player.level, kills, !!monster.isWanderer);
+    monster.awardXp = monster.isMinion ? 0 : award.xp;
+    monster.awardInfo = award;
+    player.stats.killsByType[typeKey] = kills + 1;
     player.stats.kills++;
     if (monster.isBoss) player.stats.bossesSlain++;
     lastKillGold = addGold(goldForKill(prng, monster, currentFloorData.floorLevel));
@@ -769,7 +783,7 @@ function onBossDeath(boss) {
     const final = !!def.loot?.final;
     postMessage(final ? `🏆 ${boss.name} is SLAIN! The Abyssal Sanctum falls silent...` : `👑 ${boss.name} has fallen! The seal on the stairs breaks.`, 'msg-victory');
 
-    const lvs = player.gainXp(def.xpBonus || 100);
+    const lvs = player.gainXp(0, true); // boss XP already came through the normal kill reward
     if (lvs.length) handleLevelUps(lvs);
 
     // Loot: a unique-quality item plus gems, dropped in chests around the corpse
@@ -924,7 +938,7 @@ function endTurn() {
             if (m.hp <= 0) {
                 m.alive = false;
                 addCorpse(m);
-                const xp = monsterXp(m, currentFloorData.floorLevel);
+                const xp = killXp(m);
                 const lvs = player.gainXp(xp);
                 postMessage(`💀 ${m.name} perished in ${zoneType}! +${xp} XP`, 'msg-victory');
                 if (lvs.length > 0) handleLevelUps(lvs);
@@ -947,11 +961,16 @@ function endTurn() {
         if (m.hp <= 0) {
             m.alive = false;
             addCorpse(m);
-            const xp = monsterXp(m, currentFloorData.floorLevel);
+            const xp = killXp(m);
             const lvs = player.gainXp(xp);
             postMessage(`💀 ${m.name} succumbed to lingering affliction! +${xp} XP`, 'msg-victory');
             if (lvs.length > 0) handleLevelUps(lvs);
         }
+    }
+
+    // Elite regeneration
+    for (const m of monsters) {
+        if (m.alive && m.regen && m.hp < m.maxHp) m.hp = Math.min(m.maxHp, m.hp + m.regen);
     }
 
     // 6. Monster Pursuit & Fear Fleeing AI Loop
@@ -1014,20 +1033,27 @@ function endTurn() {
                     const coverNote = attackRes.hasCover ? ' (Protected by Pillar Cover!)' : '';
                     postMessage(`🛡️ Blocked ${m.name}'s strike${coverNote}.`);
                 }
-            } else if (dist <= 12) {
+            } else if (dist <= (m.isWanderer ? 40 : 12)) {
                 // Monsters cannot move if stunned
                 if (!mMods.isStunned) {
                     const step = getStepTowards(m.x, m.y, player.x, player.y, terrain, monsters);
                     if (step) {
                         m.x = step.x;
                         m.y = step.y;
+                        openDoorFor(m);
                         pursuing = true;
+                        // Swift elites take a second step
+                        if (m.swift && Math.hypot(player.x - m.x, player.y - m.y) > 1.5) {
+                            const step2 = getStepTowards(m.x, m.y, player.x, player.y, terrain, monsters);
+                            if (step2) { m.x = step2.x; m.y = step2.y; openDoorFor(m); }
+                        }
                     }
                 }
             }
         }
     }
 
+    tickWanderers();
     updateHUD();
     draw();
 }
@@ -1052,6 +1078,8 @@ function buildBossContext() {
         stepTowards: (b) => getStepTowards(b.x, b.y, player.x, player.y, terrain, monsters),
         spawnMonster(def, x, y) {
             const m = makeMonster(def, `minion_${currentFloorData.floorLevel}_${minionCounter++}`, x, y, currentFloorData.floorLevel);
+            m.isMinion = true; // summoned adds give no XP (prevents farming the boss)
+            m.xp = 0;
             monsters.push(m);
             return m;
         }
@@ -1060,6 +1088,15 @@ function buildBossContext() {
 
 function bossAlive() {
     return !!currentFloorData?.monsters.some(m => m.isBoss && m.alive);
+}
+
+// Hunting monsters can open ordinary doors (locked ones stay shut): a door they pass through swings open
+function openDoorFor(m) {
+    const idx = m.y * MAP_WIDTH + m.x;
+    if (currentFloorData.terrain[idx] === TILES.DOOR_CLOSED) {
+        currentFloorData.terrain[idx] = TILES.DOOR_OPEN;
+        if (Math.hypot(player.x - m.x, player.y - m.y) < 12) postMessage('🚪 A door crashes open nearby!', 'msg-miss');
+    }
 }
 
 // BFS single-step direction for monster pursuit (avoiding walls, pillars, pits, barrels)
@@ -1093,7 +1130,7 @@ function getStepTowards(sx, sy, tx, ty, terrain, monsters) {
             if (visited.has(k)) continue;
 
             const t = terrain[ny * MAP_WIDTH + nx];
-            const isImpassable = (t === TILES.WALL || t === TILES.PILLAR || t === TILES.PIT || t === TILES.RUBBLE || t === TILES.DOOR_CLOSED || t === TILES.LOCKED_DOOR || t === TILES.BARREL);
+            const isImpassable = (t === TILES.WALL || t === TILES.PILLAR || t === TILES.PIT || t === TILES.RUBBLE || t === TILES.LOCKED_DOOR || t === TILES.BARREL);
             const occupied = monsters.some(m => m.alive && m.x === nx && m.y === ny);
 
             if ((!isImpassable || (nx === tx && ny === ty)) && !occupied) {
@@ -1600,9 +1637,9 @@ function resolveCombatTurn(monster, attackSource = null) {
 
     if (result.monsterDied) {
         addCorpse(monster);
-        const xpReward = monsterXp(monster, currentFloorData.floorLevel);
+        const xpReward = killXp(monster);
         const levelUps = player.gainXp(xpReward);
-        postMessage(`🏆 Defeated ${monster.name}! +${xpReward} XP, +${lastKillGold} gold`, 'msg-victory');
+        postMessage(`🏆 Defeated ${monster.name}! +${xpReward} XP${xpNote(monster)}, +${lastKillGold} gold`, 'msg-victory');
         if (levelUps.length > 0) handleLevelUps(levelUps);
     } else if (result.monsterCounter?.isHit) {
         addBlood(player.x, player.y);
@@ -1678,9 +1715,9 @@ function approachTarget(target) {
 
 function awardKill(monster) {
     addCorpse(monster);
-    const xp = monsterXp(monster, currentFloorData.floorLevel);
+    const xp = killXp(monster);
     const lvs = player.gainXp(xp);
-    postMessage(`🏆 Defeated ${monster.name}! +${xp} XP, +${lastKillGold} gold`, 'msg-victory');
+    postMessage(`🏆 Defeated ${monster.name}! +${xp} XP${xpNote(monster)}, +${lastKillGold} gold`, 'msg-victory');
     if (lvs.length > 0) handleLevelUps(lvs);
 }
 
@@ -1848,10 +1885,10 @@ function updateTargetPanel() {
     const statuses = (t.statuses || []).map(s => s.icon).join('');
     panel.style.display = 'flex';
     panel.innerHTML = `
-        <span class="tp-name">${t.icon} ${t.name} ${statuses}</span>
+        <span class="tp-name">${t.isElite ? '⭐ ' : ''}${t.isDread ? '☠️ ' : ''}${t.icon} ${t.name} ${statuses}</span>
         <span class="tp-bar"><span class="tp-fill" style="width:${pct}%; background:${color};"></span></span>
         <span class="tp-hp">${t.hp}/${t.maxHp}</span>
-        <span class="tp-ac">AC ${t.ac}</span>`;
+        <span class="tp-ac" style="color:${(t.level || 1) > player.level + 1 ? '#ff7788' : ((t.level || 1) < player.level - 2 ? '#88aa88' : '#64d8cb')};" title="Monster level vs your level">Lv ${t.level || '?'} · AC ${t.ac}</span>`;
 }
 
 export function triggerAimMode() {
@@ -1963,7 +2000,7 @@ function fireTargetedAction(targetX, targetY) {
 
                 if (res.monsterDied) {
                     addCorpse(monster);
-                    const xp = monsterXp(monster, currentFloorData.floorLevel);
+                    const xp = killXp(monster);
                     const lvs = player.gainXp(xp);
                     postMessage(`🏆 Defeated ${monster.name}! +${xp} XP`, 'msg-victory');
                     if (lvs.length > 0) handleLevelUps(lvs);
@@ -2004,7 +2041,7 @@ function fireTargetedAction(targetX, targetY) {
                 if (h.died) {
                     deadCount++;
                     addCorpse(h.monster);
-                    const xp = monsterXp(h.monster, currentFloorData.floorLevel);
+                    const xp = killXp(h.monster);
                     const lvs = player.gainXp(xp);
                     if (lvs.length > 0) handleLevelUps(lvs);
                 }
@@ -2931,6 +2968,15 @@ export function equipSelectedBackpackItem(targetSlot = null) {
 
 // ---- Equip management helpers ----
 // Equips every bag item that beats what is worn (one per slot, best gain first)
+// Lists the gems set into an item and what each one does
+function gemListHtml(item) {
+    if (!item || !item.sockets) return '';
+    const free = freeSockets(item);
+    const rows = (item.gems || []).map(g => `<div style="color:#cdb8ff;">${g.icon} ${g.name}: <span style="color:#ffcc00;">${g.summary}</span></div>`).join('');
+    const empty = free > 0 ? `<div style="color:#8a92b0;">◇ ${free} empty socket${free > 1 ? 's' : ''}: a gem here adds a bonus by colour (see the gem for details)</div>` : '';
+    return `<div style="margin-top:3px; font-size:10px;"><b style="color:#d9c2ff;">💎 Sockets:</b>${rows}${empty}</div>`;
+}
+
 export function equipUpgrades() {
     const picks = findUpgrades(player);
     if (picks.length === 0) {
@@ -3578,6 +3624,7 @@ export function populateSheet() {
                 cardDesc.innerText = item.desc || 'Equipped gear';
                 const cmpEl2 = document.getElementById('item-card-compare');
                 if (cmpEl2) cmpEl2.innerHTML = '';
+                document.getElementById('item-card-gems').innerHTML = gemListHtml(item);
 
                 let extraAimBtn = '';
                 if (item.delivery === 'RANGED' || item.delivery === 'AOE') {
@@ -3605,6 +3652,7 @@ export function populateSheet() {
                 cardDesc.innerText = item.desc || 'Standard item';
                 const cmpEl = document.getElementById('item-card-compare');
                 if (cmpEl) cmpEl.innerHTML = compareHtml(player, item);
+                document.getElementById('item-card-gems').innerHTML = gemListHtml(item);
 
                 let throwAimBtn = '';
                 if (item.delivery === 'RANGED' || item.delivery === 'AOE') {
@@ -3734,6 +3782,11 @@ export function campRest() {
         postMessage('⚠️ Cannot camp! Hostile foes are in your line of sight!', 'msg-miss');
         return;
     }
+    if (player.rations > 0 && rollCampAmbush()) {
+        updateHUD();
+        draw();
+        return;
+    }
 
     const res = player.campRest();
     if (res.success) {
@@ -3763,6 +3816,107 @@ export function switchSheetTab(tabId) {
     if (statsPane) statsPane.style.display = tabId === 'stats' ? 'flex' : 'none';
 
     populateSheet();
+}
+
+// ==========================================
+// 19. KILL XP, WANDERING MONSTERS & CAMP AMBUSHES (difficulty ramp + farming control)
+// ==========================================
+// XP for a kill was locked in by addCorpse(); this just reads it.
+function killXp(monster) {
+    if (monster.awardXp !== undefined) return monster.awardXp;
+    return killXpFor(monster, player.level, 0, !!monster.isWanderer).xp;
+}
+
+// Short hint explaining why XP was reduced (or boosted)
+function xpNote(monster) {
+    const a = monster.awardInfo;
+    if (!a) return '';
+    const bits = [];
+    if (a.rel < 0.85) bits.push('easy foe');
+    else if (a.rel > 1.15) bits.push('tough foe bonus');
+    if (a.fam < 0.9) bits.push('familiar');
+    if (a.wander < 1) bits.push('stray');
+    return bits.length ? ` (${bits.join(', ')})` : '';
+}
+
+// A free floor tile roughly `minD`-`maxD` tiles from the hero that the hero cannot see and a monster could walk from
+function findSpawnTile(minD, maxD, requireHidden = true) {
+    const f = currentFloorData;
+    for (let attempt = 0; attempt < 80; attempt++) {
+        const ang = prng.next() * Math.PI * 2;
+        const dist = minD + prng.next() * (maxD - minD);
+        const x = Math.round(player.x + Math.cos(ang) * dist);
+        const y = Math.round(player.y + Math.sin(ang) * dist);
+        if (x < 2 || y < 2 || x >= MAP_WIDTH - 2 || y >= MAP_HEIGHT - 2) continue;
+        const idx = y * MAP_WIDTH + x;
+        if (f.terrain[idx] !== TILES.FLOOR) continue;
+        if (requireHidden && f.visibility[idx] === VISIBILITY.VISIBLE) continue;
+        if (f.monsters.some(m => m.alive && m.x === x && m.y === y)) continue;
+        if (f.chests.some(c => c.x === x && c.y === y)) continue;
+        // Must be able to walk to the hero (monsters cannot open doors)
+        if (!getStepTowards(x, y, player.x, player.y, f.terrain, f.monsters)) continue;
+        return { x, y };
+    }
+    return null;
+}
+
+// Level of a stray monster: the floor's level, pushed up to match a hero who is ahead of the depth curve (so
+// grinding one floor never gets easy), with a little random spread
+function strayLevel(floor) {
+    const heroFloor = Math.round(floorForLevel(player.level));
+    const base = Math.min(floor + 6, Math.max(floor, heroFloor));
+    return Math.max(1, base + prng.nextInt(-1, 1));
+}
+
+function spawnStray(x, y, alert = true) {
+    const f = currentFloorData;
+    const def = prng.choice(f.biome.monsters);
+    const level = strayLevel(f.floorLevel);
+    const m = makeMonster(def, `stray_${f.floorLevel}_${minionCounter++}`, x, y, f.floorLevel, { level, affixes: rollAffixes(prng, level) });
+    m.isWanderer = true;
+    m.alert = alert;
+    m.unaware = !alert;
+    const avg = f.avgMonsterXp || 10;
+    m.xp = Math.round(avg * (1 + 0.1 * Math.max(0, level - f.floorLevel)) * (m.isElite ? 1.8 : 1));
+    f.monsters.push(m);
+    return m;
+}
+
+// Every few turns there is a chance a wandering monster appears out of sight and starts hunting the hero.
+// Rates rise with depth; the number alive at once is capped.
+function tickWanderers() {
+    const f = currentFloorData;
+    const D = DIFFICULTY;
+    f.spawnClock = (f.spawnClock || 0) + 1;
+    const interval = Math.max(D.wanderIntervalMin, Math.round(D.wanderIntervalBase - f.floorLevel * 0.5));
+    if (f.spawnClock % interval !== 0) return;
+    if (!prng.chance(Math.min(D.wanderChanceCap, D.wanderChanceBase + D.wanderChancePerFloor * f.floorLevel))) return;
+    const live = f.monsters.filter(m => m.alive && m.isWanderer).length;
+    if (live >= D.wanderCapBase + Math.floor(f.floorLevel / 5)) return;
+
+    const count = 1 + (f.floorLevel >= 12 && prng.chance(0.3) ? 1 : 0);
+    let spawned = 0;
+    for (let i = 0; i < count; i++) {
+        const spot = findSpawnTile(9, 20, true);
+        if (spot) { spawnStray(spot.x, spot.y, true); spawned++; }
+    }
+    if (spawned) postMessage(`👂 You hear something stalking you through the dark... ${spawned > 1 ? '(more than one)' : ''}`, 'msg-miss');
+}
+
+// Called before camping: depth makes resting riskier. Returns true if the camp was interrupted.
+function rollCampAmbush() {
+    const D = DIFFICULTY;
+    const f = currentFloorData;
+    if (!prng.chance(Math.min(0.5, D.ambushChanceBase + D.ambushChancePerFloor * f.floorLevel))) return false;
+    const count = 1 + (f.floorLevel >= 8 && prng.chance(0.4) ? 1 : 0);
+    let spawned = 0;
+    for (let i = 0; i < count; i++) {
+        const spot = findSpawnTile(3, 6, false);
+        if (spot) { spawnStray(spot.x, spot.y, true); spawned++; }
+    }
+    if (!spawned) return false;
+    postMessage(`⚠️ AMBUSH! ${spawned > 1 ? 'Foes' : 'A foe'} burst from the shadows and your camp is ruined (no ration used).`, 'msg-miss');
+    return true;
 }
 
 // ==========================================
@@ -4184,6 +4338,78 @@ export const pixelDebug = {
     floorInfo() { const f = currentFloorData; return { modifier: f.modifier, merchant: !!f.merchant, shrines: Object.keys(f.shrineOffers || {}).length, boss: f.monsters.some(m => m.isBoss), xpMult: f.xpMult, goldMult: f.goldMult }; },
     boss() { const b = currentFloorData.monsters.find(m => m.isBoss); return b ? { name: b.name, hp: b.hp, maxHp: b.maxHp, x: b.x, y: b.y, alive: b.alive, airborne: b.airborne, phase: b.phaseIdx, telegraph: b.telegraph ? { move: b.telegraph.move, tiles: b.telegraph.tiles.length } : null } : null; },
     slayBoss() { const b = currentFloorData.monsters.find(m => m.isBoss && m.alive); if (!b) return false; b.hp = 0; b.alive = false; addCorpse(b); afterDebugChange('Boss slain.'); return true; },
+    // ---- Balance tooling ----
+    monsterSummary() {
+        const ms = currentFloorData.monsters.filter(m => !m.isBoss);
+        const avg = (k) => ms.length ? +(ms.reduce((s, m) => s + (m[k] || 0), 0) / ms.length).toFixed(1) : 0;
+        return { floor: currentFloorData.floorLevel, count: ms.length, avgLevel: avg('level'), avgHp: avg('maxHp'), avgAc: avg('ac'), avgAtk: avg('attackBonus'), avgDmgBonus: avg('bonusDmg'),
+            avgXp: avg('xp'), totalXp: ms.reduce((s, m) => s + (m.xp || 0), 0), elites: ms.filter(m => m.isElite).length, dread: ms.filter(m => m.isDread).length,
+            floorBudget: floorXpBudget(currentFloorData.floorLevel) };
+    },
+    // Resolve every pending level-up with sensible defaults (feats: first available, attribute: class primary, skill: athletics, mastery: precision)
+    autoLevelChoices() {
+        let guard = 0;
+        while (currentLevelUpData && guard++ < 200) {
+            const g = currentLevelUpData.pendingGrants[0];
+            if (!g) break;
+            if (g === 'feat') chooseLevelUpAdvancement('feat', FeatManager.getAvailableFeats(player)[0].id);
+            else if (g === 'attribute') chooseLevelUpAdvancement('attribute', player.characterClass.primaryStat);
+            else if (g === 'mastery') chooseLevelUpAdvancement('mastery', Object.values(MASTERIES).find(m => !player.masteries.includes(m.id)).id);
+            else chooseLevelUpAdvancement('skill', 'athletics');
+        }
+    },
+    // A hero as strong as a player on pace for floor F: expected level plus gear from ~4 loot rolls per floor passed
+    buildHero(F, classId = 'warrior', lootPerFloor = 2) {
+        this.startRun('SIM-' + F, { classId, mapSize: 100 });
+        const lvl = Math.round(expectedPlayerLevel(F));
+        this.setLevel(lvl);
+        this.autoLevelChoices();
+        for (let i = 0; i < Math.round(lootPerFloor * F) + 2; i++) {
+            const item = generateLootItem(prng, Math.max(1, Math.round(F * 0.7)));
+            player.addToBackpack(item);
+        }
+        for (let k = 0; k < 4; k++) equipUpgrades();
+        player.hp = player.maxHp;
+        godMode = false;
+        return { level: player.level, maxHp: player.maxHp, ac: player.ac, atk: player.str, weapon: player.weapon.name };
+    },
+    // Fights `n` random monsters of the current floor one at a time and reports how costly they are
+    fightSim(n = 12) {
+        const f = currentFloorData;
+        const pool = f.monsters.filter(m => m.alive && !m.isBoss);
+        const picks = [];
+        while (picks.length < Math.min(n, pool.length)) picks.push(pool.splice(prng.nextInt(0, pool.length - 1), 1)[0]);
+        const res = [];
+        for (const m of picks) {
+            // stand next to it
+            const spots = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => ({ x: m.x + dx, y: m.y + dy }))
+                .filter(p => f.terrain[p.y * MAP_WIDTH + p.x] === TILES.FLOOR && !f.monsters.some(o => o.alive && o.x === p.x && o.y === p.y));
+            if (!spots.length) continue;
+            player.x = spots[0].x; player.y = spots[0].y;
+            player.hp = player.maxHp; player.alive = true; player.statuses = []; player.activeBuffs = [];
+            for (const o of f.monsters) if (o !== m && o.alive) o.alert = false;
+            m.alert = true; m.unaware = false;
+            runPerceptionRadar();
+            setTarget(m);
+            let turns = 0, minHp = player.hp, died = false;
+            while (m.alive && turns < 80) {
+                turns++;
+                const before = player.hp;
+                autoTargetAndAttack();
+                minHp = Math.min(minHp, player.hp);
+                if (!player.alive) { died = true; break; }
+                if (player.hp <= 0) { died = true; break; }
+            }
+            document.getElementById('death-modal')?.classList.remove('active');
+            res.push({ name: m.name, lvl: m.level, elite: !!m.isElite, turns, lostPct: Math.round(100 * (player.maxHp - minHp) / player.maxHp), died, won: !m.alive });
+        }
+        const avg = (arr, k) => arr.length ? +(arr.reduce((s, r) => s + r[k], 0) / arr.length).toFixed(1) : 0;
+        const normal = res.filter(r => !r.elite), elite = res.filter(r => r.elite);
+        player.alive = true; player.hp = player.maxHp;
+        return { floor: f.floorLevel, heroLevel: player.level, heroHp: player.maxHp, fights: res.length,
+            normal: { n: normal.length, lostPct: avg(normal, 'lostPct'), turns: avg(normal, 'turns'), deaths: normal.filter(r => r.died).length },
+            elite: { n: elite.length, lostPct: avg(elite, 'lostPct'), turns: avg(elite, 'turns'), deaths: elite.filter(r => r.died).length } };
+    },
     startRun(seed, opts = {}) { startPlaythrough(seed, opts); return this.state(); },
     jumpToFloor(n) {
         n = Math.max(1, Math.min(25, parseInt(n, 10) || 1));

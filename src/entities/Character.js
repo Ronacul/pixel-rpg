@@ -19,7 +19,7 @@ export class PlayerCharacter {
         this.keyRing = []; // { keyId, name } for locked doors (never occupy bag slots)
         this.xpMultiplier = 1;   // per-floor modifier (e.g. Pitch Dark +25% XP)
         this.xpBonusMult = 1;    // legacy perk
-        this.stats = { kills: 0, bossesSlain: 0, gold: 0, chests: 0, disarmed: 0, deepest: 1, bestItem: null, victory: false };
+        this.stats = { killsByType: {}, kills: 0, bossesSlain: 0, gold: 0, chests: 0, disarmed: 0, deepest: 1, bestItem: null, victory: false };
         this.turnCount = 0;
         this.alive = true;
 

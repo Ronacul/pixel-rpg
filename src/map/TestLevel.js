@@ -20,6 +20,7 @@ import { BASE_ITEMS, createItemFromBase, MUSHROOM_TYPES } from '../data/Items.js
 import { makeMonster } from './Generator.js';
 import { buildMerchantStock } from '../data/Economy.js';
 import { PRNG } from '../core/RNG.js';
+import { assignFloorXp } from '../data/Difficulty.js';
 
 export const TEST_MIN_MAP_SIZE = 100;
 
@@ -149,7 +150,7 @@ export function generateTestFloor(baseSeed, floorLevel) {
         addChest(x, y, createItemFromBase(base));
     });
 
-    // Anti-stuck: guarantee a few harmless-to-test hazard zones list exists
+    const avgMonsterXp = assignFloorXp(monsters, floorLevel);
     return {
         floorLevel,
         biome,
@@ -163,6 +164,8 @@ export function generateTestFloor(baseSeed, floorLevel) {
         chests,
         mushrooms,
         keys,
+        avgMonsterXp,
+        spawnClock: 0,
         merchant,
         shrineOffers,
         modifier: null,
