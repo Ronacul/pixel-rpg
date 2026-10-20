@@ -2,6 +2,7 @@ import { ITEM_SLOTS, calculateEquippedSetBonuses, MUSHROOM_TYPES, getCompatibleS
 import { ClassManager } from '../data/Classes.js';
 import { PROGRESSION, XP_TABLE, getGrantsForLevel, MASTERIES } from '../data/Progression.js';
 import { RaceManager, DEFAULT_RACE_ID } from '../data/Races.js';
+import { TOTAL_SLOTS, compartmentOf, compartmentRange, COMPARTMENTS } from '../data/Inventory.js';
 import { FEATS } from '../data/Feats.js';
 import { EffectSystem } from '../systems/Effects.js';
 import { wardMultiplier as powersWardMultiplier } from '../systems/Powers.js';
@@ -83,7 +84,7 @@ export class PlayerCharacter {
 
         // 15 Backpack Storage Slots (10 Body + 15 Bag = 25 Total Slots)
         this.backpack = [];
-        for (let i = 0; i < 15; i++) {
+        for (let i = 0; i < TOTAL_SLOTS; i++) {
             this.backpack.push(null);
         }
 
@@ -219,34 +220,59 @@ export class PlayerCharacter {
     // INVENTORY & PAPERDOLL ACTIONS
     // ==========================================
 
-    // Consumables (food, mushrooms, potions, flasks...) stack by name. Gear and gems occupy one slot each.
+    // Consumables (food, mushrooms, potions, flasks...) stack by name. Gear and gems take one slot each.
     static isStackable(item) {
         return !!item && !!item.isConsumable && !item.isKey;
     }
 
-    // Adds to the first matching stack, else an empty slot. Returns false only when nothing could be stored.
+    // Index range [start, end) of the compartment an item belongs to
+    rangeFor(item) {
+        return compartmentRange(compartmentOf(item));
+    }
+
+    // Adds to the first matching stack in the item's compartment, else an empty slot there.
+    // Returns false only when that compartment has no room.
     addToBackpack(item) {
         if (!item) return false;
+        const [a, b] = this.rangeFor(item);
         if (PlayerCharacter.isStackable(item)) {
             const add = item.count || 1;
-            const stack = this.backpack.find(s => s && PlayerCharacter.isStackable(s) && s.name === item.name && (s.count || 1) < 99);
-            if (stack) {
-                stack.count = (stack.count || 1) + add;
-                return true;
+            for (let i = a; i < b; i++) {
+                const s = this.backpack[i];
+                if (s && PlayerCharacter.isStackable(s) && s.name === item.name && (s.count || 1) < 99) {
+                    s.count = (s.count || 1) + add;
+                    return true;
+                }
             }
             item.count = add;
         }
-        const emptyIdx = this.backpack.findIndex(s => s === null);
-        if (emptyIdx === -1) return false;
-        this.backpack[emptyIdx] = item;
-        return true;
+        for (let i = a; i < b; i++) {
+            if (this.backpack[i] === null) {
+                this.backpack[i] = item;
+                return true;
+            }
+        }
+        return false;
     }
 
-    // Would this item fit (a free slot, or room on an existing stack)?
+    // Would this item fit (a free slot, or room on a stack, in its compartment)?
     canStore(item) {
         if (!item) return false;
-        if (this.backpack.some(s => s === null)) return true;
-        return PlayerCharacter.isStackable(item) && this.backpack.some(s => s && PlayerCharacter.isStackable(s) && s.name === item.name && (s.count || 1) < 99);
+        const [a, b] = this.rangeFor(item);
+        for (let i = a; i < b; i++) {
+            const s = this.backpack[i];
+            if (s === null) return true;
+            if (PlayerCharacter.isStackable(item) && s && PlayerCharacter.isStackable(s) && s.name === item.name && (s.count || 1) < 99) return true;
+        }
+        return false;
+    }
+
+    // Used / total slots of a compartment
+    compartmentUsage(id) {
+        const [a, b] = compartmentRange(id);
+        let used = 0;
+        for (let i = a; i < b; i++) if (this.backpack[i]) used++;
+        return { used, size: b - a };
     }
 
     // Removes the whole slot contents (a full stack leaves together)
@@ -315,6 +341,15 @@ export class PlayerCharacter {
             return { equipped: one, unequipped: previousItem, slot };
         }
 
+        // Displaced item belongs to another compartment (e.g. a flask replacing a shield): route it to its own bag
+        if (previousItem && compartmentOf(previousItem) !== compartmentOf(item)) {
+            if (!this.canStore(previousItem)) return null;
+            this.backpack[backpackIdx] = null;
+            this.equipment[slot] = item;
+            this.addToBackpack(previousItem);
+            return { equipped: item, unequipped: previousItem, slot };
+        }
+
         // Clean swap: equipped item gets new item, backpack slot gets previous item (or null)
         this.equipment[slot] = item;
         this.backpack[backpackIdx] = previousItem;
@@ -325,7 +360,7 @@ export class PlayerCharacter {
     unequipToBackpack(slot) {
         const item = this.equipment[slot];
         if (!item) return { success: false, reason: 'Slot is empty' };
-        if (!this.canStore(item)) return { success: false, reason: 'Backpack is full (15/15)' };
+        if (!this.canStore(item)) return { success: false, reason: `Your ${COMPARTMENTS.find(c => c.id === compartmentOf(item)).label} bag is full` };
         this.addToBackpack(item);
         this.equipment[slot] = null;
         const backpackIdx = this.backpack.findIndex(s => s && (s === item || (PlayerCharacter.isStackable(item) && s.name === item.name)));

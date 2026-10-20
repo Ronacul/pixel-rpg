@@ -644,6 +644,9 @@
 
         .modal-btn:active { background: #354252; }
 
+        .bag-tab { flex: 1; background: #12141f; border: 1px solid #2d334d; border-radius: 6px; color: #aab; padding: 8px 2px; font-family: inherit; font-size: 11px; font-weight: bold; cursor: pointer; }
+        .bag-tab.active { background: #1f2538; border-color: #ffcc00; color: #ffcc00; }
+        .bag-tab.full { color: #ff8899; }
         .count-chip { position: absolute; bottom: 14px; right: 4px; background: #ffcc00; color: #111; font-size: 10px; font-weight: bold; border-radius: 8px; padding: 0 5px; line-height: 14px; z-index: 1; }
         .set-label { display: block; font-size: 11px; color: #ffcc00; font-weight: bold; margin: 8px 0 3px 0; }
         .set-select { width: 100%; background: #0e101a; color: #e0e0f0; border: 1px solid #41556b; border-radius: 6px; padding: 6px; font-family: inherit; font-size: 12px; }
@@ -759,7 +762,7 @@
 
             <!-- Modal Tab Navigation: Gear (25) vs Attributes & Progression Log -->
             <div style="display: flex; gap: 6px; margin: 4px 0 8px 0;">
-                <button id="tab-btn-gear" class="modal-tab active" onclick="window.switchSheetTab('gear')">🎒 Equipment & Bag (25)</button>
+                <button id="tab-btn-gear" class="modal-tab active" onclick="window.switchSheetTab('gear')">🎒 Equipment & Bags</button>
                 <button id="tab-btn-stats" class="modal-tab" onclick="window.switchSheetTab('stats')">📊 Attributes & Level Log</button>
             </div>
 
@@ -786,9 +789,10 @@
 
                 <!-- 15 Backpack Slots -->
                 <div style="font-size: 11px; color: #888; margin-top: 6px; display: flex; justify-content: space-between;">
-                    <span>🎒 BACKPACK INVENTORY (15 SLOTS):</span>
+                    <span>🎒 BAGS (gear 30 · gems 20 · food 15 · alchemy 10):</span>
                     <span style="font-size: 10px; color: #666;">Tap an item: actions float below</span>
                 </div>
+                <div id="bag-tabs" style="display: flex; gap: 4px; margin-top: 4px;"></div>
                 <div id="backpack-grid" style="margin-top: 2px;">
                     <!-- Generated dynamically -->
                 </div>
@@ -1044,6 +1048,7 @@
 
             <div class="tab-row">
                 <button id="menu-tab-actions" class="modal-tab big-tab active" onclick="switchMenuTab('actions')">🎮 Actions</button>
+                <button id="menu-tab-keys" class="modal-tab big-tab" onclick="switchMenuTab('keys')">⌨️ Keys</button>
                 <button id="menu-tab-newrun" class="modal-tab big-tab" onclick="switchMenuTab('newrun')">🧙 New Run</button>
                 <button id="menu-tab-debug" class="modal-tab big-tab" style="display: none;" onclick="switchMenuTab('debug')">🛠️ Debug</button>
             </div>
@@ -1059,10 +1064,13 @@
                     <button class="menu-btn" onclick="menuDo(() => openSheetModal())"><span>👤</span>Character<small>C</small></button>
                     <button class="menu-btn" onclick="toggleGraphics()"><span>🎨</span>Graphics: <b id="graphics-label">Pixel art</b><small>pixel art or classic emoji</small></button>
                 </div>
-                <div style="font-size: 10px; color: #888ea6; margin-top: 8px; line-height: 1.4;">
-                    Tap a foe to select it; <b>Attack</b> and <b>Power</b> act on the selected (or closest) foe and close in when it is out of range.
-                    Keys: Q attack · Enter power · E search · R rest · F spells · T aim · Z zoom · C gear.
+                <div id="key-help" style="font-size: 10px; color: #888ea6; margin-top: 8px; line-height: 1.4;">
                 </div>
+            </div>
+
+            <!-- TAB: Keys -->
+            <div id="menu-pane-keys" style="display: none;">
+                <div id="keys-panel"></div>
             </div>
 
             <!-- TAB: New Run -->
@@ -1187,12 +1195,17 @@
             buyLegacyPerk,
             startDailyRun,
             toggleGraphics,
+            setKeyPreset,
+            startRebind,
+            resetKeys,
+            quickHeal,
+            setBagTab,
             equipUpgrades,
             sortBag,
             shopSellJunk,
             pixelDebug
-        } from './src/main.js?v=14.0';
-        import { PRNG } from './src/core/RNG.js?v=14.0';
+        } from './src/main.js?v=16.0';
+        import { PRNG } from './src/core/RNG.js?v=16.0';
 
         window.openSheetModal = function() {
             populateSheet();
@@ -1249,6 +1262,11 @@
         window.updateSettingsPreview = updateSettingsPreview;
         window.pixelDebug = pixelDebug;
         window.toggleGraphics = toggleGraphics;
+        window.setKeyPreset = setKeyPreset;
+        window.startRebind = startRebind;
+        window.resetKeys = resetKeys;
+        window.quickHeal = quickHeal;
+        window.setBagTab = setBagTab;
         window.equipUpgrades = equipUpgrades;
         window.sortBag = sortBag;
         window.shopSellJunk = shopSellJunk;

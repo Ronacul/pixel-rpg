@@ -22,6 +22,8 @@ import { refreshItemDesc, ITEM_SLOTS, SLOT_LABELS, getCompatibleSlots, getSetPie
 import { CLASSES, SKILLS, ClassManager } from './data/Classes.js';
 import { RaceManager, DEFAULT_RACE_ID } from './data/Races.js';
 import { FeatManager, FEATS } from './data/Feats.js';
+import { COMPARTMENTS, compartmentRange, compartmentOfIndex, compartmentOf } from './data/Inventory.js';
+import { KEY_ACTIONS, KEY_PRESETS, DEFAULT_PRESET, RESERVED_KEYS, normalizeKey, keyLabel, resolveBinds, buildKeyMap } from './data/Keybinds.js';
 import { PROGRESSION, XP_TABLE, XP_REWARDS, MASTERIES, monsterXp } from './data/Progression.js';
 import { itemValue, buyPrice, sellPrice, goldForKill, goldForChest } from './data/Economy.js';
 import { SHRINE_OFFERS } from './data/Shrines.js';
@@ -65,7 +67,7 @@ let hoverWorldPos = null;   // { x, y } currently targeted by cursor
 
 // ---- Persistent settings (map size, class, race, debug tools) ----
 const SETTINGS_KEY = 'pixel_rpg_settings_v2'; // v2: default map size is now Tiny (50x50)
-let settings = { mapSize: DEFAULT_MAP_SIZE, classId: 'warrior', raceId: DEFAULT_RACE_ID, debug: false, sprites: true };
+let settings = { mapSize: DEFAULT_MAP_SIZE, classId: 'warrior', raceId: DEFAULT_RACE_ID, debug: false, sprites: true, keyPreset: DEFAULT_PRESET, keyOverrides: {} };
 let godMode = false;
 
 function loadSettings() {
@@ -77,6 +79,8 @@ function loadSettings() {
     settings.classId = ClassManager.getClass(settings.classId).id;
     settings.raceId = RaceManager.getRace(settings.raceId).id;
     SpriteStore.enabled = settings.sprites !== false;
+    if (!KEY_PRESETS[settings.keyPreset]) settings.keyPreset = DEFAULT_PRESET;
+    if (!settings.keyOverrides || typeof settings.keyOverrides !== 'object') settings.keyOverrides = {};
 }
 
 function saveSettings() {
@@ -2899,7 +2903,15 @@ export function boostStat(stat) {
 // ==========================================
 let selectedSlot = null; // { type: 'body'|'backpack', id: string|number }
 
+let bagTab = 'gear'; // which compartment the sheet shows
+
+export function setBagTab(id) {
+    bagTab = id;
+    populateSheet();
+}
+
 export function selectSlot(type, id) {
+    if (type === 'backpack') bagTab = compartmentOfIndex(id);
     selectedSlot = { type, id };
     populateSheet();
 }
@@ -2939,19 +2951,22 @@ export function equipUpgrades() {
 
 // Sorts the bag: keys, gear by slot and strength, gems, then consumables
 export function sortBag() {
-    const items = player.backpack.filter(Boolean);
-    items.sort((a, b) => {
-        const ka = bagSortKey(a), kb = bagSortKey(b);
-        for (let i = 0; i < ka.length; i++) {
-            if (ka[i] < kb[i]) return -1;
-            if (ka[i] > kb[i]) return 1;
-        }
-        return 0;
-    });
-    player.backpack.fill(null);
-    items.forEach((it, i) => { player.backpack[i] = it; });
+    // Sort each compartment separately and keep every item inside its own range
+    for (const c of COMPARTMENTS) {
+        const [a, b] = compartmentRange(c.id);
+        const items = player.backpack.slice(a, b).filter(Boolean);
+        items.sort((x, y) => {
+            const kx = bagSortKey(x), ky = bagSortKey(y);
+            for (let i = 0; i < kx.length; i++) {
+                if (kx[i] < ky[i]) return -1;
+                if (kx[i] > ky[i]) return 1;
+            }
+            return 0;
+        });
+        for (let i = a; i < b; i++) player.backpack[i] = items[i - a] || null;
+    }
     selectedSlot = null;
-    postMessage('↕ Bag sorted.', 'msg-info');
+    postMessage('↕ Bags sorted.', 'msg-info');
     populateSheet();
 }
 
@@ -3024,8 +3039,8 @@ export function fuseSelectedGem() {
         postMessage('⚠️ You need 3 matching gems of the same tier to fuse.', 'msg-miss');
         return;
     }
-    const idx = player.backpack.findIndex(s => s === null);
-    player.backpack[idx] = fused;
+    player.addToBackpack(fused);
+    const idx = player.backpack.indexOf(fused);
     selectedSlot = { type: 'backpack', id: idx };
     postMessage(`🔀 Fused 3 gems into a ${fused.name}!`, 'msg-victory');
     populateSheet();
@@ -3137,100 +3152,185 @@ export function dropSelectedBackpackItem() {
     }
 }
 
+// ---- Hotkeys: bindings come from data/Keybinds.js (preset + user overrides, saved in settings) ----
+let keyMap = new Map();
+let rebindingAction = null; // set while the Keys tab waits for a key press
+
+function refreshKeyMap() {
+    keyMap = buildKeyMap(resolveBinds(settings.keyPreset, settings.keyOverrides));
+}
+
+function toggleSheetModal() {
+    const sheet = document.getElementById('sheet-modal');
+    if (!sheet) return;
+    if (sheet.classList.contains('active')) sheet.classList.remove('active');
+    else { populateSheet(); sheet.classList.add('active'); }
+}
+
+function toggleMenuModal() {
+    const m = document.getElementById('settings-modal');
+    if (!m) return;
+    if (m.classList.contains('active')) closeSettings();
+    else openSettings();
+}
+
+const KEY_ACTION_HANDLERS = {
+    attack: () => autoTargetAndAttack(),
+    power: () => usePower(),
+    cyclePower: () => cyclePower(),
+    search: () => searchArea(),
+    wait: () => waitTurn(),
+    rest: () => campRest(),
+    quickHeal: () => quickHeal(),
+    spells: () => openSpellsModal(),
+    aim: () => triggerAimMode(),
+    gear: () => toggleSheetModal(),
+    zoom: () => cycleZoom(),
+    menu: () => toggleMenuModal()
+};
+
+const MOVE_DELTAS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+
 window.addEventListener('keydown', (e) => {
-    // Escape closes modals or cancels targeting
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const tag = (e.target && e.target.tagName) || '';
+    const typing = tag === 'INPUT' || tag === 'TEXTAREA';
+
+    // Waiting for a new key for an action (Keys tab)
+    if (rebindingAction) {
+        e.preventDefault();
+        if (e.key === 'Escape') { rebindingAction = null; renderKeysPanel(); return; }
+        if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
+        const action = rebindingAction;
+        rebindingAction = null;
+        assignKey(action, normalizeKey(e.key));
+        return;
+    }
+
+    // Escape closes the top dialog (never the level-up / death / victory ones) or cancels aiming
     if (e.key === 'Escape') {
         if (targetingMode) {
             cancelTargeting();
             return;
         }
-        const sheet = document.getElementById('sheet-modal');
-        const inspect = document.getElementById('inspect-modal');
-        const levelup = document.getElementById('levelup-modal');
-        const spells = document.getElementById('spells-modal');
-        const picker = document.getElementById('slot-picker-modal');
-        const settingsM = document.getElementById('settings-modal');
-        if (picker && picker.classList.contains('active')) { picker.classList.remove('active'); return; }
-        if (settingsM && settingsM.classList.contains('active')) { settingsM.classList.remove('active'); return; }
-        if (sheet && sheet.classList.contains('active')) sheet.classList.remove('active');
-        if (inspect && inspect.classList.contains('active')) inspect.classList.remove('active');
-        if (levelup && levelup.classList.contains('active')) levelup.classList.remove('active');
-        if (spells && spells.classList.contains('active')) spells.classList.remove('active');
-        return;
-    }
-
-    // Hotkey: T toggles Aiming / Targeting Mode
-    if (e.key === 't' || e.key === 'T') {
-        triggerAimMode();
-        return;
-    }
-
-    // Hotkey: F opens Spells & Feats modal
-    if (e.key === 'f' || e.key === 'F') {
-        openSpellsModal();
-        return;
-    }
-
-    // Hotkey: R triggers Camp Rest
-    if (e.key === 'r' || e.key === 'R') {
-        campRest();
-        return;
-    }
-
-    // Hotkey: C or I toggles Character Sheet
-    if (e.key === 'c' || e.key === 'C' || e.key === 'i' || e.key === 'I') {
-        const sheet = document.getElementById('sheet-modal');
-        if (sheet) {
-            if (sheet.classList.contains('active')) {
-                sheet.classList.remove('active');
-            } else {
-                populateSheet();
-                sheet.classList.add('active');
-            }
+        const closable = ['gem-picker-modal', 'slot-picker-modal', 'shop-modal', 'shrine-modal', 'settings-modal', 'spells-modal', 'inspect-modal', 'sheet-modal'];
+        for (const id of closable) {
+            const el = document.getElementById(id);
+            if (el && el.classList.contains('active')) { el.classList.remove('active'); return; }
         }
         return;
     }
 
-    // Hotkey: Enter uses the main power
-    if (e.key === 'Enter') {
-        usePower();
-        return;
-    }
+    if (typing || !player) return;
 
-    // Hotkey: E searches the surroundings (secret doors, traps, hidden keys)
-    if (e.key === 'e' || e.key === 'E') {
-        searchArea();
-        return;
-    }
+    const action = keyMap.get(normalizeKey(e.key));
+    if (!action) return;
+    e.preventDefault();
 
-    // Hotkey: Z cycles Zoom
-    if (e.key === 'z' || e.key === 'Z') {
-        cycleZoom();
-        return;
-    }
-
-    // Hotkey: Tab or Q triggers Auto-Target & Attack on closest visible foe
-    if (e.key === 'Tab' || e.key === 'q' || e.key === 'Q') {
-        e.preventDefault();
-        autoTargetAndAttack();
-        return;
-    }
-
-    let dx = 0, dy = 0;
-    if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') dy = -1;
-    if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') dy = 1;
-    if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') dx = -1;
-    if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') dx = 1;
-    if (e.key === ' ' || e.key === 'Spacebar') {
-        e.preventDefault();
-        waitTurn();
-        return;
-    }
-    if (dx !== 0 || dy !== 0) {
-        e.preventDefault();
+    if (MOVE_DELTAS[action]) {
+        const [dx, dy] = MOVE_DELTAS[action];
         handleTap(player.x + dx, player.y + dy);
+        return;
     }
+    const fn = KEY_ACTION_HANDLERS[action];
+    if (fn) fn();
 });
+
+// ---- Keys tab (Menu): presets and per-action rebinding ----
+export function renderKeysPanel() {
+    const el = document.getElementById('keys-panel');
+    if (!el) return;
+    const binds = resolveBinds(settings.keyPreset, settings.keyOverrides);
+    const presetOpts = Object.entries(KEY_PRESETS).map(([id, p]) => `<option value="${id}" ${id === settings.keyPreset ? 'selected' : ''}>${p.name}</option>`).join('');
+    el.innerHTML = `
+        <label class="set-label" style="margin-top:0;">Layout preset</label>
+        <select class="set-select" onchange="window.setKeyPreset(this.value)">${presetOpts}</select>
+        <div style="font-size:10px; color:#888ea6; margin:6px 0;">Tap an action's key, then press the new key (Esc cancels). A key already used by another action moves to the one you pick.</div>
+        <div style="display:flex; flex-direction:column; gap:4px;">
+        ${KEY_ACTIONS.map(a => {
+            const waiting = rebindingAction === a.id;
+            const label = binds[a.id].length ? binds[a.id].map(keyLabel).join(' / ') : '(none)';
+            return `<div class="picker-row" style="padding:5px 8px;">
+                <div style="flex:1; font-size:11px; color:#e0e0f0;">${a.label}</div>
+                <button class="btn-action-small" style="flex:none; min-width:92px; ${waiting ? 'background:#3a2e10; border-color:#ffcc00; color:#ffcc00;' : ''}" onclick="window.startRebind('${a.id}')">${waiting ? 'press a key...' : label}</button>
+            </div>`;
+        }).join('')}
+        </div>
+        <button class="modal-btn" style="width:100%; margin-top:8px; font-size:11px;" onclick="window.resetKeys()">↺ Reset to preset</button>`;
+}
+
+export function startRebind(actionId) {
+    rebindingAction = actionId;
+    renderKeysPanel();
+}
+
+function assignKey(actionId, key) {
+    if (RESERVED_KEYS.includes(key)) return;
+    const binds = resolveBinds(settings.keyPreset, settings.keyOverrides);
+    // Take the key away from any other action
+    for (const [other, keys] of Object.entries(binds)) {
+        if (other !== actionId && keys.some(k => normalizeKey(k) === key)) {
+            settings.keyOverrides[other] = keys.filter(k => normalizeKey(k) !== key);
+        }
+    }
+    settings.keyOverrides[actionId] = [key];
+    saveSettings();
+    refreshKeyMap();
+    renderKeysPanel();
+    renderActionHelp();
+    postMessage(`⌨️ ${KEY_ACTIONS.find(a => a.id === actionId).label}: ${keyLabel(key)}`, 'msg-info');
+}
+
+export function setKeyPreset(id) {
+    settings.keyPreset = KEY_PRESETS[id] ? id : DEFAULT_PRESET;
+    settings.keyOverrides = {};
+    saveSettings();
+    refreshKeyMap();
+    renderKeysPanel();
+    renderActionHelp();
+}
+
+export function resetKeys() {
+    settings.keyOverrides = {};
+    saveSettings();
+    refreshKeyMap();
+    renderKeysPanel();
+    renderActionHelp();
+}
+
+// The short key summary under the Actions tab
+function renderActionHelp() {
+    const el = document.getElementById('key-help');
+    if (!el) return;
+    const b = resolveBinds(settings.keyPreset, settings.keyOverrides);
+    const k = (id) => (b[id][0] ? keyLabel(b[id][0]) : '-');
+    el.innerHTML = `Tap a foe to select it; <b>Attack</b> and <b>Power</b> act on the selected (or closest) foe and close in when it is out of range.<br>
+        Keys: move ${k('up')} ${k('left')} ${k('down')} ${k('right')} · attack ${k('attack')} · power ${k('power')} · switch power ${k('cyclePower')} · search ${k('search')} · wait ${k('wait')} · rest ${k('rest')} · quick heal ${k('quickHeal')} · spells ${k('spells')} · aim ${k('aim')} · gear ${k('gear')} · zoom ${k('zoom')} · menu ${k('menu')}. Change them in Menu → Keys.`;
+}
+
+// Drinks the healing item that best fits the missing HP (smallest that covers it, else the strongest)
+export function quickHeal() {
+    if (!player || !player.alive) return;
+    const missing = player.maxHp - player.hp;
+    if (missing <= 0) {
+        postMessage('💖 You are already at full health.', 'msg-info');
+        return;
+    }
+    const pots = [];
+    player.backpack.forEach((it, idx) => {
+        if (it && it.isConsumable && !it.isMushroom && (it.healPotency || 0) > 0 && it.delivery !== 'AOE' && !it.zoneType) pots.push({ idx, it });
+    });
+    if (pots.length === 0) {
+        postMessage('💖 You have no healing potions or food to use. Rest (camp) instead.', 'msg-miss');
+        return;
+    }
+    pots.sort((a, b) => a.it.healPotency - b.it.healPotency);
+    const pick = pots.find(p => p.it.healPotency >= missing) || pots[pots.length - 1];
+    consumeBackpackItem(pick.idx);
+    endTurn();
+    updateHUD();
+    draw();
+}
 
 // ==========================================
 // REMOTE CONTROL (VIRTUAL D-PAD & GAMEPAD)
@@ -3425,7 +3525,9 @@ export function populateSheet() {
 
     // 15 Backpack slots
     const isBagSelected = (idx) => selectedSlot?.type === 'backpack' && selectedSlot?.id === idx;
+    const bagRange = compartmentRange(bagTab);
     const bagHtml = player.backpack.map((item, idx) => {
+        if (idx < bagRange[0] || idx >= bagRange[1]) return '';
         const isSel = isBagSelected(idx);
         const look = setLook(item);
         const adv = adviceFor(player, item);
@@ -3439,6 +3541,14 @@ export function populateSheet() {
         `;
     }).join('');
     document.getElementById('backpack-grid').innerHTML = bagHtml;
+    const tabsEl = document.getElementById('bag-tabs');
+    if (tabsEl) {
+        tabsEl.innerHTML = COMPARTMENTS.map(c => {
+            const u = player.compartmentUsage(c.id);
+            const full = u.used >= u.size;
+            return `<button class="bag-tab ${c.id === bagTab ? 'active' : ''} ${full ? 'full' : ''}" title="${c.hint}" onclick="window.setBagTab('${c.id}')">${c.icon} ${u.used}/${u.size}</button>`;
+        }).join('');
+    }
 
     // Upgrade helper button label
     const upBtn = document.getElementById('btn-equip-upgrades');
@@ -3985,7 +4095,9 @@ export function openSettings(newGame = false) {
 }
 
 export function switchMenuTab(tab) {
-    for (const t of ['actions', 'newrun', 'debug']) {
+    if (tab === 'keys') renderKeysPanel();
+    if (tab === 'actions') renderActionHelp();
+    for (const t of ['actions', 'keys', 'newrun', 'debug']) {
         const pane = document.getElementById('menu-pane-' + t);
         const btn = document.getElementById('menu-tab-' + t);
         if (pane) pane.style.display = (t === tab) ? 'block' : 'none';
@@ -4269,6 +4381,9 @@ startPlaythrough(initSeed, {
 if (urlParams.get('floor')) pixelDebug.jumpToFloor(urlParams.get('floor'));
 if (urlParams.get('level')) pixelDebug.setLevel(urlParams.get('level'));
 window.pixelDebug = pixelDebug;
+
+refreshKeyMap();
+renderActionHelp();
 
 // Load the pixel-art pack in the background; the game starts instantly with emoji and swaps when it arrives
 updateGraphicsLabel();
