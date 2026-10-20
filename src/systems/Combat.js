@@ -1,6 +1,7 @@
 // d20 Combat Engine with Surprise Advantage, Distance Ranged Attacks, Cover Bonuses, AoE, and Status Effects
 
 import { EffectSystem } from './Effects.js';
+import { triggerPowers } from './Powers.js';
 
 // Monster damage: diceCount x d(dice) + bonusDmg (single die for ordinary monsters)
 export function rollMonsterDamage(prng, monster) {
@@ -50,6 +51,7 @@ export class CombatSystem {
         let damage = 0;
         let featBonusDmg = 0;
         let appliedStatus = null;
+        let procs = [];
 
         if (isHit) {
             // Check for Power Strike or damage buffs
@@ -87,6 +89,9 @@ export class CombatSystem {
                 EffectSystem.applyStatus(monster, statusToApply, statusDuration, 1, weapon.name);
                 appliedStatus = statusToApply;
             }
+
+            // Equipment powers: on-hit procs (ignite, lifesteal, ...)
+            procs = triggerPowers(player, 'onHit', { monster, damage }, prng);
         }
 
         // Monster retaliation only occurs if adjacent, alive, and not stunned
@@ -117,6 +122,7 @@ export class CombatSystem {
             targetAC: effectiveMonsterAC,
             damage,
             appliedStatus,
+            procs,
             monsterDied: !monster.alive,
             monsterCounter
         };
@@ -146,10 +152,19 @@ export class CombatSystem {
 
         let damage = 0;
         let appliedStatus = null;
+        let reflectKill = false;
+        const reflectTexts = [];
 
         if (isHit) {
             damage = rollMonsterDamage(prng, monster);
             player.hp = Math.max(0, player.hp - damage);
+
+            // Equipment powers: when-struck procs (thorns, stoneguard...)
+            const dmgCtx = { attacker: monster, reflectKill: false };
+            const hurtProcs = triggerPowers(player, 'onDamaged', dmgCtx, prng);
+            if (dmgCtx.reflectKill) reflectKill = true;
+            if (hurtProcs.length) appliedStatus = appliedStatus || null;
+            reflectTexts.push(...hurtProcs);
 
             // Monster status on hit based on type
             const mNameLower = monster.name.toLowerCase();
@@ -172,7 +187,9 @@ export class CombatSystem {
             targetAC: effectivePlayerAc,
             hasCover: coverBonus > 0,
             damage,
-            appliedStatus
+            appliedStatus,
+            reflectKill,
+            procs: reflectTexts
         };
     }
 

@@ -566,6 +566,7 @@
             gap: 4px;
         }
 
+        .item-action-row { flex-wrap: wrap; }
         .item-action-row {
             display: flex;
             gap: 6px;
@@ -932,6 +933,21 @@
         </div>
     </div>
 
+    <!-- Gem Picker: set a gem from the bag into an item socket -->
+    <div id="gem-picker-modal" class="modal-overlay" style="z-index: 125;" onclick="closeGemPicker()">
+        <div class="modal-card" onclick="event.stopPropagation()" style="border-color: #b070ff;">
+            <div class="modal-header">
+                <div>
+                    <span class="modal-title" id="gem-picker-title" style="color: #d9c2ff;">💎 SOCKETS</span>
+                    <div style="font-size: 10px; color: #888;">Choose a gem to set permanently:</div>
+                </div>
+                <button class="close-btn" onclick="closeGemPicker()">✕</button>
+            </div>
+            <div id="gem-picker-list" style="display: flex; flex-direction: column; gap: 4px; max-height: 60vh; overflow-y: auto; font-size: 11px;"></div>
+            <button class="modal-btn" style="margin-top: 8px;" onclick="closeGemPicker()">Close</button>
+        </div>
+    </div>
+
     <!-- Equipment Slot Picker: tap a paperdoll slot to see every owned item that fits -->
     <div id="slot-picker-modal" class="modal-overlay" style="z-index: 120;" onclick="closeSlotPicker()">
         <div class="modal-card" onclick="event.stopPropagation()">
@@ -1020,6 +1036,10 @@
                         <button class="dbg-btn" onclick="pixelDebug.addRations(5)">+5 rations</button>
                         <button class="dbg-btn" onclick="pixelDebug.grantSlotItems()">Give 1 item per slot (+2 rings)</button>
                         <button class="dbg-btn" onclick="pixelDebug.grantSets()">Give all set pieces</button>
+                        <button class="dbg-btn" onclick="pixelDebug.grantGems()">Give gems</button>
+                        <button class="dbg-btn" onclick="pixelDebug.grantPowerItems()">Give power items</button>
+                        <div style="display: flex; gap: 4px;"><select id="dbg-boss" class="set-select" style="flex: 1; margin: 0;"><option value="bugbear">Bugbear</option><option value="troll">Troll</option><option value="chimaera">Chimaera</option><option value="giant">Giant</option><option value="dragon">Dragon</option></select><button class="dbg-btn" style="flex: none;" onclick="pixelDebug.spawnBoss(document.getElementById('dbg-boss').value); closeSettings();">Spawn</button></div>
+                        <button class="dbg-btn" onclick="pixelDebug.slayBoss()">Slay boss</button>
                         <button class="dbg-btn" onclick="pixelDebug.revealMap()">Reveal whole floor</button>
                         <button class="dbg-btn" onclick="pixelDebug.teleportToStairs(true)">Teleport: stairs down</button>
                         <button class="dbg-btn" onclick="pixelDebug.teleportToStairs(false)">Teleport: stairs up</button>
@@ -1077,9 +1097,13 @@
             setMainPower,
             switchMenuTab,
             menuDo,
+            openGemPicker,
+            closeGemPicker,
+            pickerSocket,
+            fuseSelectedGem,
             pixelDebug
-        } from './src/main.js?v=10.0';
-        import { PRNG } from './src/core/RNG.js?v=10.0';
+        } from './src/main.js?v=11.0';
+        import { PRNG } from './src/core/RNG.js?v=11.0';
 
         window.openSheetModal = function() {
             populateSheet();
@@ -1135,6 +1159,10 @@
         window.saveSettingsOnly = saveSettingsOnly;
         window.updateSettingsPreview = updateSettingsPreview;
         window.pixelDebug = pixelDebug;
+        window.openGemPicker = openGemPicker;
+        window.closeGemPicker = closeGemPicker;
+        window.pickerSocket = pickerSocket;
+        window.fuseSelectedGem = fuseSelectedGem;
         window.usePower = usePower;
         window.cyclePower = cyclePower;
         window.setMainPower = setMainPower;

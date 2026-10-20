@@ -4,6 +4,7 @@ import { PROGRESSION, XP_TABLE, getGrantsForLevel, MASTERIES } from '../data/Pro
 import { RaceManager, DEFAULT_RACE_ID } from '../data/Races.js';
 import { FEATS } from '../data/Feats.js';
 import { EffectSystem } from '../systems/Effects.js';
+import { wardMultiplier as powersWardMultiplier } from '../systems/Powers.js';
 
 export class PlayerCharacter {
     constructor(classKey = 'warrior', raceKey = DEFAULT_RACE_ID) {
@@ -112,6 +113,7 @@ export class PlayerCharacter {
         add(this.race?.mods);
         for (const id of this.generalFeats) add(FEATS[id]?.mods);
         for (const id of this.masteries) add(MASTERIES[id]?.mods);
+        for (const item of this.getEquippedItems()) add(item.mods); // socketed gems
         return totals;
     }
 
@@ -197,6 +199,11 @@ export class PlayerCharacter {
             dice: this.characterClass.unarmedDie || 3,
             desc: `1d${this.characterClass.unarmedDie || 3} Unarmed`
         };
+    }
+
+    // Damage multiplier vs a hazard (zone id or status id) from equipped warding powers
+    wardMultiplier(id) {
+        return powersWardMultiplier(this, id);
     }
 
     get isStunned() {

@@ -284,7 +284,8 @@ export class EffectSystem {
             if (def) {
                 // Harmful DoTs
                 if (def.tickMin && def.tickMax) {
-                    const dmg = prng.nextInt(def.tickMin, def.tickMax) * (s.power || 1);
+                    let dmg = prng.nextInt(def.tickMin, def.tickMax) * (s.power || 1);
+                    if (isPlayer && entity.wardMultiplier) dmg = Math.max(1, Math.round(dmg * entity.wardMultiplier(s.id)));
                     entity.hp = Math.max(0, entity.hp - dmg);
                     events.push({
                         type: 'damage',
@@ -404,7 +405,8 @@ export class EffectSystem {
                     logs.push(`✨ Holy Consecration restored ${player.hp - prevHp} HP!`);
                     if (callbacks.onPlayerHeal) callbacks.onPlayerHeal(player.hp - prevHp);
                 } else if (def.minDmg && def.maxDmg) {
-                    const dmg = prng.nextInt(def.minDmg, def.maxDmg);
+                    let dmg = prng.nextInt(def.minDmg, def.maxDmg);
+                    if (player.wardMultiplier) dmg = Math.max(1, Math.round(dmg * player.wardMultiplier(z.type)));
                     player.hp = Math.max(0, player.hp - dmg);
                     logs.push(`⚠️ Stepped into ${def.name} for ${dmg} damage!`);
                     if (callbacks.onPlayerDamage) callbacks.onPlayerDamage(dmg, def.name);

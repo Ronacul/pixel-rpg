@@ -8,12 +8,15 @@ import { MAP_WIDTH, MAP_HEIGHT, TILES, VISIBILITY, DungeonManager, MAP_SIZES, DE
 import { generateFloor, makeMonster, makeBoss } from './map/Generator.js';
 import { BOSSES, getBossForFloor } from './data/Bosses.js';
 import { bossTurn } from './systems/BossAI.js';
+import { triggerPowers, senseRadius } from './systems/Powers.js';
+import { describePower } from './data/Powers.js';
+import { GEM_TYPES, createGem, randomGem, previewGem, describePreview, freeSockets, socketGem, canFuse, fuseGems, GEM_TIER_NAMES } from './data/Gems.js';
 import { generateTestFloor, isTestSeed, TEST_MIN_MAP_SIZE } from './map/TestLevel.js';
 import { PlayerCharacter } from './entities/Character.js';
 import { PerceptionSystem } from './systems/Perception.js';
 import { CombatSystem } from './systems/Combat.js';
 import { findPath } from './systems/Pathfinding.js';
-import { ITEM_SLOTS, SLOT_LABELS, getCompatibleSlots, getSetPieceTotal, BASE_ITEMS, createItemFromBase, generateLootItem, EQUIPMENT_SETS, calculateEquippedSetBonuses, MUSHROOM_TYPES } from './data/Items.js';
+import { refreshItemDesc, ITEM_SLOTS, SLOT_LABELS, getCompatibleSlots, getSetPieceTotal, BASE_ITEMS, createItemFromBase, generateLootItem, EQUIPMENT_SETS, calculateEquippedSetBonuses, MUSHROOM_TYPES } from './data/Items.js';
 import { CLASSES, SKILLS, ClassManager } from './data/Classes.js';
 import { RaceManager, DEFAULT_RACE_ID } from './data/Races.js';
 import { FeatManager, FEATS } from './data/Feats.js';
@@ -168,6 +171,46 @@ function runPerceptionRadar() {
             updateHUD();
         }
     );
+    applyPassiveSenses();
+}
+
+// Equipment "sense" powers: auto-detect traps / secret doors and hidden keys within a radius around the hero
+function applyPassiveSenses() {
+    const f = currentFloorData;
+    const trapR = senseRadius(player, 'trap');
+    const keyR = senseRadius(player, 'key');
+    if (trapR > 0) {
+        for (let y = player.y - trapR; y <= player.y + trapR; y++) {
+            for (let x = player.x - trapR; x <= player.x + trapR; x++) {
+                if (x < 0 || y < 0 || x >= MAP_WIDTH || y >= MAP_HEIGHT) continue;
+                if (Math.hypot(x - player.x, y - player.y) > trapR + 0.5) continue;
+                const idx = y * MAP_WIDTH + x;
+                const t = f.terrain[idx];
+                if (t === TILES.SECRET_DOOR) {
+                    f.terrain[idx] = TILES.DOOR_CLOSED;
+                    f.visibility[idx] = Math.max(f.visibility[idx], VISIBILITY.EXPLORED);
+                    postMessage(`🪤 Your gear senses a secret door at (${x}, ${y})! +${XP_REWARDS.secretDoor} XP`, 'msg-loot');
+                    const lvs = player.gainXp(XP_REWARDS.secretDoor);
+                    if (lvs.length) handleLevelUps(lvs);
+                } else if (isTrapTile(t) && !f.trapsRevealed.has(idx)) {
+                    f.trapsRevealed.add(idx);
+                    f.visibility[idx] = Math.max(f.visibility[idx], VISIBILITY.EXPLORED);
+                    postMessage(`🪤 Your gear senses a trap at (${x}, ${y})! +${XP_REWARDS.trap} XP`, 'msg-loot');
+                    const lvs = player.gainXp(XP_REWARDS.trap);
+                    if (lvs.length) handleLevelUps(lvs);
+                }
+            }
+        }
+    }
+    if (keyR > 0) {
+        for (const k of f.keys || []) {
+            if (k.hidden && Math.hypot(k.x - player.x, k.y - player.y) <= keyR + 0.5) {
+                k.hidden = false;
+                f.visibility[k.y * MAP_WIDTH + k.x] = Math.max(f.visibility[k.y * MAP_WIDTH + k.x], VISIBILITY.EXPLORED);
+                postMessage(`🗝️ Your gear reveals a hidden ${k.name}!`, 'msg-loot');
+            }
+        }
+    }
 }
 
 // ==========================================
@@ -634,6 +677,8 @@ function addCorpse(monster) {
         isVenomous,
         harvested: false
     });
+    // Equipment powers: on-kill procs (e.g. heal on kill)
+    triggerPowers(player, 'onKill', { monster }, prng);
     if (monster.isBoss) onBossDeath(monster);
 }
 
@@ -671,9 +716,23 @@ function onBossDeath(boss) {
     if (final) showVictory();
 }
 
-// Placeholder-friendly hook; extended once gems / powers exist
+// Boss drops: one set piece or named unique (with sockets), gems scaled to the floor, and one strong random item
 function makeBossLoot(def, floorLevel) {
-    return [generateLootItem(prng, floorLevel + 8)];
+    const drops = [];
+    const specials = BASE_ITEMS.filter(b => b.setId || b.powers);
+    const trophy = createItemFromBase(prng.choice(specials));
+    trophy.sockets = Math.max(trophy.sockets || 0, 1 + (prng.chance(0.5) ? 1 : 0));
+    refreshItemDesc(trophy);
+    drops.push(trophy);
+
+    const gemCount = def.loot?.gem || 1;
+    const types = Object.keys(GEM_TYPES);
+    for (let i = 0; i < gemCount; i++) {
+        const tier = Math.min(3, 1 + Math.floor(floorLevel / 10) + (prng.chance(0.3) ? 1 : 0));
+        drops.push(createGem(prng.choice(types), tier));
+    }
+    drops.push(generateLootItem(prng, floorLevel + 8));
+    return drops;
 }
 
 function showVictory() {
@@ -832,6 +891,8 @@ function endTurn() {
             // Bosses run their own scripted turn (telegraphed attacks, phases, summons)
             if (m.isBoss) {
                 const died = bossTurn(m, buildBossContext());
+                if (m.hp <= 0 && m.alive) { m.alive = false; }
+                if (!m.alive && !currentFloorData.corpses?.some(c => c.id === `corpse_${m.id}`)) { awardKill(m); }
                 if (died || player.hp <= 0) {
                     handlePlayerDeath(m.name);
                     return;
@@ -859,6 +920,7 @@ function endTurn() {
                 } else if (attackRes.isHit) {
                     addBlood(player.x, player.y);
                     let hitMsg = `🩸 ${m.name} struck you for ${attackRes.damage} dmg! (${player.hp}/${player.maxHp} HP)`;
+                    if (attackRes.procs?.length) hitMsg += ` ${attackRes.procs.join(' ')}`;
                     if (attackRes.appliedStatus) {
                         hitMsg += ` [Inflicted ${attackRes.appliedStatus}!]`;
                     }
@@ -867,6 +929,7 @@ function endTurn() {
                         handlePlayerDeath(m.name);
                         return;
                     }
+                    if (attackRes.reflectKill) awardKill(m);
                 } else {
                     const coverNote = attackRes.hasCover ? ' (Protected by Pillar Cover!)' : '';
                     postMessage(`🛡️ Blocked ${m.name}'s strike${coverNote}.`);
@@ -1391,6 +1454,7 @@ function resolveCombatTurn(monster, attackSource = null) {
             ? `⚡ SURPRISE STRIKE! Dealt ${result.damage} dmg!`
             : `💥 Hit ${monster.name} for ${result.damage} dmg! (${monster.hp}/${monster.maxHp} HP)`;
         if (result.appliedStatus) msg += ` [Inflicted ${result.appliedStatus}!]`;
+        if (result.procs?.length) msg += ` ${result.procs.join(' ')}`;
         postMessage(msg, result.isSurprise ? 'msg-victory' : 'msg-hit');
     } else {
         const coverNote = result.hasCover ? ' (Monster protected by Pillar Cover!)' : '';
@@ -1514,6 +1578,7 @@ export function autoTargetAndAttack() {
                 const coverText = res.hasCover ? ' (Pillar Cover applied)' : '';
                 let hitText = `🎯 ${weapon.name} hit ${target.name} for ${res.damage} dmg!${coverText}`;
                 if (res.appliedStatus) hitText += ` [Inflicted ${res.appliedStatus}!]`;
+                if (res.procs?.length) hitText += ` ${res.procs.join(' ')}`;
                 postMessage(hitText, 'msg-victory');
                 if (res.monsterDied) awardKill(target);
             } else {
@@ -1756,6 +1821,7 @@ function fireTargetedAction(targetX, targetY) {
                 const coverText = res.hasCover ? ' (Pillar Cover applied)' : '';
                 let hitText = `🎯 ${action.name} struck ${monster.name} for ${res.damage} dmg!${coverText}`;
                 if (res.appliedStatus) hitText += ` [Inflicted ${res.appliedStatus}!]`;
+                if (res.procs?.length) hitText += ` ${res.procs.join(' ')}`;
                 postMessage(hitText, 'msg-victory');
 
                 if (res.monsterDied) {
@@ -2657,6 +2723,82 @@ export function equipSelectedBackpackItem(targetSlot = null) {
     }
 }
 
+// ---- Gem sockets: set a gem from the bag into the selected item ----
+function getSelectedGear() {
+    if (!selectedSlot) return null;
+    return selectedSlot.type === 'body' ? player.equipment[selectedSlot.id] : player.backpack[selectedSlot.id];
+}
+
+export function openGemPicker() {
+    const item = getSelectedGear();
+    if (!item || !item.sockets) return;
+    renderGemPicker();
+    document.getElementById('gem-picker-modal')?.classList.add('active');
+}
+
+export function closeGemPicker() {
+    document.getElementById('gem-picker-modal')?.classList.remove('active');
+}
+
+function renderGemPicker() {
+    const item = getSelectedGear();
+    const title = document.getElementById('gem-picker-title');
+    const body = document.getElementById('gem-picker-list');
+    if (!item || !body) return;
+    title.innerText = `💎 ${item.name}`;
+    const gems = player.backpack.map((g, idx) => ({ g, idx })).filter(x => x.g && x.g.isGem);
+    const free = freeSockets(item);
+    const sockets = '◆'.repeat(item.gems?.length || 0) + '◇'.repeat(free);
+    const rows = gems.length ? gems.map(({ g, idx }) => {
+        const preview = describePreview(previewGem(g, item), describePower);
+        return `
+        <div class="picker-row">
+            <div style="flex:1; min-width:0;">
+                <div style="color:#e0e0f0; font-weight:bold;">${g.icon} ${g.name} <span style="color:#666; font-weight:normal;">(bag ${idx + 1})</span></div>
+                <div style="color:#ffcc00; font-size:10px;">Adds: ${preview}</div>
+            </div>
+            <button class="btn-action-small" style="flex:none; background:#1d1a33; border-color:#b070ff; color:#d9c2ff;" ${free > 0 ? '' : 'disabled'} onclick="window.pickerSocket(${idx})">Socket</button>
+        </div>`;
+    }).join('') : `<div class="picker-row" style="color:#888;">You have no gems in your bag. Find them in chests and barrels, from bosses, or at a merchant.</div>`;
+    const set = (item.gems || []).map(g => `<div style="font-size:10px; color:#bbb;">${g.icon} ${g.name}: ${g.summary}</div>`).join('');
+    body.innerHTML = `<div style="font-size:11px; color:#b9a8ff;">Sockets: ${sockets} (gems are permanent)</div>${set}${rows}`;
+}
+
+export function pickerSocket(bagIdx) {
+    const item = getSelectedGear();
+    const gem = player.backpack[bagIdx];
+    if (!item || !gem) return;
+    const res = socketGem(item, gem, describePower);
+    if (!res.success) {
+        postMessage(`⚠️ ${res.reason}`, 'msg-miss');
+        return;
+    }
+    player.backpack[bagIdx] = null;
+    refreshItemDesc(item);
+    postMessage(`💎 Set ${gem.name} into ${item.name}: ${res.summary}.`, 'msg-loot');
+    // If the item sits in the bag the selection index is unchanged; refresh everything
+    updateHUD();
+    populateSheet();
+    renderGemPicker();
+    if (freeSockets(item) <= 0) closeGemPicker();
+    draw();
+}
+
+export function fuseSelectedGem() {
+    if (!selectedSlot || selectedSlot.type !== 'backpack') return;
+    const gem = player.backpack[selectedSlot.id];
+    const fused = fuseGems(player.backpack, gem);
+    if (!fused) {
+        postMessage('⚠️ You need 3 matching gems of the same tier to fuse.', 'msg-miss');
+        return;
+    }
+    const idx = player.backpack.findIndex(s => s === null);
+    player.backpack[idx] = fused;
+    selectedSlot = { type: 'backpack', id: idx };
+    postMessage(`🔀 Fused 3 gems into a ${fused.name}!`, 'msg-victory');
+    populateSheet();
+}
+
 // ---- Equipment slot picker: click a paperdoll slot -> choose from every owned item that fits ----
 let pickerSlot = null;
 
@@ -3083,8 +3225,11 @@ export function populateSheet() {
                     extraAimBtn = `<button class="btn-action-small" style="background:#2b2210; border-color:#ffcc00; color:#ffcc00;" onclick="window.closeSheetModal(); window.triggerAimMode();">🎯 Aim Weapon</button>`;
                 }
 
+                const socketBtn = (item.sockets && freeSockets(item) > 0)
+                    ? `<button class="btn-action-small" style="background:#1d1a33; border-color:#b070ff; color:#d9c2ff;" onclick="window.openGemPicker()">💎 Socket Gem (${freeSockets(item)} free)</button>` : '';
                 cardActions.innerHTML = `
                     <button class="btn-action-small" onclick="window.unequipSelectedBodyItem()">🎒 Unequip</button>
+                    ${socketBtn}
                     ${extraAimBtn}
                 `;
             } else {
@@ -3097,7 +3242,7 @@ export function populateSheet() {
                 cardTitle.innerText = `Selected Backpack Item (Slot ${selectedSlot.id + 1}):`;
                 cardContent.style.display = 'block';
                 cardName.innerText = `${item.icon} ${item.name}`;
-                cardSlot.innerText = `Slot: ${item.slot ? item.slot.replace('_', ' ') : 'Consumable'}`;
+                cardSlot.innerText = item.isGem ? `Gem (tier ${item.tier})` : `Slot: ${item.slot ? item.slot.replace('_', ' ') : 'Consumable'}`;
                 cardDesc.innerText = item.desc || 'Standard item';
 
                 let throwAimBtn = '';
@@ -3111,6 +3256,10 @@ export function populateSheet() {
                     ? compatSlots.map(sl => `<button class="btn-action-small" style="background: #193826; border-color: #55ff77; color: #aaffaa;" onclick="window.equipSelectedBackpackItem('${sl}')">⚔️ ${SLOT_LABELS[sl]}</button>`).join('')
                     : (item.slot ? `<button class="btn-action-small" style="background: #193826; border-color: #55ff77; color: #aaffaa;" onclick="window.equipSelectedBackpackItem()">⚔️ Equip</button>` : '');
 
+                const socketBtn = (item.sockets && freeSockets(item) > 0)
+                    ? `<button class="btn-action-small" style="background:#1d1a33; border-color:#b070ff; color:#d9c2ff;" onclick="window.openGemPicker()">💎 Socket Gem (${freeSockets(item)} free)</button>` : '';
+                const fuseBtn = (item.isGem && canFuse(player.backpack, item))
+                    ? `<button class="btn-action-small" style="background:#1d1a33; border-color:#b070ff; color:#d9c2ff;" onclick="window.fuseSelectedGem()">🔀 Fuse 3 → ${GEM_TIER_NAMES[item.tier]}</button>` : '';
                 let consumeBtn = '';
                 if (item.isConsumable) {
                     consumeBtn = `<button class="btn-action-small" style="background: #2a3a19; border-color: #77cc33; color: #ccff77;" onclick="window.consumeBackpackItem(${selectedSlot.id})">🍴 Eat / Consume</button>`;
@@ -3118,6 +3267,8 @@ export function populateSheet() {
 
                 cardActions.innerHTML = `
                     ${equipButtonsHtml}
+                    ${socketBtn}
+                    ${fuseBtn}
                     ${consumeBtn}
                     ${throwAimBtn}
                     <button class="btn-action-small" style="background: #381919; border-color: #ff6666; color: #ffaaaa;" onclick="window.dropSelectedBackpackItem()">🗑️ Drop</button>
@@ -3429,6 +3580,21 @@ export const pixelDebug = {
         return added;
     },
     camera() { return { zoomIndex: currentZoomIndex, cols: VIEW_COLS, panX, panY, player: { x: player.x, y: player.y } }; },
+    // Gems: 3 chipped rubies (fusable) plus one of each other colour
+    grantGems() {
+        let n = 0;
+        for (let i = 0; i < 3; i++) if (player.addToBackpack(createGem('ruby', 1))) n++;
+        for (const t of ['sapphire', 'emerald', 'topaz', 'amethyst', 'diamond']) if (player.addToBackpack(createGem(t, 2))) n++;
+        afterDebugChange(`Added ${n} gems.`);
+        return n;
+    },
+    // Named uniques that carry powers (and sockets)
+    grantPowerItems() {
+        let n = 0;
+        for (const b of BASE_ITEMS.filter(x => x.powers)) if (player.addToBackpack(createItemFromBase(b))) n++;
+        afterDebugChange(`Added ${n} power items.`);
+        return n;
+    },
     clearBag() { player.backpack.fill(null); afterDebugChange('Bag emptied.'); },
     revealMap() {
         currentFloorData.visibility.fill(VISIBILITY.EXPLORED);
@@ -3466,6 +3632,7 @@ export const pixelDebug = {
             terrainLen: f.terrain.length, visLen: f.visibility.length, tileCounts,
             rooms: f.rooms.length, monsters: f.monsters.length, chests: f.chests.length, mushrooms: f.mushrooms.length,
             stairsUp: f.stairsUpPos, stairsDown: f.stairsDownPos, player: { x: player.x, y: player.y },
+            wardFire: player.wardMultiplier('FIRE'), wardPoison: player.wardMultiplier('POISONED'),
             level: player.level, xp: player.xp, hp: player.hp, maxHp: player.maxHp, ac: player.ac, per: player.per,
             cls: player.characterClass.id, race: player.race.id,
             attrs: { str: player.str, dex: player.dex, con: player.con, int: player.int, wis: player.wis, cha: player.cha },

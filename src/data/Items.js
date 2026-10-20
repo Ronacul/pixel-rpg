@@ -1,3 +1,6 @@
+import { POWER_DEFS, describePower, rollPower } from './Powers.js';
+import { randomGem, rollSockets } from './Gems.js';
+
 // Item & Equipment Catalog with Affix Generators and Diverse Delivery Types
 // Supports Melee, Ranged Projectiles, AoE Flasks, and Status-Inflicting Armaments
 
@@ -131,6 +134,19 @@ export const BASE_ITEMS = [
     { name: 'Wooden Lute', slot: ITEM_SLOTS.OFF_HAND, cha: 1, icon: '🪕' },
     { name: 'Druid Totem', slot: ITEM_SLOTS.AMULET, wis: 1, con: 1, icon: '🌿' },
     { name: "Thieves' Hood", slot: ITEM_SLOTS.HELM, dex: 1, icon: '🪖' },
+
+    // ==========================================
+    // UNIQUES WITH POWERS (see data/Powers.js)
+    // ==========================================
+    { name: 'Emberfang', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'ADJACENT', range: 1, dice: 8, icon: '🗡️', sockets: 2, powers: [{ id: 'ignite', chance: 0.3 }] },
+    { name: 'Frostbrand Rapier', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'ADJACENT', range: 1, dice: 8, icon: '🤺', sockets: 1, powers: [{ id: 'frostbite', chance: 0.35 }] },
+    { name: 'Bloodthirst Axe', slot: ITEM_SLOTS.MAIN_HAND, delivery: 'ADJACENT', range: 1, dice: 10, icon: '🪓', sockets: 1, powers: [{ id: 'vampiric', value: 0.2 }] },
+    { name: 'Thornmail Hauberk', slot: ITEM_SLOTS.ARMOR, ac: 4, icon: '🛡️', sockets: 2, powers: [{ id: 'thorns', value: 4 }] },
+    { name: 'Stoneward Shield', slot: ITEM_SLOTS.OFF_HAND, ac: 2, icon: '🛡️', sockets: 1, powers: [{ id: 'stoneguard', chance: 0.25 }] },
+    { name: "Seer's Amulet", slot: ITEM_SLOTS.AMULET, wis: 1, icon: '🔮', sockets: 1, powers: [{ id: 'trapsense', value: 4 }, { id: 'keysight', value: 6 }] },
+    { name: 'Wardstone Ring', slot: ITEM_SLOTS.RING_LEFT, icon: '💍', sockets: 1, powers: [{ id: 'fireward' }, { id: 'poisonward' }] },
+    { name: "Burglar's Charm", slot: ITEM_SLOTS.RING_RIGHT, dex: 1, icon: '💍', sockets: 1, powers: [{ id: 'keysight', value: 4 }, { id: 'trapsense', value: 2 }] },
+    { name: 'Emberproof Cloak', slot: ITEM_SLOTS.CLOAK, ac: 1, icon: '🧥', sockets: 1, powers: [{ id: 'fireward' }] },
 
     // ==========================================
     // MODULAR SET PIECES (LORE-INFUSED ARTIFACTS)
@@ -421,7 +437,7 @@ export const SLOT_LABELS = {
 
 // Build a concrete item from a base definition (no affix roll). Used by starting-gear tables and test tooling.
 export function createItemFromBase(base) {
-    const fakePrng = { choice: () => base, chance: () => false };
+    const fakePrng = { choice: () => base, chance: () => false, next: () => 0.99, nextInt: (a) => a };
     return generateLootItem(fakePrng, 1);
 }
 
@@ -429,10 +445,48 @@ export function findBaseItem(name) {
     return BASE_ITEMS.find(b => b.name === name) || null;
 }
 
+// Human-readable stat line for an item. Rebuilt after gems are socketed.
+export function buildItemDesc(item) {
+    const stats = [];
+    if (item.setId && EQUIPMENT_SETS[item.setId]) stats.push(`[${EQUIPMENT_SETS[item.setId].name}]`);
+    if (item.isReach) stats.push(`Reach (2t)`);
+    else if (item.delivery === 'RANGED') stats.push(`Ranged (${item.range}t)`);
+    if (item.delivery === 'AOE') stats.push(`AoE (${item.radius}r, ${item.range}t)`);
+    if (item.dice) stats.push(`${item.diceCount > 1 ? item.diceCount : ''}1d${item.dice}${item.bonusFlat ? `+${item.bonusFlat}` : ''} Dmg`);
+    if (item.statusOnHit) stats.push(`Inflicts ${item.statusOnHit}`);
+    if (item.zoneType) stats.push(`Leaves ${item.zoneType} field`);
+    if (item.healPotency) stats.push(`Heals +${item.healPotency} HP`);
+    if (item.rations) stats.push(`+${item.rations} Ration(s)`);
+    if (item.cleansesBleed) stats.push('Cures Bleed');
+    if (item.ac) stats.push(`+${item.ac} AC`);
+    if (item.str) stats.push(`+${item.str} STR`);
+    if (item.dex) stats.push(`+${item.dex} DEX`);
+    if (item.con) stats.push(`+${item.con} CON`);
+    if (item.int) stats.push(`+${item.int} INT`);
+    if (item.wis) stats.push(`+${item.wis} WIS`);
+    if (item.cha) stats.push(`+${item.cha} CHA`);
+    const mods = item.mods || {};
+    if (mods.maxHp) stats.push(`+${mods.maxHp} Max HP`);
+    if (mods.attack) stats.push(`+${mods.attack} Attack`);
+    if (mods.dmg) stats.push(`+${mods.dmg} Damage`);
+    if (mods.per) stats.push(`+${mods.per} Perception`);
+    if (mods.regen) stats.push('Faster regen');
+    for (const p of item.powers || []) stats.push(describePower(p));
+    if (item.sockets) {
+        const used = item.gems ? item.gems.length : 0;
+        stats.push(`Sockets ${(item.gems || []).map(g => g.icon).join('')}${'◇'.repeat(Math.max(0, item.sockets - used))}`);
+    }
+    return stats.join(', ') || 'Standard equipment';
+}
+
 export function generateLootItem(prng, floorLevel = 1) {
+    // A chunk of loot is a socketable gem instead of gear
+    if (prng.chance(0.07 + floorLevel * 0.002)) return randomGem(prng, floorLevel);
+
     const base = prng.choice(BASE_ITEMS);
     const hasAffix = prng.chance(0.4 + floorLevel * 0.02) && !base.setId && !base.isConsumable;
     const affix = hasAffix ? prng.choice(AFFIXES) : null;
+    const equippable = !!base.slot && !base.isConsumable;
 
     const item = {
         name: affix ? `${affix.name} ${base.name}` : base.name,
@@ -463,29 +517,30 @@ export function generateLootItem(prng, floorLevel = 1) {
         con: (base.con || 0) + (affix?.con || 0),
         int: (base.int || 0) + (affix?.int || 0),
         wis: (base.wis || 0) + (affix?.wis || 0),
-        cha: (base.cha || 0) + (affix?.cha || 0)
+        cha: (base.cha || 0) + (affix?.cha || 0),
+        powers: (base.powers || []).map(p => ({ ...p })),
+        mods: {},
+        sockets: 0,
+        gems: []
     };
 
-    const stats = [];
-    if (item.setId && EQUIPMENT_SETS[item.setId]) stats.push(`[${EQUIPMENT_SETS[item.setId].name}]`);
-    if (item.isReach) stats.push(`Reach (2t)`);
-    else if (item.delivery === 'RANGED') stats.push(`Ranged (${item.range}t)`);
-    if (item.delivery === 'AOE') stats.push(`AoE (${item.radius}r, ${item.range}t)`);
-    if (item.dice) stats.push(`${item.diceCount > 1 ? item.diceCount : ''}1d${item.dice}${item.bonusFlat ? `+${item.bonusFlat}` : ''} Dmg`);
-    if (item.statusOnHit) stats.push(`Inflicts ${item.statusOnHit}`);
-    if (item.zoneType) stats.push(`Leaves ${item.zoneType} field`);
-    if (item.healPotency) stats.push(`Heals +${item.healPotency} HP`);
-    if (item.rations) stats.push(`+${item.rations} Ration(s)`);
-    if (item.cleansesBleed) stats.push('Cures Bleed');
-    if (item.ac) stats.push(`+${item.ac} AC`);
-    if (item.str) stats.push(`+${item.str} STR`);
-    if (item.dex) stats.push(`+${item.dex} DEX`);
-    if (item.con) stats.push(`+${item.con} CON`);
-    if (item.int) stats.push(`+${item.int} INT`);
-    if (item.wis) stats.push(`+${item.wis} WIS`);
-    if (item.cha) stats.push(`+${item.cha} CHA`);
-    item.desc = stats.join(', ') || 'Standard equipment';
+    if (equippable) {
+        // Random power (named uniques already carry their own) and sockets
+        if (!base.powers && !base.setId && prng.chance(0.10 + Math.min(0.2, floorLevel * 0.01))) {
+            const p = rollPower(prng, base.slot, floorLevel);
+            item.powers.push(p);
+            item.name = `${item.name} of ${POWER_DEFS[p.id].suffix}`;
+        }
+        item.sockets = base.sockets ?? rollSockets(prng, floorLevel);
+    }
 
+    item.desc = buildItemDesc(item);
+    return item;
+}
+
+// Recompute an item's description after it was modified (e.g. a gem was socketed)
+export function refreshItemDesc(item) {
+    item.desc = buildItemDesc(item);
     return item;
 }
 
