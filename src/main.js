@@ -8,6 +8,7 @@ import { MAP_WIDTH, MAP_HEIGHT, TILES, VISIBILITY, DungeonManager, MAP_SIZES, DE
 import { generateFloor, makeMonster, makeBoss } from './map/Generator.js';
 import { BOSSES, getBossForFloor } from './data/Bosses.js';
 import { bossTurn } from './systems/BossAI.js';
+import { SpriteStore, weaponSpriteFor } from './render/Sprites.js';
 import { triggerPowers, senseRadius } from './systems/Powers.js';
 import { describePower } from './data/Powers.js';
 import { GEM_TYPES, createGem, randomGem, previewGem, describePreview, freeSockets, socketGem, canFuse, fuseGems, GEM_TIER_NAMES } from './data/Gems.js';
@@ -63,7 +64,7 @@ let hoverWorldPos = null;   // { x, y } currently targeted by cursor
 
 // ---- Persistent settings (map size, class, race, debug tools) ----
 const SETTINGS_KEY = 'pixel_rpg_settings_v2'; // v2: default map size is now Tiny (50x50)
-let settings = { mapSize: DEFAULT_MAP_SIZE, classId: 'warrior', raceId: DEFAULT_RACE_ID, debug: false };
+let settings = { mapSize: DEFAULT_MAP_SIZE, classId: 'warrior', raceId: DEFAULT_RACE_ID, debug: false, sprites: true };
 let godMode = false;
 
 function loadSettings() {
@@ -74,10 +75,25 @@ function loadSettings() {
     settings.mapSize = normalizeMapSize(settings.mapSize);
     settings.classId = ClassManager.getClass(settings.classId).id;
     settings.raceId = RaceManager.getRace(settings.raceId).id;
+    SpriteStore.enabled = settings.sprites !== false;
 }
 
 function saveSettings() {
     try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) {}
+}
+
+// Pixel-art graphics on/off (emoji fallback when off or if the art fails to load)
+export function toggleGraphics() {
+    settings.sprites = !settings.sprites;
+    SpriteStore.enabled = settings.sprites;
+    saveSettings();
+    updateGraphicsLabel();
+    if (player) draw();
+}
+
+export function updateGraphicsLabel() {
+    const el = document.getElementById('graphics-label');
+    if (el) el.innerText = settings.sprites ? 'Pixel art' : 'Emoji';
 }
 
 export function getSettings() {
@@ -384,8 +400,11 @@ function draw() {
 
             const isDim = (vis === VISIBILITY.EXPLORED);
 
-            // Terrain Rendering
-            if (tile === TILES.WALL || tile === TILES.SECRET_DOOR) {
+            // Terrain Rendering (pixel-art sprites when loaded, emoji + flat colours otherwise)
+            const spriteDone = SpriteStore.drawTile(ctx, tile, worldX, worldY, screenX, screenY, TILE_SIZE, biome, isDim, trapsRevealed && trapsRevealed.has(idx));
+            if (spriteDone) {
+                // drawn by SpriteStore
+            } else if (tile === TILES.WALL || tile === TILES.SECRET_DOOR) {
                 ctx.fillStyle = isDim ? '#1d1f28' : biome.wallColor;
                 ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
                 ctx.strokeStyle = isDim ? '#14151b' : biome.borderColor;
@@ -512,7 +531,7 @@ function draw() {
             // Chests
             const chest = chests.find(c => c.x === worldX && c.y === worldY);
             if (chest && (vis === VISIBILITY.VISIBLE || chest.opened)) {
-                drawGlyph(chest.opened ? '📭' : '📦', screenX, screenY, isDim ? 0.5 : 1.0);
+                if (!SpriteStore.drawEntity(ctx, chest.opened ? 'tile.chest_open' : 'tile.chest', {}, screenX, screenY, TILE_SIZE, 1, isDim ? 0.6 : 1)) drawGlyph(chest.opened ? '📭' : '📦', screenX, screenY, isDim ? 0.5 : 1.0);
             }
 
             // Wandering merchant
@@ -524,13 +543,13 @@ function draw() {
             // Keys lying on the floor
             const floorKey = currentFloorData.keys?.find(k => !k.hidden && k.x === worldX && k.y === worldY);
             if (floorKey && vis !== VISIBILITY.UNEXPLORED) {
-                drawGlyph('🗝️', screenX, screenY, isDim ? 0.5 : 1.0);
+                if (!SpriteStore.drawEntity(ctx, 'item.key', {}, screenX, screenY, TILE_SIZE, 1, isDim ? 0.6 : 1)) drawGlyph('🗝️', screenX, screenY, isDim ? 0.5 : 1.0);
             }
 
             // Forageable Mushrooms
             const shroom = mushrooms?.find(m => m.x === worldX && m.y === worldY);
             if (shroom && vis !== VISIBILITY.UNEXPLORED) {
-                drawGlyph('🍄', screenX, screenY, isDim ? 0.45 : 1.0);
+                if (!SpriteStore.drawEntity(ctx, 'item.mushroom', {}, screenX, screenY, TILE_SIZE, 1, isDim ? 0.55 : 1)) drawGlyph('🍄', screenX, screenY, isDim ? 0.45 : 1.0);
             }
 
             // Slain Monster Carcasses / Corpses
@@ -543,7 +562,9 @@ function draw() {
             if (vis === VISIBILITY.VISIBLE) {
                 const monster = monsters.find(m => m.alive && m.x === worldX && m.y === worldY);
                 if (monster) {
-                    drawGlyph(monster.icon, screenX, screenY, 1.0, monster.isBoss ? (monster.scale || 1.5) : 1);
+                    if (!(monster.spriteId && SpriteStore.drawEntity(ctx, monster.spriteId, monster.spriteRoles || {}, screenX, screenY, TILE_SIZE, monster.isBoss ? (monster.scale || 1.5) : 1, 1))) {
+                        drawGlyph(monster.icon, screenX, screenY, 1.0, monster.isBoss ? (monster.scale || 1.5) : 1);
+                    }
                     if (monster.isBoss && monster.airborne) {
                         ctx.fillStyle = 'rgba(0,0,0,0.35)';
                         ctx.beginPath(); ctx.ellipse(screenX + TILE_SIZE / 2, screenY + TILE_SIZE - 3, TILE_SIZE * 0.35, TILE_SIZE * 0.1, 0, 0, Math.PI * 2); ctx.fill();
@@ -601,7 +622,8 @@ function draw() {
     if (player.alive) {
         const centerScreenX = (player.x - camX) * TILE_SIZE;
         const centerScreenY = (player.y - camY) * TILE_SIZE;
-        drawGlyph('🛡️', centerScreenX, centerScreenY, 1.0);
+        const heroCanvas = SpriteStore.active ? SpriteStore.heroCanvas(player.race.id, player.characterClass.id, weaponSpriteFor(player.equipment[ITEM_SLOTS.MAIN_HAND]), !!(player.equipment[ITEM_SLOTS.OFF_HAND] && player.equipment[ITEM_SLOTS.OFF_HAND].ac && !player.equipment[ITEM_SLOTS.OFF_HAND].isConsumable)) : null;
+        if (!SpriteStore.blit(ctx, heroCanvas, centerScreenX, centerScreenY, TILE_SIZE, 1, 1)) drawGlyph('🛡️', centerScreenX, centerScreenY, 1.0);
 
         // Player status effect badge icons
         if (player.statuses && player.statuses.length > 0) {
@@ -4033,6 +4055,10 @@ startPlaythrough(initSeed, {
 if (urlParams.get('floor')) pixelDebug.jumpToFloor(urlParams.get('floor'));
 if (urlParams.get('level')) pixelDebug.setLevel(urlParams.get('level'));
 window.pixelDebug = pixelDebug;
+
+// Load the pixel-art pack in the background; the game starts instantly with emoji and swaps when it arrives
+updateGraphicsLabel();
+SpriteStore.load().then(() => { if (player) draw(); });
 
 // A fresh visit (no seed / class / race in the URL) opens on character creation
 if (!urlParams.get("seed") && !urlParams.get("class") && !urlParams.get("race")) openSettings(true);

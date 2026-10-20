@@ -13,9 +13,9 @@ export const BIOMES = [
         secretColor: '#45495e',
         ambientDesc: 'Cold flagstone masonry lined with rusty iron sconces and oak timber doors.',
         monsters: [
-            { name: 'Sewer Rat', icon: '🐀', hp: 6, ac: 10, dice: 4, desc: 'Scavenging dungeon vermin.' },
-            { name: 'Dungeon Bat', icon: '🦇', hp: 5, ac: 12, dice: 4, desc: 'Erratic flying beast lurking in dark rafters.' },
-            { name: 'Goblin Scout', icon: '👺', hp: 9, ac: 11, dice: 6, desc: 'Sneaky dungeon dweller wielding a rusted shiv.' }
+            { name: 'Sewer Rat', sprite: 'rat', icon: '🐀', hp: 6, ac: 10, dice: 4, desc: 'Scavenging dungeon vermin.' },
+            { name: 'Dungeon Bat', sprite: 'bat', icon: '🦇', hp: 5, ac: 12, dice: 4, desc: 'Erratic flying beast lurking in dark rafters.' },
+            { name: 'Goblin Scout', sprite: 'goblin', icon: '👺', hp: 9, ac: 11, dice: 6, desc: 'Sneaky dungeon dweller wielding a rusted shiv.' }
         ]
     },
     {
@@ -30,9 +30,9 @@ export const BIOMES = [
         secretColor: '#344751',
         ambientDesc: 'Natural winding limestone caves glistening with damp moss and subterranean condensation.',
         monsters: [
-            { name: 'Cave Crawler', icon: '🕷️', hp: 12, ac: 12, dice: 6, desc: 'Venomous arachnid stalking the crevices.' },
-            { name: 'Slime Mass', icon: '🟢', hp: 16, ac: 9, dice: 4, desc: 'Acidic amoebic creature that digests stone and armor.' },
-            { name: 'Troglodyte', icon: '🦎', hp: 15, ac: 13, dice: 6, desc: 'Subterranean hunter with acute night vision.' }
+            { name: 'Cave Crawler', sprite: 'spider', icon: '🕷️', hp: 12, ac: 12, dice: 6, desc: 'Venomous arachnid stalking the crevices.' },
+            { name: 'Slime Mass', sprite: 'slime', icon: '🟢', hp: 16, ac: 9, dice: 4, desc: 'Acidic amoebic creature that digests stone and armor.' },
+            { name: 'Troglodyte', sprite: 'lizard', icon: '🦎', hp: 15, ac: 13, dice: 6, desc: 'Subterranean hunter with acute night vision.' }
         ]
     },
     {
@@ -47,9 +47,9 @@ export const BIOMES = [
         secretColor: '#34523c',
         ambientDesc: 'Ancient subterranean temples invaded by massive ancient tree roots and creeping vines.',
         monsters: [
-            { name: 'Thorn Stalker', icon: '🐺', hp: 18, ac: 13, dice: 8, desc: 'Feral briar-infused predator.' },
-            { name: 'Entling Guard', icon: '🪵', hp: 25, ac: 14, dice: 8, desc: 'Living wooden construct protecting forgotten shrines.' },
-            { name: 'Moss Skeleton', icon: '💀', hp: 20, ac: 12, dice: 6, desc: 'Restless remains of ancient elven tomb wardens.' }
+            { name: 'Thorn Stalker', sprite: 'wolf', icon: '🐺', hp: 18, ac: 13, dice: 8, desc: 'Feral briar-infused predator.' },
+            { name: 'Entling Guard', sprite: 'treant', icon: '🪵', hp: 25, ac: 14, dice: 8, desc: 'Living wooden construct protecting forgotten shrines.' },
+            { name: 'Moss Skeleton', sprite: 'skeleton', icon: '💀', hp: 20, ac: 12, dice: 6, desc: 'Restless remains of ancient elven tomb wardens.' }
         ]
     },
     {
@@ -64,9 +64,9 @@ export const BIOMES = [
         secretColor: '#5e3e2f',
         ambientDesc: 'Imposing monumental granite pillars and magma ducts carved by ancient dwarven engineers.',
         monsters: [
-            { name: 'Forge Golem', icon: '🤖', hp: 32, ac: 16, dice: 10, desc: 'Brass-plated automaton fueled by internal magma.' },
-            { name: 'Magma Hound', icon: '🐕', hp: 24, ac: 14, dice: 8, desc: 'Fiery beast with blistering breath.' },
-            { name: 'Deep Dwarf Wight', icon: '🧟', hp: 28, ac: 15, dice: 8, desc: 'Cursed forge master bound to guard the vaults.' }
+            { name: 'Forge Golem', sprite: 'golem', icon: '🤖', hp: 32, ac: 16, dice: 10, desc: 'Brass-plated automaton fueled by internal magma.' },
+            { name: 'Magma Hound', sprite: 'hound', icon: '🐕', hp: 24, ac: 14, dice: 8, desc: 'Fiery beast with blistering breath.' },
+            { name: 'Deep Dwarf Wight', sprite: 'wight', icon: '🧟', hp: 28, ac: 15, dice: 8, desc: 'Cursed forge master bound to guard the vaults.' }
         ]
     },
     {
@@ -81,9 +81,9 @@ export const BIOMES = [
         secretColor: '#4c265e',
         ambientDesc: 'Unfathomable obsidian architecture buzzing with otherworldly cosmic void energy.',
         monsters: [
-            { name: 'Void Wraith', icon: '👻', hp: 35, ac: 16, dice: 10, desc: 'Phasing specter that feeds on the life essence of mortals.' },
-            { name: 'Eldritch Eye', icon: '👁️', hp: 30, ac: 15, dice: 12, desc: 'Floating aberration that perceives through dimensional veils.' },
-            { name: 'Abyssal Overlord', icon: '😈', hp: 50, ac: 18, dice: 12, desc: 'Lord of the 25th floor depths. Master of the dungeon.' }
+            { name: 'Void Wraith', sprite: 'wraith', icon: '👻', hp: 35, ac: 16, dice: 10, desc: 'Phasing specter that feeds on the life essence of mortals.' },
+            { name: 'Eldritch Eye', sprite: 'eye', icon: '👁️', hp: 30, ac: 15, dice: 12, desc: 'Floating aberration that perceives through dimensional veils.' },
+            { name: 'Abyssal Overlord', sprite: 'demon', icon: '😈', hp: 50, ac: 18, dice: 12, desc: 'Lord of the 25th floor depths. Master of the dungeon.' }
         ]
     }
 ];

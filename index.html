@@ -1036,6 +1036,7 @@
                     <button class="menu-btn" onclick="menuDo(() => cycleZoom(), false)"><span>🔍</span>Zoom: <b id="action-zoom-label">11t</b><small>or pinch the map</small></button>
                     <button class="menu-btn" id="btn-remote-toggle" onclick="toggleRemoteControl()"><span>🎮</span>D-Pad<small>on-screen arrows</small></button>
                     <button class="menu-btn" onclick="menuDo(() => openSheetModal())"><span>👤</span>Character<small>C</small></button>
+                    <button class="menu-btn" onclick="toggleGraphics()"><span>🎨</span>Graphics: <b id="graphics-label">Pixel art</b><small>pixel art or classic emoji</small></button>
                 </div>
                 <div style="font-size: 10px; color: #888ea6; margin-top: 8px; line-height: 1.4;">
                     Tap a foe to select it; <b>Attack</b> and <b>Power</b> act on the selected (or closest) foe and close in when it is out of range.
@@ -1164,9 +1165,10 @@
             shrineChoose,
             buyLegacyPerk,
             startDailyRun,
+            toggleGraphics,
             pixelDebug
-        } from './src/main.js?v=12.0';
-        import { PRNG } from './src/core/RNG.js?v=12.0';
+        } from './src/main.js?v=13.0';
+        import { PRNG } from './src/core/RNG.js?v=13.0';
 
         window.openSheetModal = function() {
             populateSheet();
@@ -1222,6 +1224,7 @@
         window.saveSettingsOnly = saveSettingsOnly;
         window.updateSettingsPreview = updateSettingsPreview;
         window.pixelDebug = pixelDebug;
+        window.toggleGraphics = toggleGraphics;
         window.closeShop = closeShop;
         window.setShopTab = setShopTab;
         window.shopBuy = shopBuy;

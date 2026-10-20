@@ -97,3 +97,9 @@ Run locally with `./serve.ps1` (Windows PowerShell, http://localhost:8080) or an
 * **Shrines (⛩️)** offer three boons, each with a price (gold, HP, a ration, a debuff). **Wandering merchants (🧙)** buy and sell. Gold drops from foes and chests.
 * **Floor modifiers** (Pitch Dark, Bountiful, Treacherous, Ironhide, Swarming, Eerie Quiet) appear on some floors and are announced on arrival.
 * **Legacy:** every run, win or lose, earns Legacy points that buy permanent starting perks (Menu → New Run). **Daily Run** gives everyone the same seed per calendar day and tracks your best floor.
+
+---
+
+## 🎨 Graphics
+
+The game draws **original pixel art** (tiles tinted per biome, a layered hero that reflects race, class, weapon and shield, monsters, bosses, chests, keys) from the art pack in [`art/`](art/README.md). Menu → Actions → **Graphics** switches back to the classic emoji look; the game also falls back to emoji if the art fails to load. Review or edit sprites in the asset lab at `art/lab.html`.
