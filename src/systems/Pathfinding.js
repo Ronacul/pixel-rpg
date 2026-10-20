@@ -51,7 +51,8 @@ class MinHeap {
     }
 }
 
-export function findPath(startX, startY, endX, endY, terrain, monsters, maxRadius = 50) {
+// avoid (optional): { blocked: Set<tileIndex> impassable unless it is the destination, costs: Map<tileIndex, extraStepCost> }
+export function findPath(startX, startY, endX, endY, terrain, monsters, maxRadius = 50, avoid = null) {
     if (startX === endX && startY === endY) return [];
     if (endX < 0 || endX >= MAP_WIDTH || endY < 0 || endY >= MAP_HEIGHT) return [];
 
@@ -85,6 +86,7 @@ export function findPath(startX, startY, endX, endY, terrain, monsters, maxRadiu
         if (x === endX && y === endY) return true;
         // Avoid walking through closed doors, destructible barrels, or live monsters mid-path
         if (tile === TILES.DOOR_CLOSED || tile === TILES.LOCKED_DOOR || tile === TILES.BARREL) return false;
+        if (avoid && avoid.blocked.has(y * MAP_WIDTH + x)) return false;
         if (occupied.has(y * MAP_WIDTH + x)) return false;
         return true;
     };
@@ -121,7 +123,7 @@ export function findPath(startX, startY, endX, endY, terrain, monsters, maxRadiu
             if (nx < minX || nx > maxX || ny < minY || ny > maxY) continue;
             const nl = local(nx, ny);
             if (closed[nl] || !isPassable(nx, ny)) continue;
-            const tentative = gScore[cur] + 1;
+            const tentative = gScore[cur] + 1 + (avoid ? (avoid.costs.get(ny * MAP_WIDTH + nx) || 0) : 0);
             if (tentative < gScore[nl]) {
                 gScore[nl] = tentative;
                 parent[nl] = cur;

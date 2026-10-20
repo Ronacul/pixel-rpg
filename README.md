@@ -1,6 +1,6 @@
 # Pixel RPG ⚔️
 
-A modular 2D retro RPG engine featuring procedural dungeons (50 / 100 / **150 default** / 200 tiles square), 25 dungeon floors across 5 regional schemas, perception fog of war, secret doors, surprise advantage mechanics, 8 classes and 6 races.
+A modular 2D retro RPG engine featuring procedural dungeons (50 (**Tiny, default**) / 100 / 150 / 200 tiles square), 25 dungeon floors across 5 regional schemas, perception fog of war, secret doors, surprise advantage mechanics, 8 classes and 6 races.
 
 **🎮 Play Live:** [https://ronacul.github.io/pixel-rpg/](https://ronacul.github.io/pixel-rpg/)
 
@@ -9,8 +9,8 @@ A modular 2D retro RPG engine featuring procedural dungeons (50 / 100 / **150 de
 ## 🗺️ Dungeon Mechanics & 25-Floor Progression
 
 1. **Configurable Procedural Grid per Level:**
-   * Map size is chosen in the **⚙️ Menu** screen (applies to the next run): 50x50, 100x100, **150x150 (default)** or 200x200.
-   * Floors are generated on demand into zero-garbage-collection `Uint8Array` buffers (22,500 tiles at the default size). Room count scales with map area.
+   * Map size is chosen in the **⚙️ Menu** screen (applies to the next run): **50x50 (Tiny, default)**, 100x100, 150x150 or 200x200.
+   * Floors are generated on demand into zero-garbage-collection `Uint8Array` buffers (2,500 tiles at the default size, 22,500 at 150x150). Room count scales with map area.
    * Viewport camera culling renders only the visible window (11x11 / 17x17 / 25x25 tiles), so rendering cost is independent of map size.
 2. **5 Regional Fantasy Schemas across 25 Floors:**
    * **Floors 1 – 5: Castle Dungeons & Crypts** (Classic masonry, oak doors, iron grates, Rats, Bats, Goblin Scouts).
@@ -76,3 +76,13 @@ Run locally with `./serve.ps1` (Windows PowerShell, http://localhost:8080) or an
 - [Architectural Bounds & Performance Plan](docs/ARCHITECTURE_BOUNDS.md): Memory budgets, camera culling, and 25-slot layout.
 - [Master Plan (Phases 1-5)](MASTER_PLAN.md): Core attributes, modular registry, monster behavior, tooling, and what is done vs open.
 - [System Modification Maps](SYSTEM_MODIFICATIONS.md): d20 combat formulas, perception radar, progression, and seed PRNG specs.
+
+---
+
+## 🕹️ Controls (phone-first)
+
+* **Two big buttons:** **Attack** (equipped weapon: blade, bow, wand, fists...) and **Power** (your selected class feat or spell; ⟳ cycles it, or set it with *Make Main* in Menu → Spells & Feats). Both **auto-target** the foe you last tapped or attacked, otherwise the closest visible one, and close in when the target is out of range.
+* **Search / Gear / Rest / Menu** sit under them. The Menu has tabs: **Actions** (spells, manual aim, wait, zoom, d-pad, character), **New Run** (map size, class, race) and **Debug** (when enabled).
+* **Foes** show a health bar over their tile, and the selected foe has a red ring plus an HP panel under the map.
+* **Traps:** Search (`E`) or Perception reveals them. A revealed trap is never walked into: tap or bump it to **disarm** (d20 + DEX mod + level/2, +4 Thief, vs DC 10 + floor/2; failing by 5+ sets it off). Auto-walk routes around known traps and lingering fire / gas. Traps cannot kill outright.
+* Keys: `Q`/Tab attack · Enter power · `E` search · `R` rest · `F` spells · `T` manual aim · `Z` zoom · `C` gear · Space wait.

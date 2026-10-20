@@ -35,7 +35,7 @@
 ---
 
 ## 🗺️ MAP SIZE & PATHFINDING
-- Square maps of 50 / 100 / 150 (default) / 200 tiles per side, chosen per run (`MAP_SIZES`, `setMapSize` in `src/map/Dungeon.js`).
+- Square maps of 50 (default) / 100 / 150 / 200 tiles per side, chosen per run (`MAP_SIZES`, `setMapSize` in `src/map/Dungeon.js`).
 - Room attempts scale with map area (65-85 attempts at 100x100); terrain and visibility are flat `Uint8Array`s indexed `y * MAP_WIDTH + x`.
 - Tap-to-move uses bounded A* (binary heap, typed arrays, 4-directional, search margin 20 tiles, max radius 50). Closed doors, barrels and live monsters are only valid as the final step.
 

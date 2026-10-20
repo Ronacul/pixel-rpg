@@ -1,13 +1,13 @@
 // Dungeon Manager with 25 Floor Bi-directional Caching and a configurable (per-run) map size
 
-// Selectable square map sizes (tiles per side). 150x150 is the default.
+// Selectable square map sizes (tiles per side). 50x50 (Tiny) is the default.
 export const MAP_SIZES = [
-    { size: 50,  label: 'Tiny (50x50)' },
+    { size: 50,  label: "Tiny (50x50) - default" },
     { size: 100, label: 'Small (100x100)' },
-    { size: 150, label: 'Standard (150x150)' },
+    { size: 150, label: "Standard (150x150)" },
     { size: 200, label: 'Large (200x200)' }
 ];
-export const DEFAULT_MAP_SIZE = 150;
+export const DEFAULT_MAP_SIZE = 50;
 
 // Live ES-module bindings: every importer sees the new value after setMapSize().
 // A map size is fixed for the lifetime of a playthrough (floors are cached at that size).

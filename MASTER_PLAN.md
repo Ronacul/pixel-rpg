@@ -42,10 +42,11 @@ Legend: `[x]` done, `[~]` partially done (note says what is left), `[ ]` not sta
 - [ ] Implement Pet AI companion tracking modules
 
 ## 🛠️ PHASE 5: TOOLING, SETTINGS & PLAYTEST SUPPORT
-- [x] Configurable map size (50 / 100 / **150 default** / 200) in the Settings screen (⚙️ Menu), A* pathfinding sized to walk distance
+- [x] Configurable map size (50 (**Tiny, default**) / 100 / 150 / 200) in the Settings screen (⚙️ Menu), A* pathfinding sized to walk distance
 - [x] Debug / test mode: `?seed=TEST-0001` kitchen-sink level, `?debug=1`, in-app debug panel, `window.pixelDebug` console API (see README)
 - [x] Slower XP curve and unified XP rewards (`XP_REWARDS`, `monsterXp`)
 - [ ] Persist / resume a run (nothing is saved except settings)
 - [ ] Automated browser regression script for the `pixelDebug` checks
 - [x] Locked doors + keys + active Search (`E`); traps are rarer and never lethal; healing potions in loot; faster natural regen
+- [x] Two-button combat UI (Attack / Power with auto-target), monster health bars + target panel, trap disarming and hazard-aware pathing, Tiny (50x50) default map
 - [x] Touch controls: pinch zoom, drag pan; inventory shows large icons with colour-coded set highlighting

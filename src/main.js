@@ -53,7 +53,7 @@ let targetingAction = null; // { name, delivery, range, radius, isPositive, isIt
 let hoverWorldPos = null;   // { x, y } currently targeted by cursor
 
 // ---- Persistent settings (map size, class, race, debug tools) ----
-const SETTINGS_KEY = 'pixel_rpg_settings_v1';
+const SETTINGS_KEY = 'pixel_rpg_settings_v2'; // v2: default map size is now Tiny (50x50)
 let settings = { mapSize: DEFAULT_MAP_SIZE, classId: 'warrior', raceId: DEFAULT_RACE_ID, debug: false };
 let godMode = false;
 
@@ -116,6 +116,7 @@ export function restartSameSeed() {
 }
 
 function loadFloor(floorNum, enterFromAbove = true) {
+    selectedTargetId = null;
     resetPan();
     dungeonManager.currentFloor = floorNum;
 
@@ -237,13 +238,27 @@ function updateHUD() {
         targetLabel.innerText = targetingMode ? 'Aiming...' : 'Aim';
     }
 
-    // Spells button
-    const pAbil = player.getAvailableAbilities();
-    const readyAbilCount = pAbil.filter(a => player.canUseAbility(a.id)).length;
-    const spellsName = document.getElementById('action-spells-name');
-    if (spellsName) {
-        spellsName.innerText = `Spells (${readyAbilCount})`;
+    // Big action buttons: main attack (equipped weapon) and main power (selected class feat)
+    const weaponNow = player.weapon;
+    const atkIcon = document.getElementById('action-attack-icon');
+    const atkName = document.getElementById('action-attack-name');
+    if (atkIcon) atkIcon.innerText = weaponNow.icon || (weaponNow.delivery === 'RANGED' ? '🏹' : '👊');
+    if (atkName) atkName.innerText = weaponNow.name;
+
+    const power = getMainPower();
+    const pwIcon = document.getElementById('action-power-icon');
+    const pwName = document.getElementById('action-power-name');
+    const pwSub = document.getElementById('action-power-sub');
+    const pwBtn = document.getElementById('btn-power-main');
+    if (pwIcon) pwIcon.innerText = power ? power.icon : '✨';
+    if (pwName) pwName.innerText = power ? power.name : 'No power';
+    if (pwSub) {
+        const cd = power ? (player.cooldowns[power.id] || 0) : 0;
+        pwSub.innerText = !power ? 'Slot one in Menu' : (cd > 0 ? `recharging ${cd}t` : 'ready');
+        pwSub.style.color = cd > 0 ? '#ff7788' : '#55ff77';
     }
+    if (pwBtn) pwBtn.classList.toggle('on-cooldown', !!power && (player.cooldowns[power.id] || 0) > 0);
+    updateTargetPanel();
 
     const url = new URL(window.location);
     url.searchParams.set('seed', dungeonManager.baseSeedString);
@@ -438,6 +453,23 @@ function draw() {
                 const monster = monsters.find(m => m.alive && m.x === worldX && m.y === worldY);
                 if (monster) {
                     drawGlyph(monster.icon, screenX, screenY, 1.0);
+
+                    // Health bar (always visible for foes in sight) + red ring on the current target
+                    {
+                        const pct = Math.max(0, Math.min(1, monster.hp / monster.maxHp));
+                        const barH = Math.max(4, Math.round(TILE_SIZE * 0.13));
+                        const barW = TILE_SIZE - 4;
+                        ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+                        ctx.fillRect(screenX + 1, screenY + TILE_SIZE - barH - 1, barW + 2, barH + 2);
+                        ctx.fillStyle = pct > 0.6 ? '#44dd55' : (pct > 0.3 ? '#ffcc00' : '#ff3344');
+                        ctx.fillRect(screenX + 2, screenY + TILE_SIZE - barH, Math.max(1, Math.round(barW * pct)), barH);
+                        if (monster.id === selectedTargetId) {
+                            ctx.strokeStyle = '#ff4466';
+                            ctx.lineWidth = 2;
+                            ctx.strokeRect(screenX + 1, screenY + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+                            ctx.lineWidth = 1;
+                        }
+                    }
 
                     // Active status badge icons above monster
                     if (monster.statuses && monster.statuses.length > 0) {
@@ -879,7 +911,9 @@ function handleTap(targetWorldX, targetWorldY) {
     draw();
 
     const { terrain, monsters } = currentFloorData;
-    const path = findPath(player.x, player.y, targetWorldX, targetWorldY, terrain, monsters);
+    const tappedFoe = monsters.find(m => m.alive && m.x === targetWorldX && m.y === targetWorldY && currentFloorData.visibility[m.y * MAP_WIDTH + m.x] === VISIBILITY.VISIBLE);
+    if (tappedFoe) setTarget(tappedFoe);
+    const path = findPath(player.x, player.y, targetWorldX, targetWorldY, terrain, monsters, 50, buildPathAvoid());
 
     if (path.length > 0) {
         stepPath(path);
@@ -918,6 +952,13 @@ function stepPath(path) {
         }
         updateHUD();
         draw();
+        return;
+    }
+
+    // 0b. A KNOWN trap is never walked onto: bumping it attempts to disarm it instead
+    if (isTrapTile(tile) && currentFloorData.trapsRevealed.has(targetIdx)) {
+        cancelWalking();
+        attemptDisarm(nextX, nextY);
         return;
     }
 
@@ -987,29 +1028,11 @@ function stepPath(path) {
     player.x = nextX;
     player.y = nextY;
 
-    // 6. Hidden / Revealed Trap Triggering
+    // 6. Hidden trap triggering (revealed traps are never stepped on: they must be disarmed or avoided)
     if (tile === TILES.TRAP_SPIKE || tile === TILES.TRAP_FIRE || tile === TILES.TRAP_GAS) {
         currentFloorData.trapsRevealed.add(targetIdx);
         cancelWalking();
-
-        if (tile === TILES.TRAP_SPIKE) {
-            const dmg = prng.nextInt(1, 4) + Math.floor(currentFloorData.floorLevel / 5);
-            player.hp = Math.max(1, player.hp - dmg); // traps maim but never kill outright
-            EffectSystem.applyStatus(player, 'BLEEDING', 4, 1, 'Floor Spikes');
-            addBlood(player.x, player.y);
-            postMessage(`⚡ FLOOR SPIKES SPRUNG! Took ${dmg} piercing damage and bleeding!`, 'msg-miss');
-        } else if (tile === TILES.TRAP_FIRE) {
-            EffectSystem.addAoEZones(currentFloorData, nextX, nextY, 1, 'FIRE', 4, 1);
-            const dmg = prng.nextInt(2, 5) + Math.floor(currentFloorData.floorLevel / 5);
-            player.hp = Math.max(1, player.hp - dmg); // traps maim but never kill outright
-            EffectSystem.applyStatus(player, 'BURNING', 3, 1, 'Fire Trap');
-            postMessage(`🔥 FIRE TRAP DETONATED! Took ${dmg} fire damage and caught burning!`, 'msg-miss');
-        } else if (tile === TILES.TRAP_GAS) {
-            EffectSystem.addAoEZones(currentFloorData, nextX, nextY, 1, 'POISON_GAS', 5, 1);
-            EffectSystem.applyStatus(player, 'POISONED', 5, 1, 'Gas Trap');
-            postMessage(`☁️ SPORE TRAP BURST! Inhaled choking poison fumes!`, 'msg-miss');
-        }
-
+        springTrap(tile, nextX, nextY);
         if (player.hp <= 0) {
             handlePlayerDeath('Dungeon Trap');
             return;
@@ -1153,9 +1176,87 @@ function stepPath(path) {
 }
 
 // ==========================================
+// 7b. TRAPS: spring, disarm and path-avoidance
+// ==========================================
+// Applies a trap's effect to the hero at (x, y). Traps maim but never kill outright (HP floor of 1).
+function springTrap(tile, x, y) {
+    const scale = Math.floor(currentFloorData.floorLevel / 5);
+    if (tile === TILES.TRAP_SPIKE) {
+        const dmg = prng.nextInt(1, 4) + scale;
+        player.hp = Math.max(1, player.hp - dmg);
+        EffectSystem.applyStatus(player, 'BLEEDING', 4, 1, 'Floor Spikes');
+        addBlood(player.x, player.y);
+        postMessage(`⚡ FLOOR SPIKES SPRUNG! Took ${dmg} piercing damage and bleeding!`, 'msg-miss');
+    } else if (tile === TILES.TRAP_FIRE) {
+        EffectSystem.addAoEZones(currentFloorData, x, y, 1, 'FIRE', 4, 1);
+        const dmg = prng.nextInt(2, 5) + scale;
+        player.hp = Math.max(1, player.hp - dmg);
+        EffectSystem.applyStatus(player, 'BURNING', 3, 1, 'Fire Trap');
+        postMessage(`🔥 FIRE TRAP DETONATED! Took ${dmg} fire damage and caught burning! Step out of the flames!`, 'msg-miss');
+    } else if (tile === TILES.TRAP_GAS) {
+        EffectSystem.addAoEZones(currentFloorData, x, y, 1, 'POISON_GAS', 5, 1);
+        EffectSystem.applyStatus(player, 'POISONED', 5, 1, 'Gas Trap');
+        postMessage(`☁️ SPORE TRAP BURST! Inhaled choking poison fumes! Move out of the cloud!`, 'msg-miss');
+    }
+}
+
+function isTrapTile(t) {
+    return t === TILES.TRAP_SPIKE || t === TILES.TRAP_FIRE || t === TILES.TRAP_GAS;
+}
+
+// Disarm check: d20 + DEX mod + level/2 (+4 for Thieves, +Perception ranks) vs DC 10 + floor/2.
+// Failing by 5 or more sets the trap off (non-lethal); a normal failure just costs the turn.
+function attemptDisarm(x, y) {
+    const f = currentFloorData;
+    const idx = y * MAP_WIDTH + x;
+    const tile = f.terrain[idx];
+    if (!isTrapTile(tile)) return;
+
+    const dc = 10 + Math.floor(f.floorLevel / 2);
+    const bonus = player.dexMod + Math.floor(player.level / 2) + (player.skills.perception || 0) + (player.characterClass.id === 'thief' ? 4 : 0);
+    const roll = prng.nextInt(1, 20);
+    const total = roll + bonus;
+    const names = { [TILES.TRAP_SPIKE]: 'spike trap', [TILES.TRAP_FIRE]: 'fire plate', [TILES.TRAP_GAS]: 'spore trap' };
+
+    if (total >= dc) {
+        f.terrain[idx] = TILES.FLOOR;
+        f.trapsRevealed.delete(idx);
+        postMessage(`🛠️ Disarmed the ${names[tile]}! (rolled ${total} vs DC ${dc}) +${XP_REWARDS.trap} XP`, 'msg-victory');
+        const lvs = player.gainXp(XP_REWARDS.trap);
+        if (lvs.length) handleLevelUps(lvs);
+    } else if (total <= dc - 5) {
+        postMessage(`💥 Disarm fumbled (rolled ${total} vs DC ${dc})! The ${names[tile]} goes off!`, 'msg-miss');
+        springTrap(tile, x, y);
+    } else {
+        postMessage(`🛠️ Failed to disarm the ${names[tile]} (rolled ${total} vs DC ${dc}). Try again or go around.`, 'msg-info');
+    }
+    runPerceptionRadar();
+    endTurn();
+    updateHUD();
+    draw();
+}
+
+// Known hazards the pathfinder should route around: revealed traps are blocked (unless they are the destination,
+// which means "disarm it"); lingering harmful zones (fire, gas, acid) cost extra so paths take the long way when possible.
+function buildPathAvoid() {
+    const f = currentFloorData;
+    const blocked = new Set();
+    const costs = new Map();
+    for (const idx of f.trapsRevealed || []) {
+        if (isTrapTile(f.terrain[idx])) blocked.add(idx);
+    }
+    for (const z of f.hazardZones || []) {
+        const def = ZONE_TYPES[z.type];
+        if (def && z.type !== 'CONSECRATION') costs.set(z.y * MAP_WIDTH + z.x, 12);
+    }
+    return { blocked, costs };
+}
+
+// ==========================================
 // 8. COMBAT RESOLUTION (ADJACENT MELEE)
 // ==========================================
 function resolveCombatTurn(monster, attackSource = null) {
+    setTarget(monster);
     const isSurprise = monster.unaware === true;
     monster.unaware = false;
     monster.alert = true;
@@ -1197,76 +1298,106 @@ function resolveCombatTurn(monster, attackSource = null) {
 // ==========================================
 // 9. AUTO-TARGET & MANUAL AIMING MODES
 // ==========================================
+// ==========================================
+// 8b. AUTO-TARGETING, MAIN ATTACK & MAIN POWER (the two big action buttons)
+// ==========================================
+let selectedTargetId = null; // the foe the Attack / Power buttons act on (last tapped or last attacked)
+
+function visibleLiveMonsters() {
+    const { monsters, visibility } = currentFloorData;
+    return monsters.filter(m => m.alive && visibility[m.y * MAP_WIDTH + m.x] === VISIBILITY.VISIBLE);
+}
+
+function getSelectedTarget() {
+    if (selectedTargetId === null || !currentFloorData) return null;
+    const m = currentFloorData.monsters.find(mon => mon.id === selectedTargetId);
+    if (!m || !m.alive) return null;
+    return m;
+}
+
+export function setTarget(monster) {
+    selectedTargetId = monster ? monster.id : null;
+    updateTargetPanel();
+}
+
+// The last selected foe if still alive and in sight, otherwise the closest visible foe (preferring a clear line of fire)
+function pickTarget() {
+    const sel = getSelectedTarget();
+    const visible = visibleLiveMonsters();
+    if (sel && visible.includes(sel)) return sel;
+    if (visible.length === 0) return null;
+
+    const { terrain } = currentFloorData;
+    visible.sort((a, b) => Math.hypot(a.x - player.x, a.y - player.y) - Math.hypot(b.x - player.x, b.y - player.y));
+    const clear = visible.find(m => EffectSystem.bresenhamRaycast(player.x, player.y, m.x, m.y, terrain).clear);
+    const chosen = clear || visible[0];
+    setTarget(chosen);
+    return chosen;
+}
+
+function weaponReach(weapon) {
+    if (weapon.isReach) return 2.1;
+    if (weapon.delivery === 'RANGED') return weapon.range || 6;
+    if (weapon.delivery === 'AOE') return weapon.range || 5;
+    return 1.5;
+}
+
+// Take one step toward a target (used when the big buttons are pressed while the foe is out of range)
+function approachTarget(target) {
+    const path = findPath(player.x, player.y, target.x, target.y, currentFloorData.terrain, currentFloorData.monsters, 50, buildPathAvoid());
+    if (path.length > 1) {
+        const d = Math.hypot(target.x - player.x, target.y - player.y);
+        postMessage(`🏃 Closing in on ${target.name} (${d.toFixed(1)}t away)...`, 'msg-info');
+        stepPath([path[0]]);
+        return true;
+    }
+    return false;
+}
+
+function awardKill(monster) {
+    addCorpse(monster);
+    const xp = monsterXp(monster, currentFloorData.floorLevel);
+    const lvs = player.gainXp(xp);
+    postMessage(`🏆 Defeated ${monster.name}! +${xp} XP`, 'msg-victory');
+    if (lvs.length > 0) handleLevelUps(lvs);
+}
+
+// MAIN ATTACK: strike the selected / closest foe with the equipped weapon (melee blow, arrow, wand...).
+// Out of range: step toward the target instead.
 export function autoTargetAndAttack() {
     if (!player || !player.alive) return;
-    if (targetingMode) {
-        cancelTargeting();
-    }
+    if (targetingMode) cancelTargeting();
 
-    const { monsters, terrain, visibility } = currentFloorData;
-    const visibleMonsters = monsters.filter(m => m.alive && visibility[m.y * MAP_WIDTH + m.x] === VISIBILITY.VISIBLE);
-
-    if (visibleMonsters.length === 0) {
-        postMessage('👁️ No visible foes in sight to auto-target.', 'msg-miss');
-        return;
-    }
-
-    // Sort visible monsters by distance to player
-    visibleMonsters.sort((a, b) => Math.hypot(a.x - player.x, a.y - player.y) - Math.hypot(b.x - player.x, b.y - player.y));
-
-    // Determine equipped weapon reach & range
-    const weapon = player.weapon;
-    let weaponRange = 1.5;
-    if (weapon.isReach) {
-        weaponRange = 2.1; // Reach weapons (Spear, Halberd, Pike) reach 2 tiles
-    } else if (weapon.delivery === 'RANGED') {
-        weaponRange = weapon.range || 6;
-    } else if (weapon.delivery === 'AOE') {
-        weaponRange = weapon.range || 5;
-    }
-
-    // Find closest visible monster with unblocked line of sight
-    let target = null;
-    let targetDist = Infinity;
-    for (const m of visibleMonsters) {
-        const d = Math.hypot(m.x - player.x, m.y - player.y);
-        const ray = EffectSystem.bresenhamRaycast(player.x, player.y, m.x, m.y, terrain);
-        if (ray.clear) {
-            target = m;
-            targetDist = d;
-            break;
-        }
-    }
-
+    const target = pickTarget();
     if (!target) {
-        postMessage('🚫 Visible foes are behind solid walls or stone pillars!', 'msg-miss');
+        postMessage('👁️ No visible foes in sight to attack.', 'msg-miss');
         return;
     }
 
-    // If within equipped weapon reach/range: strike immediately!
-    if (targetDist <= weaponRange) {
-        if (targetDist <= 1.5) {
+    const { terrain } = currentFloorData;
+    const weapon = player.weapon;
+    const reach = weaponReach(weapon);
+    const dist = Math.hypot(target.x - player.x, target.y - player.y);
+    const lineClear = dist <= 1.5 || EffectSystem.bresenhamRaycast(player.x, player.y, target.x, target.y, terrain).clear;
+
+    if (dist <= reach && lineClear) {
+        if (dist <= 1.5) {
             resolveCombatTurn(target, weapon);
             endTurn();
         } else {
             const res = CombatSystem.resolvePlayerAttack(prng, player, target, false, terrain, weapon);
+            target.unaware = false;
+            target.alert = true;
             if (res.isHit) {
                 addBlood(target.x, target.y);
                 const coverText = res.hasCover ? ' (Pillar Cover applied)' : '';
-                let hitText = `🎯 Auto-Strike! ${weapon.name} hit ${target.name} for ${res.damage} dmg!${coverText}`;
+                let hitText = `🎯 ${weapon.name} hit ${target.name} for ${res.damage} dmg!${coverText}`;
                 if (res.appliedStatus) hitText += ` [Inflicted ${res.appliedStatus}!]`;
                 postMessage(hitText, 'msg-victory');
-
-                if (res.monsterDied) {
-                    addCorpse(target);
-                    const xp = monsterXp(target, currentFloorData.floorLevel);
-                    const lvs = player.gainXp(xp);
-                    postMessage(`🏆 Defeated ${target.name}! +${xp} XP`, 'msg-victory');
-                    if (lvs.length > 0) handleLevelUps(lvs);
-                }
+                if (res.monsterDied) awardKill(target);
             } else {
                 const coverText = res.hasCover ? ' (Protected by Pillar Cover!)' : '';
-                postMessage(`🛡️ Auto-Strike missed ${target.name}${coverText}. (Rolled ${res.attackTotal} vs AC ${res.targetAC})`, 'msg-miss');
+                postMessage(`🛡️ ${weapon.name} missed ${target.name}${coverText}. (Rolled ${res.attackTotal} vs AC ${res.targetAC})`, 'msg-miss');
             }
             endTurn();
         }
@@ -1275,30 +1406,129 @@ export function autoTargetAndAttack() {
         return;
     }
 
-    // If weapon is melee/short and target is further, check if player has a ready ranged ability
-    const readyRangedAbil = player.getAvailableAbilities().find(a => 
-        (a.delivery === 'RANGED' || a.delivery === 'AOE' || a.delivery === 'ZONE') && 
-        player.canUseAbility(a.id) && 
-        (a.range || 6) >= targetDist
-    );
+    if (!approachTarget(target)) {
+        postMessage(`🚫 ${target.name} is out of reach (${dist.toFixed(1)}t) and no path leads to it.`, 'msg-miss');
+    }
+}
 
-    if (readyRangedAbil) {
-        startTargeting(readyRangedAbil);
-        fireTargetedAction(target.x, target.y);
+// ---- Main power: one button for the selected class feat / spell ----
+export function getMainPower() {
+    const active = player.getAvailableAbilities();
+    if (active.length === 0) return null;
+    return active.find(a => a.id === player.mainPowerId) || active[0];
+}
+
+export function setMainPower(abilityId) {
+    if (!player.activeFeats.includes(abilityId)) player.toggleFeat(abilityId);
+    player.mainPowerId = abilityId;
+    const a = getMainPower();
+    if (a) postMessage(`⭐ Main power set to ${a.icon} ${a.name}.`, 'msg-info');
+    updateHUD();
+    if (document.getElementById('spells-modal')?.classList.contains('active')) openSpellsModal();
+}
+
+export function cyclePower() {
+    if (!player || !player.alive) return;
+    const active = player.getAvailableAbilities();
+    if (active.length === 0) return;
+    const cur = getMainPower();
+    const next = active[(active.indexOf(cur) + 1) % active.length];
+    player.mainPowerId = next.id;
+    postMessage(`⭐ Main power: ${next.icon} ${next.name} (${next.desc})`, 'msg-info');
+    updateHUD();
+}
+
+// MAIN POWER: casts the selected feat on the selected / closest foe automatically
+export function usePower() {
+    if (!player || !player.alive) return;
+    if (targetingMode) cancelTargeting();
+
+    const ability = getMainPower();
+    if (!ability) {
+        postMessage('⚠️ No power slotted. Open Menu → Spells & Feats.', 'msg-miss');
+        return;
+    }
+    if (!player.canUseAbility(ability.id)) {
+        postMessage(`⏳ ${ability.name} is recharging (${player.cooldowns[ability.id] || 0}t).`, 'msg-miss');
         return;
     }
 
-    // Otherwise inform player of distance, weapon reach, and highlight foe
-    const reachDesc = weapon.isReach ? '2 tiles (Reach)' : (weapon.delivery === 'RANGED' ? `${weapon.range} tiles` : '1 tile (Melee)');
-    postMessage(`🎯 Closest foe (${target.name}) is ${targetDist.toFixed(1)}t away (Your ${weapon.name} reach: ${reachDesc}). Step closer or equip a bow!`, 'msg-info');
-    targetCursor = { x: target.x, y: target.y };
-    draw();
-    setTimeout(() => {
-        if (targetCursor && targetCursor.x === target.x && targetCursor.y === target.y) {
-            targetCursor = null;
+    if (ability.delivery === 'SELF') {
+        executeSelfAction(ability);
+        return;
+    }
+
+    // Positive area effects centred on the hero (e.g. Holy Nova) need no target
+    if (ability.delivery === 'AOE' && ability.isPositive && !(ability.range > 0)) {
+        startTargeting(ability);
+        fireTargetedAction(player.x, player.y);
+        return;
+    }
+
+    const target = pickTarget();
+    if (!target) {
+        postMessage(`👁️ ${ability.name}: no visible foe to target.`, 'msg-miss');
+        return;
+    }
+    const dist = Math.hypot(target.x - player.x, target.y - player.y);
+
+    if (ability.delivery === 'ADJACENT') {
+        if (dist <= 1.5) {
+            resolveCombatTurn(target, ability);
+            player.triggerAbilityCooldown(ability.id);
+            endTurn();
+            updateHUD();
             draw();
+        } else if (!approachTarget(target)) {
+            postMessage(`🚫 ${target.name} is out of reach for ${ability.name}.`, 'msg-miss');
         }
-    }, 1200);
+        return;
+    }
+
+    // Aimed powers (ranged / area / zone)
+    const range = ability.range || 0;
+    if (ability.delivery === 'AOE' && range === 0) {
+        // Self-centred burst (Whirlwind, Battle Cry...): fires around the hero when a foe is within its radius
+        if (dist > (ability.radius || 1) + 0.5) {
+            if (!approachTarget(target)) postMessage(`🚫 ${target.name} is out of ${ability.name}'s radius.`, 'msg-miss');
+            return;
+        }
+        startTargeting(ability);
+        fireTargetedAction(player.x, player.y);
+        return;
+    }
+    if (dist > range) {
+        postMessage(`🎯 ${target.name} is ${dist.toFixed(1)}t away; ${ability.name} reaches ${range}t. Closing in...`, 'msg-info');
+        if (!approachTarget(target)) postMessage(`🚫 No path to ${target.name}.`, 'msg-miss');
+        return;
+    }
+    if (!EffectSystem.bresenhamRaycast(player.x, player.y, target.x, target.y, currentFloorData.terrain).clear) {
+        postMessage(`🚫 No clear line of fire to ${target.name}. Move around the obstacle.`, 'msg-miss');
+        return;
+    }
+    startTargeting(ability);
+    fireTargetedAction(target.x, target.y);
+}
+
+// HP bar panel for the current target (under the map header)
+function updateTargetPanel() {
+    const panel = document.getElementById('target-panel');
+    if (!panel) return;
+    const t = player && currentFloorData ? getSelectedTarget() : null;
+    const visible = t && currentFloorData.visibility[t.y * MAP_WIDTH + t.x] === VISIBILITY.VISIBLE;
+    if (!t || !visible) {
+        panel.style.display = 'none';
+        return;
+    }
+    const pct = Math.max(0, Math.round((t.hp / t.maxHp) * 100));
+    const color = pct > 60 ? '#55dd66' : (pct > 30 ? '#ffcc00' : '#ff4455');
+    const statuses = (t.statuses || []).map(s => s.icon).join('');
+    panel.style.display = 'flex';
+    panel.innerHTML = `
+        <span class="tp-name">${t.icon} ${t.name} ${statuses}</span>
+        <span class="tp-bar"><span class="tp-fill" style="width:${pct}%; background:${color};"></span></span>
+        <span class="tp-hp">${t.hp}/${t.maxHp}</span>
+        <span class="tp-ac">AC ${t.ac}</span>`;
 }
 
 export function triggerAimMode() {
@@ -1556,6 +1786,9 @@ export function openSpellsModal() {
             </button>
         `;
 
+        const isMain = getMainPower()?.id === a.id;
+        const mainBtn = `<button class="btn-action-small" style="flex:none; padding: 2px 7px; font-size: 9px; ${isMain ? 'background: #3a2e10; border-color: #ffcc00; color: #ffcc00;' : 'background: #252838; border-color: #556688; color: #ccc;'}" onclick="window.setMainPower('${a.id}')">${isMain ? '⭐ Main Power' : '☆ Make Main'}</button>`;
+
         let actionBtn = '';
         if (isEquipped) {
             if (onCd) {
@@ -1581,6 +1814,7 @@ export function openSpellsModal() {
                 <div style="font-size: 11px; color: ${isEquipped ? '#bbb' : '#777'}; line-height: 1.3;">${a.desc}</div>
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
                     ${toggleBtn}
+                    ${mainBtn}
                     ${actionBtn}
                 </div>
             </div>
@@ -2445,6 +2679,12 @@ window.addEventListener('keydown', (e) => {
         return;
     }
 
+    // Hotkey: Enter uses the main power
+    if (e.key === 'Enter') {
+        usePower();
+        return;
+    }
+
     // Hotkey: E searches the surroundings (secret doors, traps, hidden keys)
     if (e.key === 'e' || e.key === 'E') {
         searchArea();
@@ -2905,7 +3145,7 @@ export function updateSettingsPreview() {
 
 export function openSettings(newGame = false) {
     const title = document.getElementById("settings-title");
-    if (title) title.innerText = newGame === true ? "🧙 NEW GAME: CREATE YOUR CHARACTER" : "⚙️ SETTINGS & NEW RUN";
+    if (title) title.innerText = newGame === true ? "🧙 NEW GAME: CREATE YOUR CHARACTER" : "☰ MENU";
     fillSelect('set-map-size', MAP_SIZES.map(s => ({ value: s.size, label: s.label })), settings.mapSize);
     fillSelect('set-class', ClassManager.getSelectableClasses().map(c => ({ value: c.id, label: `${c.icon} ${c.name}` })), settings.classId);
     fillSelect('set-race', RaceManager.getAllRaces().map(r => ({ value: r.id, label: `${r.icon} ${r.name}` })), settings.raceId);
@@ -2914,7 +3154,23 @@ export function openSettings(newGame = false) {
     updateSettingsPreview();
     refreshDebugPanel();
     const modal = document.getElementById('settings-modal');
+    switchMenuTab(newGame === true ? 'newrun' : 'actions');
     if (modal) modal.classList.add('active');
+}
+
+export function switchMenuTab(tab) {
+    for (const t of ['actions', 'newrun', 'debug']) {
+        const pane = document.getElementById('menu-pane-' + t);
+        const btn = document.getElementById('menu-tab-' + t);
+        if (pane) pane.style.display = (t === tab) ? 'block' : 'none';
+        if (btn) btn.classList.toggle('active', t === tab);
+    }
+}
+
+// Run a menu action, closing the menu first unless `close` is false
+export function menuDo(fn, close = true) {
+    if (close) closeSettings();
+    fn();
 }
 
 export function closeSettings() {
@@ -2950,7 +3206,9 @@ export function saveSettingsOnly() {
 // ==========================================
 function refreshDebugPanel() {
     const panel = document.getElementById('debug-panel');
-    if (panel) panel.style.display = isDebugEnabled() ? 'block' : 'none';
+    const dbgTab = document.getElementById('menu-tab-debug');
+    if (dbgTab) dbgTab.style.display = isDebugEnabled() ? 'block' : 'none';
+    if (!isDebugEnabled() && panel && panel.offsetParent !== null) switchMenuTab('actions');
     const info = document.getElementById('debug-info');
     if (info && player && currentFloorData && isDebugEnabled()) {
         const f = currentFloorData;
@@ -3128,7 +3386,7 @@ export const pixelDebug = {
     },
     pathTest(x, y) {
         const t0 = performance.now();
-        const path = findPath(player.x, player.y, x, y, currentFloorData.terrain, currentFloorData.monsters);
+        const path = findPath(player.x, player.y, x, y, currentFloorData.terrain, currentFloorData.monsters, 50, buildPathAvoid());
         return { len: path.length, ms: +(performance.now() - t0).toFixed(2) };
     }
 };

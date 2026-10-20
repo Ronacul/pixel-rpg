@@ -1,8 +1,8 @@
 # 📐 Pixel RPG Engine: Architectural Bounds & Performance Plan
 
-This document establishes the technical bounds, memory budgets, and algorithm constraints for scaling **Pixel RPG** across **configurable square maps (50 / 100 / 150 default / 200 tiles per side)**, **25 dungeon floors**, **25 equipment slots**, **dynamic perception fog of war**, and **blindspot surprise mechanics**.
+This document establishes the technical bounds, memory budgets, and algorithm constraints for scaling **Pixel RPG** across **configurable square maps (50 default / 100 / 150 / 200 tiles per side)**, **25 dungeon floors**, **25 equipment slots**, **dynamic perception fog of war**, and **blindspot surprise mechanics**.
 
-> **Implementation notes (current build):** map size is a per-run setting (`src/map/Dungeon.js` `MAP_SIZES`, default 150x150 = 22,500 tiles = 22.5 KB per floor per buffer). The numbers below were written for the original 200x200 plan and scale linearly with the chosen size. Pathfinding is a bounded A* (`src/systems/Pathfinding.js`, binary heap + typed arrays, search box margin 20, max radius 50) whose cost depends on walk distance, not map area.
+> **Implementation notes (current build):** map size is a per-run setting (`src/map/Dungeon.js` `MAP_SIZES`, default 50x50 = 2,500 tiles per floor per buffer; 150x150 = 22.5 KB). The numbers below were written for the original 200x200 plan and scale linearly with the chosen size. Pathfinding is a bounded A* (`src/systems/Pathfinding.js`, binary heap + typed arrays, search box margin 20, max radius 50) whose cost depends on walk distance, not map area.
 
 ---
 
