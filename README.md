@@ -33,8 +33,8 @@ A modular 2D retro RPG engine featuring procedural dungeons (50 (**Tiny, default
      * **Denied DEX:** The surprised monster loses their DEX bonus to AC for that strike ($AC = 10$).
 7. **Locked Doors, Keys & Searching:**
    * Each floor has 1-2 **locked doors (`🔒`)** guarding optional vaults with bonus chests. A door is only ever locked when the stairs stay reachable without it.
-   * The matching **key (`🗝️`)** lies elsewhere on the floor; the first is usually in plain sight, others are **hidden until you Search**.
-   * **Search (🔎 button or `E`)** spends a turn to reveal secret doors, traps and hidden keys within a radius that grows with Perception.
+   * The matching **key (`🗝️`)** lies elsewhere on the floor; the first is usually in plain sight, others are **hidden until you Search**. Keys ride on a separate **key ring** (🗝️ in the header), so they never take bag slots.
+   * **Search (🔎 button or `E`)** spends a turn to reveal secret doors, traps and hidden keys within a radius that grows with Perception. An expanding ring shows the area covered, finds flash gold, and searched ground keeps a faint tint.
 8. **Single Common Interface & Tile Query:**
    * **Tap/Click on map:** Bounded A* pathfinds and steps hero around obstacles.
    * **Pinch** (phone) or **mouse wheel** zooms between 7 and 33 tiles across; **drag the map** to pan, and any move recentres on the hero. The Zoom button / `Z` cycles levels.
@@ -103,3 +103,7 @@ Run locally with `./serve.ps1` (Windows PowerShell, http://localhost:8080) or an
 ## 🎨 Graphics
 
 The game draws **original pixel art** (tiles tinted per biome, a layered hero that reflects race, class, weapon and shield, monsters, bosses, chests, keys) from the art pack in [`art/`](art/README.md). Menu → Actions → **Graphics** switches back to the classic emoji look; the game also falls back to emoji if the art fails to load. Review or edit sprites in the asset lab at `art/lab.html`.
+
+### 🎒 Inventory rules
+* Food, mushrooms, potions and flasks **stack** by name (up to 99 per slot); gear and gems take one slot each.
+* Nothing is silently lost: a chest stays closed while your bag is full, barrel loot that does not fit lies on the floor, and **dropped items stay on the ground** where you dropped them. Step away and back, or wait (Space), to pick things up once you have room.

@@ -294,6 +294,11 @@ function updateHUD() {
 
     const hg = document.getElementById('hud-gold');
     if (hg) hg.innerText = player.gold;
+    const hk = document.getElementById('hud-keys');
+    if (hk) {
+        hk.style.display = player.keyRing.length ? 'inline' : 'none';
+        document.getElementById('hud-key-count').innerText = player.keyRing.length;
+    }
     const hr = document.getElementById('hud-rations');
     if (hr) hr.innerText = player.rations !== undefined ? player.rations : 5;
 
@@ -518,6 +523,12 @@ function draw() {
                 }
             }
 
+            // Searched ground keeps a faint cyan tint so you can see what you already covered
+            if (currentFloorData.searched && currentFloorData.searched.has(idx) && tile !== TILES.WALL && tile !== TILES.SECRET_DOOR) {
+                ctx.fillStyle = isDim ? 'rgba(100, 216, 203, 0.04)' : 'rgba(100, 216, 203, 0.07)';
+                ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+            }
+
             // Boss telegraph: tiles about to be hit glow red (step out of them!)
             if (telegraphKeys.size > 0 && telegraphKeys.has(worldY * 100000 + worldX)) {
                 ctx.fillStyle = 'rgba(255, 40, 40, 0.38)';
@@ -538,6 +549,11 @@ function draw() {
             const mer = currentFloorData.merchant;
             if (mer && mer.x === worldX && mer.y === worldY && vis !== VISIBILITY.UNEXPLORED) {
                 drawGlyph(mer.icon, screenX, screenY, isDim ? 0.5 : 1.0, 1.15);
+            }
+
+            // Items lying on the ground (dropped gear, loot that did not fit)
+            if (currentFloorData.groundItems && currentFloorData.groundItems.length && vis !== VISIBILITY.UNEXPLORED && currentFloorData.groundItems.some(p => p.x === worldX && p.y === worldY)) {
+                if (!SpriteStore.drawEntity(ctx, 'tile.loot_pile', {}, screenX, screenY, TILE_SIZE, 1, isDim ? 0.6 : 1)) drawGlyph('🎒', screenX, screenY, isDim ? 0.5 : 1.0);
             }
 
             // Keys lying on the floor
@@ -617,6 +633,8 @@ function draw() {
             }
         }
     }
+
+    drawSearchFx(camX, camY);
 
     // Render Player at Viewport Center (if alive)
     if (player.alive) {
@@ -1167,16 +1185,16 @@ function stepPath(path) {
     const targetIdx = nextY * MAP_WIDTH + nextX;
     const tile = terrain[targetIdx];
 
-    // 0. Locked door: needs the matching key from the bag
+    // 0. Locked door: needs the matching key from the key ring
     if (tile === TILES.LOCKED_DOOR) {
         cancelWalking();
         const lock = currentFloorData.lockedDoors?.find(l => l.x === nextX && l.y === nextY);
-        const keyIdx = lock ? player.backpack.findIndex(i => i && i.isKey && i.keyId === lock.keyId) : -1;
-        if (keyIdx === -1) {
+        const hasKey = !!lock && player.hasKey(lock.keyId);
+        if (!hasKey) {
             const hint = lock ? `Needs the ${lock.keyName}.` : 'It is locked.';
             postMessage(`🔒 Locked door! ${hint} Search rooms (E) for a key.`, 'msg-miss');
         } else {
-            player.removeFromBackpack(keyIdx);
+            player.useKey(lock.keyId);
             terrain[targetIdx] = TILES.DOOR_OPEN;
             postMessage(`🗝️ The ${lock.keyName} turns! The lock clicks open and the key crumbles to rust.`, 'msg-loot');
             runPerceptionRadar();
@@ -1237,8 +1255,8 @@ function stepPath(path) {
             CombatSystem.resolveAoE(prng, player, nextX, nextY, { radius: 1, dice: 6, diceCount: 2, zoneEffect: { type: 'FIRE', duration: 4 } }, currentFloorData, { onBlood: addBlood });
         } else {
             const loot = generateLootItem(prng, currentFloorData.floorLevel);
-            const added = player.addToBackpack(loot);
-            postMessage(`🛢️ Smashed barrel! Uncovered: ${loot.name}! ${added ? 'Added to bag.' : '(Bag full)'}`, 'msg-loot');
+            const where = giveOrDrop(loot, nextX, nextY);
+            postMessage(`🛢️ Smashed barrel! Uncovered: ${loot.name}! ${where === 'bag' ? 'Added to bag.' : 'Bag full: it lies on the ground.'}`, 'msg-loot');
         }
         endTurn();
         draw();
@@ -1293,36 +1311,13 @@ function stepPath(path) {
     // Update visibility & fog
     runPerceptionRadar();
 
-    // Loot Chest
-    const chest = chests.find(c => !c.opened && c.x === nextX && c.y === nextY);
-    if (chest) {
-        chest.opened = true;
-        const xpReward = XP_REWARDS.chestPerFloor * currentFloorData.floorLevel;
-        const levelUps = player.gainXp(xpReward);
-        const chestGold = addGold(goldForChest(prng, currentFloorData.floorLevel));
-        player.stats.chests++;
-        const added = player.addToBackpack(chest.item);
-        if (added) {
-            postMessage(`🎁 Looted: ${chest.item.name}! Added to Backpack (+${xpReward} XP, +${chestGold} gold)`, 'msg-loot');
-        } else {
-            postMessage(`🎁 Found ${chest.item.name}, but Backpack is full! (+${xpReward} XP, +${chestGold} gold)`, 'msg-loot');
-        }
-        if (levelUps.length > 0) handleLevelUps(levelUps);
-        updateHUD();
+    // Piles that were dropped here become pick-up-able once the hero has stepped away from them
+    for (const p of currentFloorData.groundItems || []) {
+        if (p.fresh && (p.x !== player.x || p.y !== player.y)) p.fresh = false;
     }
 
-    // Pick up a floor key
-    const keyPickIdx = currentFloorData.keys?.findIndex(k => k.x === nextX && k.y === nextY);
-    if (keyPickIdx !== undefined && keyPickIdx !== -1) {
-        const k = currentFloorData.keys[keyPickIdx];
-        const keyItem = { name: k.name, icon: '🗝️', isKey: true, keyId: k.keyId, desc: `Opens the matching locked door on floor ${currentFloorData.floorLevel}.` };
-        if (player.addToBackpack(keyItem)) {
-            currentFloorData.keys.splice(keyPickIdx, 1);
-            postMessage(`🗝️ Found the ${k.name}! Somewhere a locked door awaits.`, 'msg-loot');
-        } else {
-            postMessage(`🗝️ A ${k.name} lies here, but your bag is full!`, 'msg-miss');
-        }
-    }
+    // Chest, floor key and items lying on this tile
+    lootCurrentTile();
 
     // Forage Mushrooms
     const shroomIdx = currentFloorData.mushrooms?.findIndex(m => m.x === nextX && m.y === nextY);
@@ -1428,6 +1423,66 @@ function stepPath(path) {
         cancelWalking();
         draw();
     }
+}
+
+// ==========================================
+// 7c. LOOTING: chests, keys, items on the ground (nothing is ever silently lost)
+// ==========================================
+function groundPilesAt(x, y) {
+    return (currentFloorData.groundItems || []).filter(p => p.x === x && p.y === y);
+}
+
+// Put an item in the bag, or leave it on the ground at (x, y). Returns 'bag' | 'floor'.
+function giveOrDrop(item, x, y, fresh = false) {
+    if (player.addToBackpack(item)) return 'bag';
+    if (!currentFloorData.groundItems) currentFloorData.groundItems = [];
+    currentFloorData.groundItems.push({ x, y, item, fresh });
+    return 'floor';
+}
+
+// Called after the hero steps somewhere or waits: opens a chest, takes keys, picks up what fits.
+function lootCurrentTile() {
+    const f = currentFloorData;
+    const { x, y } = player;
+
+    // Floor keys always go on the key ring
+    const keyIdx = f.keys?.findIndex(k => k.x === x && k.y === y);
+    if (keyIdx !== undefined && keyIdx !== -1) {
+        const k = f.keys[keyIdx];
+        player.keyRing.push({ keyId: k.keyId, name: k.name });
+        f.keys.splice(keyIdx, 1);
+        postMessage(`🗝️ Found the ${k.name}! It rides on your key ring: somewhere a locked door awaits.`, 'msg-loot');
+    }
+
+    // Chests open only if the loot fits; otherwise they stay closed (nothing lost)
+    const chest = f.chests.find(c => !c.opened && c.x === x && c.y === y);
+    if (chest) {
+        if (!player.canStore(chest.item)) {
+            postMessage(`🎁 This chest holds ${chest.item.name}, but your bag is full! Make room (drop or use something), then wait (Space) here.`, 'msg-miss');
+        } else {
+            chest.opened = true;
+            const xpReward = XP_REWARDS.chestPerFloor * f.floorLevel;
+            const levelUps = player.gainXp(xpReward);
+            const chestGold = addGold(goldForChest(prng, f.floorLevel));
+            player.stats.chests++;
+            player.addToBackpack(chest.item);
+            postMessage(`🎁 Looted: ${chest.item.name}! Added to Backpack (+${xpReward} XP, +${chestGold} gold)`, 'msg-loot');
+            if (levelUps.length > 0) handleLevelUps(levelUps);
+        }
+    }
+
+    // Items on the ground (dropped gear, barrel loot that did not fit...)
+    const piles = groundPilesAt(x, y).filter(p => !p.fresh);
+    for (const pile of piles) {
+        if (player.canStore(pile.item)) {
+            player.addToBackpack(pile.item);
+            f.groundItems.splice(f.groundItems.indexOf(pile), 1);
+            postMessage(`🎒 Picked up ${pile.item.name}${(pile.item.count || 1) > 1 ? ` x${pile.item.count}` : ''}.`, 'msg-loot');
+        } else {
+            postMessage(`🎒 ${pile.item.name} is here, but your bag is full.`, 'msg-miss');
+        }
+    }
+    updateHUD();
 }
 
 // ==========================================
@@ -1922,8 +1977,8 @@ function fireTargetedAction(targetX, targetY) {
                     EffectSystem.addAoEZones(currentFloorData, targetX, targetY, 1, 'FIRE', 4, 1);
                 } else {
                     const loot = generateLootItem(prng, currentFloorData.floorLevel);
-                    player.addToBackpack(loot);
-                    postMessage(`🎯 Shattered barrel! Uncovered: ${loot.name}!`, 'msg-loot');
+                    const where = giveOrDrop(loot, targetX, targetY);
+                    postMessage(`🎯 Shattered barrel! Uncovered: ${loot.name}! ${where === 'bag' ? '' : '(Bag full: it lies on the ground.)'}`, 'msg-loot');
                 }
             } else {
                 postMessage(`🏹 ${action.name} struck the floor at (${targetX}, ${targetY}).`);
@@ -1961,7 +2016,7 @@ function fireTargetedAction(targetX, targetY) {
 
     // Consumable backpack item deduction
     if (action.isItem && action.backpackIdx !== undefined) {
-        player.removeFromBackpack(action.backpackIdx);
+        player.removeOneFromBackpack(action.backpackIdx);
     }
 
     // Cooldown trigger
@@ -2532,6 +2587,61 @@ canvas.addEventListener('contextmenu', (e) => {
     inspectTileAt(world.x, world.y);
 });
 
+// ---- Search visuals: an expanding ring sweeps the covered area, finds flash gold, and searched ground stays faintly tinted ----
+let searchFx = null; // { x, y, radius, start, duration, found: [{x, y}] }
+
+function markSearched(radius) {
+    const f = currentFloorData;
+    if (!f.searched) f.searched = new Set();
+    for (let y = player.y - radius; y <= player.y + radius; y++) {
+        for (let x = player.x - radius; x <= player.x + radius; x++) {
+            if (x < 0 || y < 0 || x >= MAP_WIDTH || y >= MAP_HEIGHT) continue;
+            if (Math.hypot(x - player.x, y - player.y) <= radius + 0.5) f.searched.add(y * MAP_WIDTH + x);
+        }
+    }
+}
+
+function playSearchFx(radius, foundTiles) {
+    searchFx = { x: player.x, y: player.y, radius: radius + 0.5, start: performance.now(), duration: 900, found: foundTiles };
+    const tick = () => {
+        if (!searchFx) return;
+        draw();
+        if (performance.now() - searchFx.start < searchFx.duration) requestAnimationFrame(tick);
+        else { searchFx = null; draw(); }
+    };
+    requestAnimationFrame(tick);
+}
+
+function drawSearchFx(camX, camY) {
+    if (!searchFx) return;
+    const t = Math.min(1, (performance.now() - searchFx.start) / searchFx.duration);
+    const sweep = Math.min(1, t / 0.55);                    // ring expands during the first 55%
+    const r = searchFx.radius * (1 - Math.pow(1 - sweep, 2));
+    const fade = 1 - Math.max(0, (t - 0.55) / 0.45);        // everything fades during the last 45%
+    ctx.save();
+    for (let y = Math.floor(searchFx.y - searchFx.radius); y <= Math.ceil(searchFx.y + searchFx.radius); y++) {
+        for (let x = Math.floor(searchFx.x - searchFx.radius); x <= Math.ceil(searchFx.x + searchFx.radius); x++) {
+            const d = Math.hypot(x - searchFx.x, y - searchFx.y);
+            if (d > r) continue;
+            const sx = (x - camX) * TILE_SIZE, sy = (y - camY) * TILE_SIZE;
+            if (sx < -TILE_SIZE || sy < -TILE_SIZE || sx > canvas.width || sy > canvas.height) continue;
+            const edge = d > r - 1.2;
+            ctx.fillStyle = `rgba(100, 216, 203, ${(edge ? 0.5 : 0.2) * fade})`;
+            ctx.fillRect(sx, sy, TILE_SIZE, TILE_SIZE);
+        }
+    }
+    // Finds pulse gold once the ring has passed them
+    for (const f of searchFx.found) {
+        if (Math.hypot(f.x - searchFx.x, f.y - searchFx.y) > r) continue;
+        const sx = (f.x - camX) * TILE_SIZE, sy = (f.y - camY) * TILE_SIZE;
+        const pulse = 0.6 + 0.4 * Math.sin(t * 18);
+        ctx.strokeStyle = `rgba(255, 220, 80, ${pulse * Math.max(fade, 0.35)})`;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(sx + 1, sy + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+    }
+    ctx.restore();
+}
+
 // ==========================================
 // ACTIVE SEARCH (hotkey E / Search button): spends a turn to find secret doors, traps and hidden keys nearby
 // ==========================================
@@ -2544,6 +2654,7 @@ export function searchArea() {
     const radius = Math.min(8, 3 + Math.max(0, player.perMod) + (player.skills.perception || 0));
     const bonus = 5 + player.perMod; // active searching is far better than passive detection
     const found = [];
+    const foundTiles = [];
     let hiddenLeft = 0;
 
     for (let y = player.y - radius; y <= player.y + radius; y++) {
@@ -2558,7 +2669,7 @@ export function searchArea() {
                 if (roll() >= 10) {
                     f.terrain[idx] = TILES.DOOR_CLOSED;
                     f.visibility[idx] = Math.max(f.visibility[idx], VISIBILITY.EXPLORED);
-                    found.push('a secret door');
+                    found.push('a secret door'); foundTiles.push({ x, y });
                     const lvs = player.gainXp(XP_REWARDS.secretDoor);
                     if (lvs.length) handleLevelUps(lvs);
                 } else hiddenLeft++;
@@ -2567,7 +2678,7 @@ export function searchArea() {
                     if (roll() >= 10) {
                         f.trapsRevealed.add(idx);
                         f.visibility[idx] = Math.max(f.visibility[idx], VISIBILITY.EXPLORED);
-                        found.push('a trap');
+                        found.push('a trap'); foundTiles.push({ x, y });
                         const lvs = player.gainXp(XP_REWARDS.trap);
                         if (lvs.length) handleLevelUps(lvs);
                     } else hiddenLeft++;
@@ -2582,10 +2693,14 @@ export function searchArea() {
             if (prng.nextInt(1, 20) + bonus >= 10) {
                 k.hidden = false;
                 f.visibility[k.y * MAP_WIDTH + k.x] = Math.max(f.visibility[k.y * MAP_WIDTH + k.x], VISIBILITY.EXPLORED);
-                found.push(`the ${k.name}`);
+                found.push(`the ${k.name}`); foundTiles.push({ x: k.x, y: k.y });
             } else hiddenLeft++;
         }
     }
+
+    // Remember and animate the area covered by this search
+    markSearched(radius);
+    playSearchFx(radius, foundTiles);
 
     if (found.length) {
         postMessage(`🔍 Search (radius ${radius}) uncovered ${found.join(', ')}!`, 'msg-loot');
@@ -2616,6 +2731,7 @@ export function waitTurn() {
     if (!player || !player.alive) return;
     cancelWalking();
     cancelTargeting();
+    lootCurrentTile(); // waiting also picks up anything that now fits (e.g. after freeing a bag slot)
     endTurn();
     postMessage('⏳ You wait a turn to recover and observe surroundings.', 'msg-info');
     draw();
@@ -2971,10 +3087,14 @@ export function dropSelectedBackpackItem() {
     if (!selectedSlot || selectedSlot.type !== 'backpack') return;
     const dropped = player.removeFromBackpack(selectedSlot.id);
     if (dropped) {
-        postMessage(`🗑️ Dropped ${dropped.name}.`, 'msg-info');
+        // Dropped gear stays in the world: it lies on this tile and can be picked up again after stepping away
+        if (!currentFloorData.groundItems) currentFloorData.groundItems = [];
+        currentFloorData.groundItems.push({ x: player.x, y: player.y, item: dropped, fresh: true });
+        postMessage(`🗑️ Dropped ${dropped.name}${(dropped.count || 1) > 1 ? ` x${dropped.count}` : ''} on the ground. Step away and back to pick it up again.`, 'msg-info');
         selectedSlot = null;
         updateHUD();
         populateSheet();
+        draw();
     }
 }
 
@@ -3273,7 +3393,7 @@ export function populateSheet() {
             <div class="backpack-slot ${item ? 'equipped' : ''} ${isSel ? 'selected' : ''}" style="${look.style}"
                  onclick="window.selectSlot('backpack', ${idx})"
                  title="Slot ${idx + 1}: ${item ? item.name : 'Empty'}">
-                ${item ? `${look.badge}<div class="bag-icon">${item.icon}</div><div class="bag-name">${item.name}</div>` : `<span style="color:#444">Slot ${idx+1}</span>`}
+                ${item ? `${look.badge}${(item.count || 1) > 1 ? `<div class="count-chip">x${item.count}</div>` : ''}<div class="bag-icon">${item.icon}</div><div class="bag-name">${item.name}</div>` : `<span style="color:#444">Slot ${idx+1}</span>`}
             </div>
         `;
     }).join('');
@@ -3318,7 +3438,7 @@ export function populateSheet() {
             if (item) {
                 cardTitle.innerText = `Selected Backpack Item (Slot ${selectedSlot.id + 1}):`;
                 cardContent.style.display = 'block';
-                cardName.innerText = `${item.icon} ${item.name}`;
+                cardName.innerText = `${item.icon} ${item.name}${(item.count || 1) > 1 ? ` x${item.count}` : ''}`;
                 cardSlot.innerText = item.isGem ? `Gem (tier ${item.tier})` : `Slot: ${item.slot ? item.slot.replace('_', ' ') : 'Consumable'}`;
                 cardDesc.innerText = item.desc || 'Standard item';
 
@@ -3435,7 +3555,7 @@ export function consumeBackpackItem(idx) {
         if (res.healAmt) msg += ` (Healed +${res.healAmt} HP: ${player.hp}/${player.maxHp})`;
         if (res.statusApplied) msg += ` [Gained ${res.statusApplied}!]`;
         postMessage(msg, 'msg-loot');
-        selectedSlot = null;
+        if (!player.backpack[idx]) selectedSlot = null; // keep the stack selected while units remain
         updateHUD();
         populateSheet();
         draw();
@@ -3562,8 +3682,8 @@ export function shopBuy(i) {
 export function shopSell(idx) {
     const item = player.backpack[idx];
     if (!item) return;
-    const price = sellPrice(item);
-    player.backpack[idx] = null;
+    const price = sellPrice(item); // per unit; stacks sell one at a time
+    player.removeOneFromBackpack(idx);
     player.gold += price;
     postMessage(`💰 Sold ${item.name} for ${price} gold.`, 'msg-loot');
     renderShop();

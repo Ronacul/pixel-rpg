@@ -15,6 +15,7 @@ export class PlayerCharacter {
         this.bonusHp = 0;
         this.attributePoints = 0;
         this.gold = 0;
+        this.keyRing = []; // { keyId, name } for locked doors (never occupy bag slots)
         this.xpMultiplier = 1;   // per-floor modifier (e.g. Pitch Dark +25% XP)
         this.xpBonusMult = 1;    // legacy perk
         this.stats = { kills: 0, bossesSlain: 0, gold: 0, chests: 0, disarmed: 0, deepest: 1, bestItem: null, victory: false };
@@ -218,19 +219,63 @@ export class PlayerCharacter {
     // INVENTORY & PAPERDOLL ACTIONS
     // ==========================================
 
+    // Consumables (food, mushrooms, potions, flasks...) stack by name. Gear and gems occupy one slot each.
+    static isStackable(item) {
+        return !!item && !!item.isConsumable && !item.isKey;
+    }
+
+    // Adds to the first matching stack, else an empty slot. Returns false only when nothing could be stored.
     addToBackpack(item) {
         if (!item) return false;
+        if (PlayerCharacter.isStackable(item)) {
+            const add = item.count || 1;
+            const stack = this.backpack.find(s => s && PlayerCharacter.isStackable(s) && s.name === item.name && (s.count || 1) < 99);
+            if (stack) {
+                stack.count = (stack.count || 1) + add;
+                return true;
+            }
+            item.count = add;
+        }
         const emptyIdx = this.backpack.findIndex(s => s === null);
         if (emptyIdx === -1) return false;
         this.backpack[emptyIdx] = item;
         return true;
     }
 
+    // Would this item fit (a free slot, or room on an existing stack)?
+    canStore(item) {
+        if (!item) return false;
+        if (this.backpack.some(s => s === null)) return true;
+        return PlayerCharacter.isStackable(item) && this.backpack.some(s => s && PlayerCharacter.isStackable(s) && s.name === item.name && (s.count || 1) < 99);
+    }
+
+    // Removes the whole slot contents (a full stack leaves together)
     removeFromBackpack(idx) {
         if (idx < 0 || idx >= this.backpack.length) return null;
         const item = this.backpack[idx];
         this.backpack[idx] = null;
         return item;
+    }
+
+    // Removes ONE unit: decrements a stack, or empties the slot. Returns the removed unit.
+    removeOneFromBackpack(idx) {
+        if (idx < 0 || idx >= this.backpack.length) return null;
+        const item = this.backpack[idx];
+        if (!item) return null;
+        if ((item.count || 1) > 1) {
+            item.count--;
+            return { ...item, count: 1 };
+        }
+        this.backpack[idx] = null;
+        return item;
+    }
+
+    // Key ring: keys never take bag slots
+    hasKey(keyId) { return this.keyRing.some(k => k.keyId === keyId); }
+    useKey(keyId) {
+        const i = this.keyRing.findIndex(k => k.keyId === keyId);
+        if (i === -1) return null;
+        return this.keyRing.splice(i, 1)[0];
     }
 
     // Every owned backpack item that may be worn in `slot` (rings fit either ring slot).
@@ -260,6 +305,16 @@ export class PlayerCharacter {
 
         const previousItem = this.equipment[slot];
 
+        // Equipping from a stack (e.g. a flask) takes ONE unit; the displaced item goes back into the bag
+        if ((item.count || 1) > 1) {
+            if (previousItem && !this.canStore(previousItem)) return null;
+            const one = { ...item, count: 1 };
+            item.count--;
+            this.equipment[slot] = one;
+            if (previousItem) this.addToBackpack(previousItem);
+            return { equipped: one, unequipped: previousItem, slot };
+        }
+
         // Clean swap: equipped item gets new item, backpack slot gets previous item (or null)
         this.equipment[slot] = item;
         this.backpack[backpackIdx] = previousItem;
@@ -270,14 +325,11 @@ export class PlayerCharacter {
     unequipToBackpack(slot) {
         const item = this.equipment[slot];
         if (!item) return { success: false, reason: 'Slot is empty' };
-
-        const emptyIdx = this.backpack.findIndex(s => s === null);
-        if (emptyIdx === -1) return { success: false, reason: 'Backpack is full (15/15)' };
-
-        this.backpack[emptyIdx] = item;
+        if (!this.canStore(item)) return { success: false, reason: 'Backpack is full (15/15)' };
+        this.addToBackpack(item);
         this.equipment[slot] = null;
-
-        return { success: true, item, slot, backpackIdx: emptyIdx };
+        const backpackIdx = this.backpack.findIndex(s => s && (s === item || (PlayerCharacter.isStackable(item) && s.name === item.name)));
+        return { success: true, item, slot, backpackIdx };
     }
 
     // ==========================================
@@ -477,7 +529,7 @@ export class PlayerCharacter {
         const item = this.backpack[backpackIdx];
         if (!item || !item.isConsumable) return null;
 
-        this.removeFromBackpack(backpackIdx);
+        this.removeOneFromBackpack(backpackIdx);
 
         let healAmt = item.healPotency || 0;
         let rationsGained = item.rations || 0;
