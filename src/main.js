@@ -5,7 +5,9 @@
 
 import { PRNG } from './core/RNG.js';
 import { MAP_WIDTH, MAP_HEIGHT, TILES, VISIBILITY, DungeonManager, MAP_SIZES, DEFAULT_MAP_SIZE, setMapSize, normalizeMapSize } from './map/Dungeon.js';
-import { generateFloor } from './map/Generator.js';
+import { generateFloor, makeMonster, makeBoss } from './map/Generator.js';
+import { BOSSES, getBossForFloor } from './data/Bosses.js';
+import { bossTurn } from './systems/BossAI.js';
 import { generateTestFloor, isTestSeed, TEST_MIN_MAP_SIZE } from './map/TestLevel.js';
 import { PlayerCharacter } from './entities/Character.js';
 import { PerceptionSystem } from './systems/Perception.js';
@@ -267,7 +269,10 @@ function updateHUD() {
     window.history.replaceState({}, '', url);
 }
 
-function postMessage(text, className = '') {
+const messageLog = []; // recent messages (debug / verification)
+function postMessage(text, className = "") {
+    messageLog.push(text.replace(/<[^>]*>/g, ""));
+    if (messageLog.length > 300) messageLog.shift();
     const bar = document.getElementById('message-bar');
     bar.className = className;
     bar.innerHTML = `> ${text}`;
@@ -291,6 +296,11 @@ function draw() {
     const camY = player.y - Math.floor(VIEW_ROWS / 2) + panY;
 
     const { terrain, visibility, biome, monsters, chests, mushrooms, corpses, bloodStains, hazardZones, trapsRevealed } = currentFloorData;
+
+    const telegraphKeys = new Set();
+    for (const m of monsters) {
+        if (m.alive && m.telegraph) for (const t of m.telegraph.tiles) telegraphKeys.add(t.y * 100000 + t.x);
+    }
 
     for (let ry = 0; ry < VIEW_ROWS; ry++) {
         for (let rx = 0; rx < VIEW_COLS; rx++) {
@@ -426,6 +436,16 @@ function draw() {
                 }
             }
 
+            // Boss telegraph: tiles about to be hit glow red (step out of them!)
+            if (telegraphKeys.size > 0 && telegraphKeys.has(worldY * 100000 + worldX)) {
+                ctx.fillStyle = 'rgba(255, 40, 40, 0.38)';
+                ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+                ctx.strokeStyle = '#ff3344';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(screenX + 2, screenY + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+                ctx.lineWidth = 1;
+            }
+
             // Chests
             const chest = chests.find(c => c.x === worldX && c.y === worldY);
             if (chest && (vis === VISIBILITY.VISIBLE || chest.opened)) {
@@ -454,7 +474,11 @@ function draw() {
             if (vis === VISIBILITY.VISIBLE) {
                 const monster = monsters.find(m => m.alive && m.x === worldX && m.y === worldY);
                 if (monster) {
-                    drawGlyph(monster.icon, screenX, screenY, 1.0);
+                    drawGlyph(monster.icon, screenX, screenY, 1.0, monster.isBoss ? (monster.scale || 1.5) : 1);
+                    if (monster.isBoss && monster.airborne) {
+                        ctx.fillStyle = 'rgba(0,0,0,0.35)';
+                        ctx.beginPath(); ctx.ellipse(screenX + TILE_SIZE / 2, screenY + TILE_SIZE - 3, TILE_SIZE * 0.35, TILE_SIZE * 0.1, 0, 0, Math.PI * 2); ctx.fill();
+                    }
 
                     // Health bar (always visible for foes in sight) + red ring on the current target
                     {
@@ -576,12 +600,12 @@ function draw() {
     }
 }
 
-function drawGlyph(glyph, x, y, opacity = 1.0) {
+function drawGlyph(glyph, x, y, opacity = 1.0, scale = 1) {
     ctx.save();
     ctx.globalAlpha = opacity;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = `${Math.floor(TILE_SIZE * 0.65)}px "Segoe UI Emoji", "Apple Color Emoji", sans-serif`;
+    ctx.font = `${Math.floor(TILE_SIZE * 0.65 * scale)}px "Segoe UI Emoji", "Apple Color Emoji", sans-serif`;
     ctx.fillText(glyph, x + TILE_SIZE / 2, y + TILE_SIZE / 2 + 1);
     ctx.restore();
 }
@@ -610,6 +634,50 @@ function addCorpse(monster) {
         isVenomous,
         harvested: false
     });
+    if (monster.isBoss) onBossDeath(monster);
+}
+
+// Boss slain: unseal the stairs, shower loot, clear its minions
+function onBossDeath(boss) {
+    const f = currentFloorData;
+    const def = boss.def;
+    boss.telegraph = null;
+    for (const m of f.monsters) {
+        if (m.alive && m.isMinionOf === boss.id) { m.alive = false; m.hp = 0; }
+    }
+
+    const final = !!def.loot?.final;
+    postMessage(final ? `🏆 ${boss.name} is SLAIN! The Abyssal Sanctum falls silent...` : `👑 ${boss.name} has fallen! The seal on the stairs breaks.`, 'msg-victory');
+
+    const lvs = player.gainXp(def.xpBonus || 100);
+    if (lvs.length) handleLevelUps(lvs);
+
+    // Loot: a unique-quality item plus gems, dropped in chests around the corpse
+    const drops = makeBossLoot(def, f.floorLevel);
+    const spots = [];
+    for (let r = 0; r <= 3 && spots.length < drops.length; r++) {
+        for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+            const x = boss.x + dx, y = boss.y + dy;
+            if (spots.length >= drops.length) break;
+            if (x < 0 || y < 0 || x >= MAP_WIDTH || y >= MAP_HEIGHT) continue;
+            if (f.terrain[y * MAP_WIDTH + x] !== TILES.FLOOR) continue;
+            if (f.chests.some(c => c.x === x && c.y === y) || spots.some(s => s.x === x && s.y === y)) continue;
+            spots.push({ x, y });
+        }
+    }
+    drops.forEach((item, i) => {
+        if (spots[i]) f.chests.push({ x: spots[i].x, y: spots[i].y, opened: false, isSecret: false, isBossLoot: true, item });
+    });
+    if (final) showVictory();
+}
+
+// Placeholder-friendly hook; extended once gems / powers exist
+function makeBossLoot(def, floorLevel) {
+    return [generateLootItem(prng, floorLevel + 8)];
+}
+
+function showVictory() {
+    postMessage('🏆 VICTORY! You have cleared all 25 floors. Keep exploring or start a new run from the Menu.', 'msg-victory');
 }
 
 // Single-step direction for terrified monster fleeing away from player
@@ -761,6 +829,16 @@ function endTurn() {
         if (m.alert) {
             const mMods = EffectSystem.getStatusModifiers(m);
 
+            // Bosses run their own scripted turn (telegraphed attacks, phases, summons)
+            if (m.isBoss) {
+                const died = bossTurn(m, buildBossContext());
+                if (died || player.hp <= 0) {
+                    handlePlayerDeath(m.name);
+                    return;
+                }
+                continue;
+            }
+
             // Terrified Monsters panic and flee away from player, cannot attack
             if (mMods.isTerrified) {
                 const fleeStep = getStepAwayFrom(m.x, m.y, player.x, player.y, terrain, monsters);
@@ -809,6 +887,36 @@ function endTurn() {
 
     updateHUD();
     draw();
+}
+
+// Everything BossAI needs from the engine
+let minionCounter = 0;
+function buildBossContext() {
+    const { monsters, terrain } = currentFloorData;
+    return {
+        player,
+        floor: currentFloorData,
+        prng,
+        terrain,
+        post: postMessage,
+        addBlood,
+        damagePlayer(dmg, label) {
+            player.hp = Math.max(0, player.hp - dmg);
+            addBlood(player.x, player.y);
+            postMessage(`💥 ${label} hits you for ${dmg} dmg! (${player.hp}/${player.maxHp} HP)`, 'msg-miss');
+            return player.hp <= 0;
+        },
+        stepTowards: (b) => getStepTowards(b.x, b.y, player.x, player.y, terrain, monsters),
+        spawnMonster(def, x, y) {
+            const m = makeMonster(def, `minion_${currentFloorData.floorLevel}_${minionCounter++}`, x, y, currentFloorData.floorLevel);
+            monsters.push(m);
+            return m;
+        }
+    };
+}
+
+function bossAlive() {
+    return !!currentFloorData?.monsters.some(m => m.isBoss && m.alive);
 }
 
 // BFS single-step direction for monster pursuit (avoiding walls, pillars, pits, barrels)
@@ -1150,6 +1258,13 @@ function stepPath(path) {
     // Stairs
     if (tile === TILES.STAIRS_DOWN) {
         cancelWalking();
+        if (bossAlive()) {
+            const boss = currentFloorData.monsters.find(m => m.isBoss && m.alive);
+            postMessage(`🔒 The stairs are sealed by dark magic until ${boss.name} falls!`, 'msg-miss');
+            endTurn();
+            draw();
+            return;
+        }
         if (dungeonManager.currentFloor < 25) {
             loadFloor(dungeonManager.currentFloor + 1, true);
         } else {
@@ -1258,6 +1373,10 @@ function buildPathAvoid() {
 // 8. COMBAT RESOLUTION (ADJACENT MELEE)
 // ==========================================
 function resolveCombatTurn(monster, attackSource = null) {
+    if (monster.airborne && !(attackSource && attackSource.delivery === 'RANGED')) {
+        postMessage(`🦅 ${monster.name} is airborne: melee cannot reach it! Use a ranged weapon or power.`, 'msg-miss');
+        return;
+    }
     setTarget(monster);
     const isSurprise = monster.unaware === true;
     monster.unaware = false;
@@ -3241,6 +3360,24 @@ function afterDebugChange(msg) {
 }
 
 export const pixelDebug = {
+    // Spawn a boss two tiles from the hero (any floor) for quick fight testing: id = bugbear|troll|chimaera|giant|dragon
+    spawnBoss(id = 'bugbear') {
+        const def = BOSSES[id];
+        const f = currentFloorData;
+        let spot = null;
+        for (let r = 3; r <= 6 && !spot; r++) for (let dy = -r; dy <= r && !spot; dy++) for (let dx = -r; dx <= r && !spot; dx++) {
+            const x = player.x + dx, y = player.y + dy;
+            if (x > 0 && y > 0 && x < MAP_WIDTH - 1 && y < MAP_HEIGHT - 1 && f.terrain[y * MAP_WIDTH + x] === TILES.FLOOR && !f.monsters.some(m => m.alive && m.x === x && m.y === y)) spot = { x, y };
+        }
+        const boss = makeBoss(def, spot.x, spot.y, f.floorLevel);
+        boss.alert = true;
+        f.monsters.push(boss);
+        afterDebugChange(`Spawned ${def.name}.`);
+        return boss.id;
+    },
+    log(n = 20) { return messageLog.slice(-n); },
+    boss() { const b = currentFloorData.monsters.find(m => m.isBoss); return b ? { name: b.name, hp: b.hp, maxHp: b.maxHp, x: b.x, y: b.y, alive: b.alive, airborne: b.airborne, phase: b.phaseIdx, telegraph: b.telegraph ? { move: b.telegraph.move, tiles: b.telegraph.tiles.length } : null } : null; },
+    slayBoss() { const b = currentFloorData.monsters.find(m => m.isBoss && m.alive); if (!b) return false; b.hp = 0; b.alive = false; addCorpse(b); afterDebugChange('Boss slain.'); return true; },
     startRun(seed, opts = {}) { startPlaythrough(seed, opts); return this.state(); },
     jumpToFloor(n) {
         n = Math.max(1, Math.min(25, parseInt(n, 10) || 1));

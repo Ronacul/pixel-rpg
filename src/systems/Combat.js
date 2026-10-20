@@ -2,6 +2,14 @@
 
 import { EffectSystem } from './Effects.js';
 
+// Monster damage: diceCount x d(dice) + bonusDmg (single die for ordinary monsters)
+export function rollMonsterDamage(prng, monster) {
+    const count = monster.diceCount || 1;
+    let total = monster.bonusDmg || 0;
+    for (let i = 0; i < count; i++) total += prng.nextInt(1, monster.dice || 4);
+    return total;
+}
+
 export class CombatSystem {
     // Resolves player attack on monster with surprise advantage, tactical cover, and on-hit status effects
     static resolvePlayerAttack(prng, player, monster, isSurpriseAttack = false, terrain = null, attackSource = null) {
@@ -92,7 +100,7 @@ export class CombatSystem {
             const mHit = mTotal >= player.ac;
             let mDmg = 0;
             if (mHit) {
-                mDmg = prng.nextInt(1, monster.dice || 4);
+                mDmg = rollMonsterDamage(prng, monster);
                 player.hp = Math.max(0, player.hp - mDmg);
             }
             monsterCounter = { roll: mTotal, isHit: mHit, damage: mDmg };
@@ -133,14 +141,14 @@ export class CombatSystem {
         }
 
         const effectivePlayerAc = player.ac + coverBonus;
-        const mRoll = prng.nextInt(1, 20) + 1 + monsterStatusMods.attackMod;
+        const mRoll = prng.nextInt(1, 20) + 1 + (monster.attackBonus || 0) + monsterStatusMods.attackMod;
         const isHit = mRoll >= effectivePlayerAc;
 
         let damage = 0;
         let appliedStatus = null;
 
         if (isHit) {
-            damage = prng.nextInt(1, monster.dice || 4);
+            damage = rollMonsterDamage(prng, monster);
             player.hp = Math.max(0, player.hp - damage);
 
             // Monster status on hit based on type

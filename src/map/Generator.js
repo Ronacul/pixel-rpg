@@ -4,6 +4,7 @@ import { MAP_WIDTH, MAP_HEIGHT, TILES, VISIBILITY } from './Dungeon.js';
 import { getBiomeForFloor } from '../data/Biomes.js';
 import { PRNG } from '../core/RNG.js';
 import { generateLootItem, MUSHROOM_TYPES } from '../data/Items.js';
+import { getBossForFloor } from '../data/Bosses.js';
 
 // Shared monster factory (also used by the test-level generator)
 export function makeMonster(def, id, x, y, floorLevel) {
@@ -22,6 +23,31 @@ export function makeMonster(def, id, x, y, floorLevel) {
         desc: def.desc,
         alive: true,
         unaware: true // Surprise mechanic: unaware until player steps into line of sight
+    };
+}
+
+// Boss monster: a large, scripted foe (see data/Bosses.js and systems/BossAI.js)
+export function makeBoss(def, x, y, floorLevel) {
+    return {
+        id: `boss_${def.id}`,
+        name: def.name,
+        icon: def.icon,
+        x, y,
+        hp: def.hp, maxHp: def.hp,
+        ac: def.ac,
+        dice: def.dice, diceCount: def.diceCount, bonusDmg: def.bonusDmg,
+        attackBonus: 2 + Math.floor(floorLevel / 5),
+        desc: def.desc,
+        alive: true,
+        unaware: false,
+        isBoss: true,
+        def,
+        scale: def.scale,
+        phaseIdx: -1,
+        scriptIdx: 0,
+        telegraph: null,
+        airborne: false,
+        dmgMult: 1
     };
 }
 
@@ -291,13 +317,32 @@ export function generateFloor(baseSeed, floorLevel) {
     const stairsDownPos = { x: exitRoom.cx, y: exitRoom.cy };
     terrain[stairsDownPos.y * MAP_WIDTH + stairsDownPos.x] = (floorLevel < 25) ? TILES.STAIRS_DOWN : TILES.FLOOR;
 
+    // Boss floors (5, 10, 15, 20, 25): carve a pillared arena around the exit room. The boss waits there and the
+    // stairs stay sealed until it falls (enforced in main.js).
+    const bossDef = getBossForFloor(floorLevel);
+    let bossArena = null;
+    if (bossDef) {
+        const ax = exitRoom.cx, ay = exitRoom.cy;
+        const half = Math.max(3, Math.min(5, ax - 3, ay - 3, MAP_WIDTH - 4 - ax, MAP_HEIGHT - 4 - ay));
+        for (let y = ay - half; y <= ay + half; y++) {
+            for (let x = ax - half; x <= ax + half; x++) terrain[y * MAP_WIDTH + x] = TILES.FLOOR;
+        }
+        if (half >= 5) {
+            for (const [px, py] of [[-3, -3], [3, -3], [-3, 3], [3, 3]]) terrain[(ay + py) * MAP_WIDTH + ax + px] = TILES.PILLAR;
+        }
+        stairsDownPos.x = ax;
+        stairsDownPos.y = ay + half - 1;
+        terrain[stairsDownPos.y * MAP_WIDTH + stairsDownPos.x] = (floorLevel < 25) ? TILES.STAIRS_DOWN : TILES.FLOOR;
+        bossArena = { cx: ax, cy: ay, half };
+    }
+
     // Monsters & Chests
     const monsters = [];
     const chests = [];
 
     rooms.forEach((room, idx) => {
-        // Skip spawn room for monsters
-        if (idx === 0) return;
+        // Skip the spawn room (and, on boss floors, the arena) for ordinary monsters
+        if (idx === 0 || (bossDef && room === exitRoom)) return;
 
         // Populate monsters based on biome & difficulty scaling
         const monsterDef = prng.choice(biome.monsters);
@@ -361,6 +406,15 @@ export function generateFloor(baseSeed, floorLevel) {
             }
         }
     });
+
+    // Clear stray monsters / loot out of the arena, then place the boss
+    if (bossArena) {
+        const inArena = (x, y) => Math.abs(x - bossArena.cx) <= bossArena.half && Math.abs(y - bossArena.cy) <= bossArena.half;
+        for (let i = monsters.length - 1; i >= 0; i--) if (inArena(monsters[i].x, monsters[i].y)) monsters.splice(i, 1);
+        for (let i = chests.length - 1; i >= 0; i--) if (inArena(chests[i].x, chests[i].y)) chests.splice(i, 1);
+        for (let i = mushrooms.length - 1; i >= 0; i--) if (inArena(mushrooms[i].x, mushrooms[i].y)) mushrooms.splice(i, 1);
+        monsters.push(makeBoss(bossDef, bossArena.cx, bossArena.cy - 1, floorLevel));
+    }
 
     // ------------------------------------------------------------------
     // Locked vault door(s) + matching key(s). A door is only locked if the stairs stay reachable without
@@ -435,7 +489,8 @@ export function generateFloor(baseSeed, floorLevel) {
                 const i = reachableFloors[prng.nextInt(0, reachableFloors.length - 1)];
                 const kx = i % MAP_WIDTH, ky = (i - kx) / MAP_WIDTH;
                 const nearStart = Math.hypot(kx - stairsUpPos.x, ky - stairsUpPos.y) < 6;
-                if (isFree(kx, ky) && !nearStart) {
+                const inBossArena = bossArena && Math.abs(kx - bossArena.cx) <= bossArena.half + 1 && Math.abs(ky - bossArena.cy) <= bossArena.half + 1;
+                if (isFree(kx, ky) && !nearStart && !inBossArena) {
                     keys.push({ x: kx, y: ky, keyId: lock.keyId, name: lock.keyName, hidden: n > 0 || prng.chance(0.35) });
                     break;
                 }
@@ -452,6 +507,7 @@ export function generateFloor(baseSeed, floorLevel) {
         doors,
         keys,
         lockedDoors,
+        bossArena,
         stairsUpPos,
         stairsDownPos,
         monsters,
