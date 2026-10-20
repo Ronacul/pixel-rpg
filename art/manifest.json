@@ -1,0 +1,3 @@
+{
+  "files": ["sprites/tiles.json", "sprites/hero.json", "sprites/monsters.json", "sprites/items.json"]
+}

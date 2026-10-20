@@ -1,0 +1,41 @@
+{
+  "_comment": "Recolour roles: lowercase letters in sprite rows are looked up here. Each group is a named set; the renderer merges one entry per group (biome + race + class...).",
+  "biome": {
+    "castle":   { "a": "#2a2c3c", "b": "#1c1d28", "c": "#3a3d52", "w": "#4a4e66", "x": "#3a3d52", "y": "#1c1d28", "z": "#5d627f" },
+    "caverns":  { "a": "#1c2a30", "b": "#121c20", "c": "#2a3d46", "w": "#38505c", "x": "#2b3d46", "y": "#121c20", "z": "#4e6c7a" },
+    "forest":   { "a": "#1d2c1f", "b": "#131f15", "c": "#2b402e", "w": "#35523a", "x": "#28402c", "y": "#131f15", "z": "#4a7050" },
+    "forge":    { "a": "#2e1f16", "b": "#1c120c", "c": "#44301f", "w": "#5e3e2f", "x": "#46301f", "y": "#1c120c", "z": "#7e5a40" },
+    "abyss":    { "a": "#22142e", "b": "#150b1e", "c": "#34204a", "w": "#4c2a63", "x": "#38204c", "y": "#150b1e", "z": "#6a3c88" }
+  },
+  "race": {
+    "human":    { "s": "#d2aa99", "t": "#a67f6e", "h": "#854c30", "i": "#442434" },
+    "elf":      { "s": "#e6c9b4", "t": "#b89a86", "h": "#dad45e", "i": "#a8a23c" },
+    "dwarf":    { "s": "#c98a68", "t": "#9a6448", "h": "#b8441f", "i": "#7a2a14" },
+    "halfling": { "s": "#d9a07a", "t": "#a8765a", "h": "#4a2c1a", "i": "#2a180e" },
+    "gnome":    { "s": "#d8b0a0", "t": "#a98474", "h": "#e6e6e6", "i": "#9a9a9a" },
+    "half_elf": { "s": "#dcb59f", "t": "#ae8a76", "h": "#6a3a24", "i": "#3e2214" }
+  },
+  "class": {
+    "warrior":  { "o": "#8595a1", "p": "#4e4a4e", "q": "#d04648" },
+    "wizard":   { "o": "#597dce", "p": "#30346d", "q": "#dad45e" },
+    "thief":    { "o": "#4e4a4e", "p": "#201a26", "q": "#757161" },
+    "cleric":   { "o": "#deeed6", "p": "#8595a1", "q": "#dad45e" },
+    "ranger":   { "o": "#346524", "p": "#24481a", "q": "#854c30" },
+    "bard":     { "o": "#d04648", "p": "#8a2a30", "q": "#dad45e" },
+    "monk":     { "o": "#d27d2c", "p": "#854c30", "q": "#140c1c" },
+    "druid":    { "o": "#6daa2c", "p": "#346524", "q": "#854c30" }
+  },
+  "monster": {
+    "bugbear": { "k": "#854c30", "l": "#442434", "m": "#d2aa99", "e": "#dad45e" },
+    "troll":   { "k": "#6daa2c", "l": "#346524", "m": "#c9e08a", "e": "#d04648" },
+    "giant":   { "k": "#8595a1", "l": "#4e4a4e", "m": "#deeed6", "e": "#d27d2c" }
+  },
+  "gem": {
+    "ruby":     { "g": "#ff6a7a", "r": "#d04648", "e": "#8a2a30" },
+    "sapphire": { "g": "#8fb4ff", "r": "#597dce", "e": "#30346d" },
+    "emerald":  { "g": "#9be86a", "r": "#6daa2c", "e": "#346524" },
+    "topaz":    { "g": "#fff09a", "r": "#dad45e", "e": "#d27d2c" },
+    "amethyst": { "g": "#d8a8ff", "r": "#a070e0", "e": "#5a3a90" },
+    "diamond":  { "g": "#ffffff", "r": "#deeed6", "e": "#8595a1" }
+  }
+}

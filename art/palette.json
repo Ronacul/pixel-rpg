@@ -1,0 +1,21 @@
+{
+  "_comment": "Master 16-colour palette (DawnBringer-16 style). Sprite rows use these hex digits, '.' for transparent, and lowercase letters as RECOLOUR ROLES (see roles.json).",
+  "colors": {
+    "0": "#140c1c",
+    "1": "#442434",
+    "2": "#30346d",
+    "3": "#4e4a4e",
+    "4": "#854c30",
+    "5": "#346524",
+    "6": "#d04648",
+    "7": "#757161",
+    "8": "#597dce",
+    "9": "#d27d2c",
+    "A": "#8595a1",
+    "B": "#6daa2c",
+    "C": "#d2aa99",
+    "D": "#6dc2ca",
+    "E": "#dad45e",
+    "F": "#deeed6"
+  }
+}

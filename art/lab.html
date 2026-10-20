@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pixel RPG Asset Lab</title>
+<style>
+  :root { color-scheme: dark; }
+  body { background: #0b0c12; color: #e4e6f2; font-family: 'Courier New', monospace; margin: 0; padding: 14px; }
+  h1 { font-size: 18px; color: #ffcc00; margin: 0 0 4px 0; }
+  h2 { font-size: 14px; color: #64d8cb; border-bottom: 1px solid #252a3d; padding-bottom: 4px; margin: 22px 0 8px 0; }
+  .note { color: #8a92b0; font-size: 11px; margin-bottom: 8px; }
+  .bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; background: #12141f; border: 1px solid #252a3d; border-radius: 8px; padding: 8px; position: sticky; top: 0; z-index: 5; }
+  select, button { background: #1a1e2d; color: #e4e6f2; border: 1px solid #3a4160; border-radius: 4px; padding: 5px 8px; font-family: inherit; font-size: 12px; cursor: pointer; }
+  .grid { display: flex; flex-wrap: wrap; gap: 10px; }
+  .card { background: #11131c; border: 1px solid #252a3d; border-radius: 6px; padding: 6px; text-align: center; font-size: 10px; color: #aab; }
+  .card canvas { display: block; margin: 0 auto 4px auto; image-rendering: pixelated; }
+  .swatches { display: flex; flex-wrap: wrap; gap: 4px; }
+  .sw { width: 54px; height: 40px; border: 1px solid #333; font-size: 10px; display: flex; align-items: flex-end; justify-content: center; }
+  table { border-collapse: collapse; width: 100%; font-size: 11px; }
+  th, td { border: 1px solid #252a3d; padding: 3px 6px; text-align: left; }
+  th { background: #14172a; color: #ffcc00; position: sticky; top: 52px; }
+  .bad { color: #ff6677; font-weight: bold; }
+  .ok { color: #66dd88; }
+  .warn { color: #ffcc55; }
+  canvas.room { image-rendering: pixelated; border: 2px solid #373a4d; border-radius: 6px; }
+</style>
+</head>
+<body>
+<h1>🎨 Pixel RPG Asset Lab</h1>
+<div class="note">Original palette-indexed sprites (see <code>art/sprite-lib.js</code>). Nothing here is wired into the game yet. Rows are validated, measured, and diffable against a saved baseline.</div>
+
+<div class="bar">
+  <label>Biome <select id="sel-biome"></select></label>
+  <label>Scale <select id="sel-scale"><option>4</option><option selected>6</option><option>8</option></select></label>
+  <button id="btn-baseline">💾 Save baseline</button>
+  <button id="btn-clear">🗑️ Clear baseline</button>
+  <span id="status" class="note" style="margin:0;"></span>
+</div>
+
+<h2>Master palette (16 colours)</h2>
+<div class="swatches" id="palette"></div>
+
+<h2>Dungeon room preview (tiles tinted by biome)</h2>
+<canvas id="room" class="room"></canvas>
+
+<h2>Tiles</h2>
+<div class="grid" id="tiles"></div>
+
+<h2>Hero builder: race x class x weapon</h2>
+<div class="bar" style="position: static;">
+  <label>Race <select id="sel-race"></select></label>
+  <label>Class <select id="sel-class"></select></label>
+  <label>Weapon <select id="sel-weapon"></select></label>
+  <label><input type="checkbox" id="chk-shield"> Shield</label>
+</div>
+<div class="grid" id="hero-main" style="margin-top:8px;"></div>
+<div class="note" style="margin-top:8px;">All race x class combinations (default weapon per class):</div>
+<div class="grid" id="hero-matrix"></div>
+
+<h2>Monsters (on the selected biome's floor)</h2>
+<div class="grid" id="monsters"></div>
+
+<h2>Bosses (drawn 1.5x larger in game)</h2>
+<div class="grid" id="bosses"></div>
+
+<h2>Items and gems</h2>
+<div class="grid" id="items"></div>
+
+<h2>Measurements</h2>
+<div class="note">px = opaque pixels, fill = share of the 16x16 cell, readable = share of the sprite's pixels with at least 2:1 contrast against the darkest-readable biome floor (aim for 40% or more so monsters stand out), look-alike = closest other sprite silhouette (IoU, below 0.75 reads as different), Δ = pixels changed since the saved baseline.</div>
+<table id="metrics"></table>
+
+<script type="module">
+import { loadArt, expand, validate, drawSprite, compose, stats, silhouetteIoU, contrastRatio, meanColor, mergeRoles, pixelDiff, frameDelta, readableShare } from './sprite-lib.js';
+
+const art = await loadArt('.');
+const $ = (id) => document.getElementById(id);
+const BIOMES = Object.keys(art.roles.biome);
+const RACES = Object.keys(art.roles.race);
+const CLASSES = Object.keys(art.roles.class);
+const WEAPONS = ['none', 'sword', 'rapier', 'dagger', 'staff', 'staff_nature', 'bow', 'mace'];
+const CLASS_WEAPON = { warrior: 'sword', wizard: 'staff', thief: 'dagger', cleric: 'mace', ranger: 'bow', bard: 'rapier', monk: 'none', druid: 'staff_nature' };
+const CLASS_SHIELD = { warrior: true, cleric: true };
+
+for (const id of ['sel-biome']) $(id).innerHTML = BIOMES.map(b => `<option>${b}</option>`).join('');
+$('sel-race').innerHTML = RACES.map(r => `<option>${r}</option>`).join('');
+$('sel-class').innerHTML = CLASSES.map(c => `<option>${c}</option>`).join('');
+$('sel-weapon').innerHTML = WEAPONS.map(w => `<option>${w}</option>`).join('');
+$('sel-weapon').value = 'sword';
+
+const S = () => parseInt($('sel-scale').value, 10);
+const biome = () => $('sel-biome').value;
+
+function canvasFor(w, h, scale) {
+    const c = document.createElement('canvas');
+    c.width = w * scale; c.height = h * scale;
+    c.getContext('2d').imageSmoothingEnabled = false;
+    return c;
+}
+
+function card(canvas, label, extra = '') {
+    const d = document.createElement('div');
+    d.className = 'card';
+    d.appendChild(canvas);
+    d.insertAdjacentHTML('beforeend', `<div>${label}</div>${extra}`);
+    return d;
+}
+
+function floorBackdrop(ctx, x, y, scale, biomeName) {
+    drawSprite(ctx, art, art.sprites['tile.floor_b'], x, y, scale, { biome: biomeName });
+}
+
+// Build a hero sprite definition from layers
+function heroDef(race, cls, weapon, shield) {
+    const layers = [art.sprites['hero.body'], art.sprites[`hero.race.${race}`], art.sprites[`hero.class.${cls}`]];
+    if (weapon && weapon !== 'none') layers.push(art.sprites[`hero.weapon.${weapon}`]);
+    if (shield) layers.push(art.sprites['hero.shield.buckler']);
+    return compose(layers.filter(Boolean));
+}
+
+function drawHero(ctx, race, cls, weapon, shield, x, y, scale, biomeName) {
+    floorBackdrop(ctx, x, y, scale, biomeName);
+    drawSprite(ctx, art, heroDef(race, cls, weapon, shield), x, y, scale, { race, class: cls });
+}
+
+// ---------- sections ----------
+function renderPalette() {
+    $('palette').innerHTML = Object.entries(art.palette).map(([k, v]) =>
+        `<div class="sw" style="background:${v}; color:${parseInt(v.slice(1, 3), 16) > 140 ? '#000' : '#fff'}">${k} ${v}</div>`).join('');
+}
+
+function renderRoom() {
+    const map = [
+        'WWWWWWWWWWWWWWW',
+        'W.....W.......W',
+        'W.R...O..PB.A.W',
+        'W..T..W.......W',
+        'W.....W..F.C..W',
+        'WWD.WWW...@...W',
+        'W.....L..X..m.W',
+        'W..>..W.......W',
+        'W.....W..S.<..W',
+        'WWWWWWWWWWWWWWW'
+    ];
+    const scale = 3, T = 16 * scale;
+    const c = $('room');
+    c.width = map[0].length * T; c.height = map.length * T;
+    const ctx = c.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    const b = biome();
+    const tile = (id, x, y) => drawSprite(ctx, art, art.sprites[id], x * T, y * T, scale, { biome: b });
+    map.forEach((row, y) => [...row].forEach((ch, x) => {
+        const floorId = (x * 7 + y * 3) % 5 === 0 ? 'tile.floor_c' : (x + y) % 2 ? 'tile.floor_a' : 'tile.floor_b';
+        if (ch === 'W') { tile('tile.wall', x, y); return; }
+        tile(floorId, x, y);
+        const furniture = { D: 'tile.door_closed', O: 'tile.door_open', L: 'tile.door_locked', '>': 'tile.stairs_down', '<': 'tile.stairs_up',
+            P: 'tile.pillar', B: 'tile.barrel', A: 'tile.altar', S: 'tile.shrine', F: 'tile.foliage', R: 'tile.rubble', T: 'tile.trap_plate',
+            C: 'tile.chest', X: 'tile.pit' }[ch];
+        if (furniture) tile(furniture, x, y);
+        if (ch === '@') drawSprite(ctx, art, heroDef('human', 'warrior', 'sword', true), x * T, y * T, scale, { race: 'human', class: 'warrior' });
+        if (ch === 'm') drawSprite(ctx, art, art.sprites['monster.goblin'], x * T, y * T, scale, {});
+    }));
+}
+
+function renderTiles() {
+    const el = $('tiles'); el.innerHTML = '';
+    const b = biome(), sc = S();
+    for (const id of Object.keys(art.sprites).filter(k => k.startsWith('tile.'))) {
+        const c = canvasFor(16, 16, sc);
+        const ctx = c.getContext('2d');
+        if (!['tile.floor_a', 'tile.floor_b', 'tile.floor_c', 'tile.wall'].includes(id)) floorBackdrop(ctx, 0, 0, sc, b);
+        drawSprite(ctx, art, art.sprites[id], 0, 0, sc, { biome: b });
+        el.appendChild(card(c, id.replace('tile.', '')));
+    }
+}
+
+function renderHeroes() {
+    const sc = S(), b = biome();
+    const race = $('sel-race').value, cls = $('sel-class').value, weapon = $('sel-weapon').value, shield = $('chk-shield').checked;
+    $('hero-main').innerHTML = '';
+    const c = canvasFor(16, 16, sc * 2);
+    drawHero(c.getContext('2d'), race, cls, weapon, shield, 0, 0, sc * 2, b);
+    $('hero-main').appendChild(card(c, `${race} ${cls}`));
+
+    const m = $('hero-matrix'); m.innerHTML = '';
+    const msc = 4;
+    for (const r of RACES) for (const k of CLASSES) {
+        const cv = canvasFor(16, 16, msc);
+        drawHero(cv.getContext('2d'), r, k, CLASS_WEAPON[k], !!CLASS_SHIELD[k], 0, 0, msc, b);
+        m.appendChild(card(cv, `${r}<br>${k}`));
+    }
+}
+
+const MONSTER_IDS = ['rat', 'bat', 'goblin', 'spider', 'slime', 'lizard', 'wolf', 'treant', 'skeleton', 'golem', 'hound', 'wight', 'wraith', 'eye', 'demon'];
+const BOSSES = [
+    ['Bugbear Chieftain', 'monster.brute', { monster: 'bugbear' }],
+    ['Cave Troll', 'monster.brute', { monster: 'troll' }],
+    ['Chimaera', 'monster.chimaera', {}],
+    ['Stone Giant', 'monster.brute', { monster: 'giant' }],
+    ['Ancient Dragon', 'monster.dragon', {}]
+];
+
+function renderMonsters() {
+    const sc = S(), b = biome();
+    $('monsters').innerHTML = '';
+    for (const id of MONSTER_IDS) {
+        const c = canvasFor(16, 16, sc);
+        const ctx = c.getContext('2d');
+        floorBackdrop(ctx, 0, 0, sc, b);
+        drawSprite(ctx, art, art.sprites[`monster.${id}`], 0, 0, sc, {});
+        $('monsters').appendChild(card(c, id));
+    }
+    $('bosses').innerHTML = '';
+    for (const [name, id, sel] of BOSSES) {
+        const c = canvasFor(16, 16, sc + 2);
+        const ctx = c.getContext('2d');
+        floorBackdrop(ctx, 0, 0, sc + 2, b);
+        drawSprite(ctx, art, art.sprites[id], 0, 0, sc + 2, sel);
+        $('bosses').appendChild(card(c, name));
+    }
+}
+
+function renderItems() {
+    const sc = S();
+    $('items').innerHTML = '';
+    for (const id of Object.keys(art.sprites).filter(k => k.startsWith('item.'))) {
+        const gemTypes = ['gem', 'ring', 'amulet'].includes(id.replace('item.', '')) ? Object.keys(art.roles.gem) : [null];
+        for (const g of gemTypes) {
+            const c = canvasFor(16, 16, sc);
+            const ctx = c.getContext('2d');
+            ctx.fillStyle = '#161824'; ctx.fillRect(0, 0, c.width, c.height);
+            drawSprite(ctx, art, art.sprites[id], 0, 0, sc, g ? { gem: g } : {});
+            $('items').appendChild(card(c, id.replace('item.', '') + (g ? ` (${g})` : '')));
+        }
+    }
+}
+
+// ---------- measurements ----------
+function biomeFloorHex(name) { return art.roles.biome[name].a; }
+
+function renderMetrics() {
+    const baseline = JSON.parse(localStorage.getItem('art_baseline') || 'null');
+    const rows = [];
+    const ids = Object.keys(art.sprites);
+    const mons = ids.filter(i => i.startsWith('monster.'));
+    for (const id of ids) {
+        const def = art.sprites[id];
+        const errors = validate(def);
+        const st = errors.length ? null : stats(def);
+        let contrast = '-', look = '-', delta = '-';
+        if (st && (id.startsWith('monster.') || id.startsWith('hero.body'))) {
+            const sel = id === 'monster.brute' ? { monster: 'bugbear' } : {};
+            const roleMap = mergeRoles(art, sel);
+            const worst = Math.min(...BIOMES.map(b => readableShare(def, art, roleMap, biomeFloorHex(b), 2)));
+            contrast = Math.round(worst * 100) + '%';
+        }
+        if (st && id.startsWith('monster.')) {
+            let best = ['', 0];
+            for (const o of mons) if (o !== id && !validate(art.sprites[o]).length) {
+                const v = silhouetteIoU(def, art.sprites[o]);
+                if (v > best[1]) best = [o.replace('monster.', ''), v];
+            }
+            look = `${best[0]} ${best[1].toFixed(2)}`;
+        }
+        if (baseline && baseline[id] && st) {
+            const was = baseline[id];
+            const now = expand(def).rows.join('');
+            let n = 0; for (let i = 0; i < now.length; i++) if (now[i] !== was[i]) n++;
+            delta = was.length === now.length ? String(n) : 'resized';
+        } else if (baseline && st) delta = 'new';
+        rows.push({ id, errors, st, contrast, look, delta });
+    }
+    $('metrics').innerHTML = `<tr><th>sprite</th><th>px</th><th>colours</th><th>fill</th><th>readable</th><th>look-alike</th><th>Δ</th><th>check</th></tr>` +
+        rows.map(r => {
+            const cCls = r.contrast !== '-' && parseFloat(r.contrast) < 40 ? 'bad' : (r.contrast !== '-' ? 'ok' : '');
+            const lCls = r.look !== '-' && parseFloat(r.look.split(' ').pop()) > 0.75 ? 'warn' : '';
+            const dCls = r.delta !== '-' && r.delta !== '0' ? 'warn' : '';
+            return `<tr><td>${r.id}</td><td>${r.st ? r.st.opaque : ''}</td><td>${r.st ? r.st.colors : ''}</td><td>${r.st ? Math.round(r.st.fill * 100) + '%' : ''}</td>
+            <td class="${cCls}">${r.contrast}</td><td class="${lCls}">${r.look}</td><td class="${dCls}">${r.delta}</td>
+            <td class="${r.errors.length ? 'bad' : 'ok'}">${r.errors.length ? r.errors.join('; ') : 'ok'}</td></tr>`;
+        }).join('');
+    const bad = rows.filter(r => r.errors.length).length;
+    $('status').innerText = `${ids.length} sprites, ${bad} with errors${baseline ? ', baseline loaded' : ', no baseline saved'}`;
+    window.__artReport = rows;
+}
+
+function renderAll() {
+    renderRoom(); renderTiles(); renderHeroes(); renderMonsters(); renderItems(); renderMetrics();
+}
+
+renderPalette();
+renderAll();
+for (const id of ['sel-biome', 'sel-scale', 'sel-race', 'sel-class', 'sel-weapon', 'chk-shield']) $(id).addEventListener('change', renderAll);
+$('sel-class').addEventListener('change', () => { $('sel-weapon').value = CLASS_WEAPON[$('sel-class').value]; $('chk-shield').checked = !!CLASS_SHIELD[$('sel-class').value]; renderAll(); });
+$('btn-baseline').addEventListener('click', () => {
+    const snap = {};
+    for (const [id, def] of Object.entries(art.sprites)) if (!validate(def).length) snap[id] = expand(def).rows.join('');
+    localStorage.setItem('art_baseline', JSON.stringify(snap));
+    renderMetrics();
+});
+$('btn-clear').addEventListener('click', () => { localStorage.removeItem('art_baseline'); renderMetrics(); });
+window.__art = art;
+</script>
+</body>
+</html>
