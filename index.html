@@ -656,6 +656,7 @@
         .dbg-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
         .dbg-btn { background: #2a1818; border: 1px solid #7a3d3d; color: #ffb199; border-radius: 4px; padding: 5px 4px; font-family: inherit; font-size: 10px; font-weight: bold; cursor: pointer; }
         .dbg-btn:active { filter: brightness(1.3); }
+        .roll-die { display:inline-block; min-width:26px; text-align:center; padding:4px 6px; border-radius:5px; border:1px solid #3a4160; font-weight:bold; font-size:13px; color:#fff; }
     </style>
 </head>
 <body>
@@ -935,7 +936,7 @@
             </div>
             <div style="font-size: 12px; color: #888; margin-bottom: 6px;">Restart your journey:</div>
             <div style="display: flex; gap: 8px;">
-                <button id="btn-death-reroll" class="modal-btn" style="flex: 1; background: #3d1a24; border-color: #732a3b; color: #ff99aa;">🎲 New Seed</button>
+                <button id="btn-death-reroll" class="modal-btn" style="flex: 1; background: #3d1a24; border-color: #732a3b; color: #ff99aa;">🧙 New Character</button>
                 <button id="btn-death-retry" class="modal-btn" style="flex: 1;">🔄 Retry Run</button>
             </div>
         </div>
@@ -1083,7 +1084,11 @@
                 <select id="set-class" class="set-select" onchange="updateSettingsPreview()"></select>
 
                 <label class="set-label">🧬 Race</label>
-                <select id="set-race" class="set-select" onchange="updateSettingsPreview()"></select>
+                <select id="set-race" class="set-select" onchange="refreshCreation()"></select>
+
+                <label class="set-label">🎲 Ability scores</label>
+                <select id="set-scores" class="set-select" onchange="refreshCreation()"></select>
+                <div id="roll-box" style="display:none; margin-top:6px;"></div>
 
                 <div id="set-preview" style="background: #0e101a; border: 1px solid #2d334d; border-radius: 6px; padding: 8px; margin-top: 8px; font-size: 10px; line-height: 1.4; color: #cfd3e6;"></div>
 
@@ -1177,6 +1182,8 @@
             applySettings,
             saveSettingsOnly,
             updateSettingsPreview,
+            refreshCreation,
+            rerollScores,
             usePower,
             cyclePower,
             setMainPower,
@@ -1205,8 +1212,8 @@
             sortBag,
             shopSellJunk,
             pixelDebug
-        } from './src/main.js?v=16.0';
-        import { PRNG } from './src/core/RNG.js?v=16.0';
+        } from './src/main.js?v=17.0';
+        import { PRNG } from './src/core/RNG.js?v=17.0';
 
         window.openSheetModal = function() {
             populateSheet();
@@ -1261,6 +1268,8 @@
         window.applySettings = applySettings;
         window.saveSettingsOnly = saveSettingsOnly;
         window.updateSettingsPreview = updateSettingsPreview;
+        window.refreshCreation = refreshCreation;
+        window.rerollScores = rerollScores;
         window.pixelDebug = pixelDebug;
         window.toggleGraphics = toggleGraphics;
         window.setKeyPreset = setKeyPreset;
@@ -1334,14 +1343,12 @@
         });
 
         document.getElementById('btn-reroll').addEventListener('click', () => {
-            const newSeed = PRNG.generateRandomSeed();
-            startPlaythrough(newSeed);
+            openSettings(true); // a new game starts at character creation
         });
 
         document.getElementById('btn-death-reroll').addEventListener('click', () => {
             document.getElementById('death-modal').classList.remove('active');
-            const newSeed = PRNG.generateRandomSeed();
-            startPlaythrough(newSeed);
+            openSettings(true); // ...and so does a new seed after dying
         });
 
         document.getElementById('btn-death-retry').addEventListener('click', () => {

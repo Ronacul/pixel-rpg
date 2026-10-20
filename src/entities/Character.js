@@ -2,13 +2,16 @@ import { ITEM_SLOTS, calculateEquippedSetBonuses, MUSHROOM_TYPES, getCompatibleS
 import { ClassManager } from '../data/Classes.js';
 import { PROGRESSION, XP_TABLE, getGrantsForLevel, MASTERIES } from '../data/Progression.js';
 import { RaceManager, DEFAULT_RACE_ID } from '../data/Races.js';
+import { finalScores } from '../data/Creation.js';
 import { TOTAL_SLOTS, compartmentOf, compartmentRange, COMPARTMENTS } from '../data/Inventory.js';
 import { FEATS } from '../data/Feats.js';
 import { EffectSystem } from '../systems/Effects.js';
 import { wardMultiplier as powersWardMultiplier } from '../systems/Powers.js';
 
 export class PlayerCharacter {
-    constructor(classKey = 'warrior', raceKey = DEFAULT_RACE_ID) {
+    // scoreRolls: optional six ability scores (rolled or standard array), assigned to the class' stats by priority
+    constructor(classKey = 'warrior', raceKey = DEFAULT_RACE_ID, scoreRolls = null) {
+        this.scoreRolls = scoreRolls;
         this.x = 0;
         this.y = 0;
         this.level = 1;
@@ -105,11 +108,9 @@ export class PlayerCharacter {
     // Class base attributes + race modifiers (never below 3)
     setClassAttributes(classId) {
         const cls = ClassManager.getClass(classId);
-        const a = cls.attributes || { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 };
-        const r = this.race?.attrs || {};
-        const v = (k) => Math.max(3, (a[k] || 10) + (r[k] || 0));
-        this.baseStr = v('str'); this.baseDex = v('dex'); this.baseCon = v('con');
-        this.baseInt = v('int'); this.baseWis = v('wis'); this.baseCha = v('cha');
+        const s = finalScores(cls, this.race, this.scoreRolls);
+        this.baseStr = s.str; this.baseDex = s.dex; this.baseCon = s.con;
+        this.baseInt = s.int; this.baseWis = s.wis; this.baseCha = s.cha;
     }
 
     // Sum of permanent passive modifiers from race, general feats and heroic masteries

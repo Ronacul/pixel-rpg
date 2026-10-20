@@ -23,6 +23,7 @@ import { CLASSES, SKILLS, ClassManager } from './data/Classes.js';
 import { RaceManager, DEFAULT_RACE_ID } from './data/Races.js';
 import { FeatManager, FEATS } from './data/Feats.js';
 import { COMPARTMENTS, compartmentRange, compartmentOfIndex, compartmentOf } from './data/Inventory.js';
+import { ABILITY_KEYS, STANDARD_ARRAY, SCORE_MODES, creationFor, rollAbilityScores, finalScores, classEligibility } from './data/Creation.js';
 import { KEY_ACTIONS, KEY_PRESETS, DEFAULT_PRESET, RESERVED_KEYS, normalizeKey, keyLabel, resolveBinds, buildKeyMap } from './data/Keybinds.js';
 import { PROGRESSION, XP_TABLE, XP_REWARDS, MASTERIES, monsterXp } from './data/Progression.js';
 import { DIFFICULTY, killXpFor, floorForLevel, expectedPlayerLevel, floorXpBudget, rollMonsterLevel, rollAffixes, MONSTER_AFFIXES } from './data/Difficulty.js';
@@ -68,7 +69,7 @@ let hoverWorldPos = null;   // { x, y } currently targeted by cursor
 
 // ---- Persistent settings (map size, class, race, debug tools) ----
 const SETTINGS_KEY = 'pixel_rpg_settings_v2'; // v2: default map size is now Tiny (50x50)
-let settings = { mapSize: DEFAULT_MAP_SIZE, classId: 'warrior', raceId: DEFAULT_RACE_ID, debug: false, sprites: true, keyPreset: DEFAULT_PRESET, keyOverrides: {} };
+let settings = { mapSize: DEFAULT_MAP_SIZE, classId: 'warrior', raceId: DEFAULT_RACE_ID, debug: false, sprites: true, keyPreset: DEFAULT_PRESET, keyOverrides: {}, scoreMode: 'template', rolls: null };
 let godMode = false;
 
 function loadSettings() {
@@ -132,7 +133,7 @@ export function startPlaythrough(seedString, opts = {}) {
     prng = new PRNG(seedString);
     dungeonManager = new DungeonManager(seedString, { testMode });
     runRecorded = false;
-    player = new PlayerCharacter(opts.classId ?? settings.classId, opts.raceId ?? settings.raceId);
+    player = new PlayerCharacter(opts.classId ?? settings.classId, opts.raceId ?? settings.raceId, opts.rolls !== undefined ? opts.rolls : activeScores());
     applyLegacyPerks(player);
 
     cancelTargeting();
@@ -3508,10 +3509,16 @@ export function populateSheet() {
     const isBodySelected = (slot) => selectedSlot?.type === 'body' && selectedSlot?.id === slot;
 
     // Set highlighting: every item belonging to a set gets the set's colour; pieces you own 2+ of glow and show "owned/total"
+    // Set pieces are counted by DISTINCT name: duplicates of one piece never look like extra set progress
+    const ownedSetNames = {};
+    const equippedSetNames = {};
+    const bump = (map, i) => { (map[i.setId] = map[i.setId] || new Set()).add(i.name); };
+    player.getEquippedItems().forEach(i => { if (i.setId) { bump(ownedSetNames, i); bump(equippedSetNames, i); } });
+    player.backpack.forEach(i => { if (i && i.setId) bump(ownedSetNames, i); });
     const ownedSetCounts = {};
     const equippedSetCounts = {};
-    player.getEquippedItems().forEach(i => { if (i.setId) { ownedSetCounts[i.setId] = (ownedSetCounts[i.setId] || 0) + 1; equippedSetCounts[i.setId] = (equippedSetCounts[i.setId] || 0) + 1; } });
-    player.backpack.forEach(i => { if (i && i.setId) ownedSetCounts[i.setId] = (ownedSetCounts[i.setId] || 0) + 1; });
+    for (const id in ownedSetNames) ownedSetCounts[id] = ownedSetNames[id].size;
+    for (const id in equippedSetNames) equippedSetCounts[id] = equippedSetNames[id].size;
     const setLook = (item) => {
         const def = item && item.setId ? EQUIPMENT_SETS[item.setId] : null;
         if (!def) return { style: '', badge: '' };
@@ -3522,7 +3529,7 @@ export function populateSheet() {
         const active = equipped >= 2;
         const color = def.color || '#ffcc00';
         const style = `border: 2px solid ${color} !important; ${shared ? `box-shadow: 0 0 10px ${color}99, inset 0 0 8px ${color}33;` : ''} background-image: linear-gradient(180deg, ${color}${shared ? '30' : '14'}, transparent);`;
-        const badge = `<div class="set-chip" style="background:${color}; color:#111;" title="${def.name}: you own ${owned} of ${total} pieces${active ? ` (${equipped} equipped: bonus active!)` : ''}">${def.icon} ${owned}/${total}${active ? ' ✓' : ''}</div>`;
+        const badge = `<div class="set-chip" style="background:${color}; color:#111;" title="${def.name}: ${equipped} distinct piece(s) worn, ${owned - equipped} more owned in your bag, ${total} in the set${active ? " (set bonus active!)" : ""}">${def.icon} ${equipped}/${total}${owned > equipped ? ` +${owned - equipped}` : ""}${active ? " ✓" : ""}</div>`;
         return { style, badge };
     };
 
@@ -4156,7 +4163,7 @@ function buildRunSummary(causeText, victory = false) {
         <div>Deepest floor: <strong style="color:#ffcc00;">${s.deepest}</strong> &middot; Kills: <strong>${s.kills}</strong> &middot; Bosses: <strong>${s.bossesSlain}</strong></div>
         <div>Gold earned: <strong>${s.gold}</strong> &middot; Chests: <strong>${s.chests}</strong> &middot; Traps disarmed: <strong>${s.disarmed}</strong></div>
         ${best ? `<div>Best find: <strong style="color:#64d8cb;">${best.icon} ${best.name}</strong></div>` : ''}
-        <div style="margin-top:4px; color:#b9a8ff;">⭐ Legacy points earned: <strong>+${rec.earned}</strong> (total ${rec.total})</div>
+        <div style="margin-top:4px; color:#b9a8ff;">⭐ Legacy points earned: <strong>+${rec.earned}</strong> (total ${rec.total}) &mdash; spend them on permanent perks in Menu &rarr; New Run</div>
         ${isDailyRun() ? `<div style="color:#64d8cb;">📅 Daily run: best floor today F${Daily.bestFloor()}</div>` : ''}`;
 }
 
@@ -4184,6 +4191,7 @@ export function renderLegacyPanel() {
     const d = Legacy.get();
     el.innerHTML = `
         <div style="color:#b9a8ff; font-weight:bold; font-size:12px;">⭐ LEGACY: ${d.points} points <span style="color:#888ea6; font-weight:normal;">(${d.runs} runs, best floor ${d.best.floor})</span></div>
+        <div style="font-size:10px; color:#9aa0bd; margin:3px 0 4px;">Legacy points are earned when a run ends (death or victory): 10 per floor reached, 0.5 per kill, 50 per boss, 1 per 20 gold, +200 for victory. Spend them here on permanent perks that apply to every future run.</div>
         ${Object.values(LEGACY_PERKS).map(p => {
             const has = d.perks.includes(p.id);
             const can = !has && d.points >= p.cost;
@@ -4204,7 +4212,7 @@ export function buyLegacyPerk(id) {
 export function startDailyRun() {
     readSettingsFromModal();
     closeSettings();
-    startPlaythrough(Daily.seedFor(todayString(), PRNG));
+    startPlaythrough(Daily.seedFor(todayString(), PRNG), { rolls: STANDARD_ARRAY }); // everyone gets the same scores on the daily
     postMessage(`📅 Daily run ${todayString()}: everyone gets this seed today. Best floor so far: F${Daily.bestFloor()}.`, 'msg-info');
 }
 
@@ -4217,19 +4225,77 @@ function fillSelect(id, options, selectedValue) {
     el.innerHTML = options.map(o => `<option value="${o.value}" ${String(o.value) === String(selectedValue) ? 'selected' : ''}>${o.label}</option>`).join('');
 }
 
+// The six scores the next character will use: rolled, standard array, or null (class template)
+function activeScores() {
+    if (settings.scoreMode === 'roll' && Array.isArray(settings.rolls) && settings.rolls.length === 6) return settings.rolls;
+    if (settings.scoreMode === 'standard') return STANDARD_ARRAY;
+    return null;
+}
+
+// Rebuilds the class list (greying out classes the race or the scores rule out), the roll box and the preview
+export function refreshCreation() {
+    const raceEl = document.getElementById('set-race');
+    const classEl = document.getElementById('set-class');
+    const modeEl = document.getElementById('set-scores');
+    if (!raceEl || !classEl || !modeEl) return;
+
+    settings.scoreMode = SCORE_MODES[modeEl.value] ? modeEl.value : 'template';
+    if (settings.scoreMode === 'roll' && !(Array.isArray(settings.rolls) && settings.rolls.length === 6)) settings.rolls = rollAbilityScores();
+    const race = RaceManager.getRace(raceEl.value);
+    const rolls = activeScores();
+
+    // Class options with eligibility
+    const wanted = classEl.value || settings.classId;
+    const classes = ClassManager.getSelectableClasses();
+    let chosen = null;
+    classEl.innerHTML = classes.map(c => {
+        const el = classEligibility(c, race, rolls);
+        if (el.ok && !chosen && c.id === wanted) chosen = c.id;
+        return `<option value="${c.id}" ${el.ok ? '' : 'disabled'}>${c.icon} ${c.name}${el.ok ? '' : ' ✗'}</option>`;
+    }).join('');
+    if (!chosen) chosen = (classes.find(c => classEligibility(c, race, rolls).ok) || {}).id || null;
+    if (chosen) classEl.value = chosen;
+
+    // Roll box
+    const box = document.getElementById('roll-box');
+    if (box) {
+        if (settings.scoreMode === 'roll') {
+            box.style.display = 'block';
+            box.innerHTML = `<div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">${settings.rolls.map(v => `<span class="roll-die" style="background:${v >= 15 ? '#1f4a2a' : v >= 12 ? '#26324a' : '#4a2a2a'};">${v}</span>`).join('')}
+                <button class="btn-action-small" style="flex:none; padding:6px 10px;" onclick="window.rerollScores()">🎲 Reroll</button></div>
+                <div style="font-size:10px; color:#888ea6; margin-top:4px;">Your best rolls go to the class' key stats. Low rolls close classes off: reroll until one fits.</div>`;
+        } else if (settings.scoreMode === 'standard') {
+            box.style.display = 'block';
+            box.innerHTML = `<div style="font-size:10px; color:#888ea6;">Fixed scores 15 14 13 12 10 8, assigned to the class' key stats. Every class that the race allows is available.</div>`;
+        } else {
+            box.style.display = 'none';
+        }
+    }
+    updateSettingsPreview();
+}
+
+export function rerollScores() {
+    settings.rolls = rollAbilityScores();
+    saveSettings();
+    refreshCreation();
+}
+
 export function updateSettingsPreview() {
     const cls = ClassManager.getClass(document.getElementById('set-class')?.value);
     const race = RaceManager.getRace(document.getElementById('set-race')?.value);
     const el = document.getElementById('set-preview');
     if (!el) return;
-    const a = cls.attributes;
-    const fmt = (k) => Math.max(3, a[k] + (race.attrs[k] || 0));
+    const rolls = activeScores();
+    const s = finalScores(cls, race, rolls);
     const gear = Object.values(cls.startingGear || {}).join(', ') || 'Bare hands';
+    const elig = classEligibility(cls, race, rolls);
+    const banned = (race.bannedClasses || []).map(id => ClassManager.getClass(id).name);
     el.innerHTML = `
         <div><strong>${cls.icon} ${cls.name}</strong> — ${cls.title}. ${cls.desc}</div>
-        <div style="margin-top:3px;"><strong>${race.icon} ${race.name}:</strong> ${race.traits.map(t => `${t.name} (${t.desc})`).join('; ')}</div>
-        <div style="margin-top:3px;">Hit die d${cls.hitDie} • Base HP ${cls.baseHp} • STR ${fmt('str')} DEX ${fmt('dex')} CON ${fmt('con')} INT ${fmt('int')} WIS ${fmt('wis')} CHA ${fmt('cha')}</div>
-        <div style="margin-top:3px; color:#888ea6;">Starting kit: ${gear}</div>`;
+        <div style="margin-top:3px;"><strong>${race.icon} ${race.name}:</strong> ${race.traits.map(t => `${t.name} (${t.desc})`).join('; ')}${banned.length ? `<br><span style="color:#ff9a9a;">Cannot be: ${banned.join(', ')}</span>` : ''}</div>
+        <div style="margin-top:3px;">Hit die d${cls.hitDie} • Base HP ${cls.baseHp} • STR ${s.str} DEX ${s.dex} CON ${s.con} INT ${s.int} WIS ${s.wis} CHA ${s.cha}</div>
+        <div style="margin-top:3px; color:#888ea6;">Needs: ${Object.entries(creationFor(cls.id).min).map(([k, v]) => `${k.toUpperCase()} ${v}+`).join(', ') || 'nothing'} • Starting kit: ${gear}</div>
+        ${elig.ok ? '' : `<div style="margin-top:3px; color:#ff9a9a;">⚠️ ${elig.reasons.join('; ')}</div>`}`;
 }
 
 export function openSettings(newGame = false) {
@@ -4239,9 +4305,10 @@ export function openSettings(newGame = false) {
     fillSelect('set-map-size', MAP_SIZES.map(s => ({ value: s.size, label: s.label })), settings.mapSize);
     fillSelect('set-class', ClassManager.getSelectableClasses().map(c => ({ value: c.id, label: `${c.icon} ${c.name}` })), settings.classId);
     fillSelect('set-race', RaceManager.getAllRaces().map(r => ({ value: r.id, label: `${r.icon} ${r.name}` })), settings.raceId);
+    fillSelect('set-scores', Object.entries(SCORE_MODES).map(([id, m]) => ({ value: id, label: m.label })), settings.scoreMode);
     const dbg = document.getElementById('set-debug');
     if (dbg) dbg.checked = !!settings.debug;
-    updateSettingsPreview();
+    refreshCreation();
     refreshDebugPanel();
     const modal = document.getElementById('settings-modal');
     switchMenuTab(newGame === true ? 'newrun' : 'actions');
@@ -4274,6 +4341,8 @@ function readSettingsFromModal() {
     settings.mapSize = normalizeMapSize(document.getElementById('set-map-size')?.value);
     settings.classId = ClassManager.getClass(document.getElementById('set-class')?.value).id;
     settings.raceId = RaceManager.getRace(document.getElementById('set-race')?.value).id;
+    const modeVal = document.getElementById('set-scores')?.value;
+    settings.scoreMode = SCORE_MODES[modeVal] ? modeVal : 'template';
     settings.debug = !!document.getElementById('set-debug')?.checked;
     saveSettings();
 }

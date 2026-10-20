@@ -330,12 +330,15 @@ export function calculateEquippedSetBonuses(player) {
     if (!player) return { activeSets: [], totals: {}, setCounts: {} };
     const equipped = player.getEquippedItems ? player.getEquippedItems() : Object.values(player.equipment || {}).filter(Boolean);
 
-    const setCounts = {};
+    // A set bonus counts DISTINCT worn pieces: wearing two copies of the same piece does not add a second one
+    const setNames = {};
     for (const item of equipped) {
         if (item && item.setId && EQUIPMENT_SETS[item.setId]) {
-            setCounts[item.setId] = (setCounts[item.setId] || 0) + 1;
+            (setNames[item.setId] = setNames[item.setId] || new Set()).add(item.name);
         }
     }
+    const setCounts = {};
+    for (const id in setNames) setCounts[id] = setNames[id].size;
 
     const activeSets = [];
     const totals = {
