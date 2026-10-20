@@ -139,7 +139,9 @@ function loadFloor(floorNum, enterFromAbove = true) {
 
     runPerceptionRadar();
 
-    postMessage(`Floor ${floorNum}: ${currentFloorData.biome.name}`, 'msg-info');
+    const lockInfo = currentFloorData.lockedDoors?.filter(l => currentFloorData.terrain[l.y * MAP_WIDTH + l.x] === TILES.LOCKED_DOOR).length;
+    const hiddenKeyCount = currentFloorData.keys?.filter(k => k.hidden).length || 0;
+    postMessage(`Floor ${floorNum}: ${currentFloorData.biome.name}${lockInfo ? ` | 🔒 ${lockInfo} locked door(s)${hiddenKeyCount ? `, a key is hidden: Search (E)` : ", key lies in sight"}` : ""}`, "msg-info");
     updateHUD();
 }
 
@@ -2328,7 +2330,20 @@ export function searchArea() {
     } else if (hiddenLeft > 0) {
         postMessage(`🔍 Search (radius ${radius}): you sense something hidden nearby... try again.`, 'msg-info');
     } else {
-        postMessage(`🔍 Search (radius ${radius}): nothing hidden within reach.`, 'msg-info');
+        // Key sense: a hidden key anywhere on the floor gives a warm/cold direction hint
+        const hiddenKey = (f.keys || []).filter(k => k.hidden)
+            .sort((a, b) => Math.hypot(a.x - player.x, a.y - player.y) - Math.hypot(b.x - player.x, b.y - player.y))[0];
+        if (hiddenKey) {
+            const dx = hiddenKey.x - player.x, dy = hiddenKey.y - player.y;
+            const dist = Math.hypot(dx, dy);
+            const dir = (Math.abs(dy) > Math.abs(dx) * 2 ? '' : (dx > 0 ? 'east' : 'west')) + '';
+            const vert = Math.abs(dx) > Math.abs(dy) * 2 ? '' : (dy > 0 ? 'south' : 'north');
+            const compass = (vert + (vert && dir ? '-' : '') + dir) || 'nearby';
+            const warmth = dist <= radius * 2 ? 'very close' : (dist <= radius * 4 ? 'fairly near' : 'far away');
+            postMessage(`🔍 Search: nothing here, but you sense a hidden ${hiddenKey.name} ${warmth} to the ${compass}.`, 'msg-info');
+        } else {
+            postMessage(`🔍 Search (radius ${radius}): nothing hidden within reach.`, 'msg-info');
+        }
     }
     endTurn();
     updateHUD();
@@ -3362,13 +3377,13 @@ export const pixelDebug = {
         return { tried, found, maxMs: +maxMs.toFixed(2), avgLen: found ? +(totalLen / found).toFixed(1) : 0 };
     },
     // Locks / keys on this floor, and whether every key lies in the area reachable without keys
-    lockCheck() {
+    lockCheck(secretsSolid = false) {
         const f = currentFloorData;
         const W = MAP_WIDTH, H = MAP_HEIGHT;
         const seen = new Uint8Array(W * H);
         const q = [f.stairsUpPos.y * W + f.stairsUpPos.x];
         seen[q[0]] = 1;
-        const blocked = new Set([TILES.WALL, TILES.PILLAR, TILES.PIT, TILES.RUBBLE, TILES.LOCKED_DOOR]);
+        const blocked = new Set([TILES.WALL, TILES.PILLAR, TILES.PIT, TILES.RUBBLE, TILES.LOCKED_DOOR, ...(secretsSolid ? [TILES.SECRET_DOOR] : [])]);
         for (let h = 0; h < q.length; h++) {
             const i = q[h], x = i % W, y = (i - x) / W;
             for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
