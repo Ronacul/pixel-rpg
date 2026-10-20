@@ -107,3 +107,9 @@ The game draws **original pixel art** (tiles tinted per biome, a layered hero th
 ### 🎒 Inventory rules
 * Food, mushrooms, potions and flasks **stack** by name (up to 99 per slot); gear and gems take one slot each.
 * Nothing is silently lost: a chest stays closed while your bag is full, barrel loot that does not fit lies on the floor, and **dropped items stay on the ground** where you dropped them. Step away and back, or wait (Space), to pick things up once you have room.
+
+### 🧰 Managing gear
+* The item action bar (**Equip**, **Drop**, **Socket Gem**, **Eat**...) now floats at the bottom of the Gear sheet, right next to the inventory.
+* Selecting a bag item shows how it compares with what you wear (▲ / ▼ per stat, gained or lost powers). Bag cells carry badges: **▲** better than worn, **NEW** fills an empty slot, **▼** worse.
+* **⚡ Equip upgrades** swaps in every better item at once; **↕ Sort bag** groups gear by slot and strength, then gems, then consumables.
+* At a merchant, the Sell tab lists what you are wearing, tags bag items as upgrade / worse / similar, and has **Sell all junk gear**. Gear in the Buy tab is compared with your equipment too.

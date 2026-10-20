@@ -9,6 +9,7 @@ import { generateFloor, makeMonster, makeBoss } from './map/Generator.js';
 import { BOSSES, getBossForFloor } from './data/Bosses.js';
 import { bossTurn } from './systems/BossAI.js';
 import { SpriteStore, weaponSpriteFor } from './render/Sprites.js';
+import { adviceFor, compareHtml, findUpgrades, isJunk, bagSortKey, itemScore } from './systems/GearAdvice.js';
 import { triggerPowers, senseRadius } from './systems/Powers.js';
 import { describePower } from './data/Powers.js';
 import { GEM_TYPES, createGem, randomGem, previewGem, describePreview, freeSockets, socketGem, canFuse, fuseGems, GEM_TIER_NAMES } from './data/Gems.js';
@@ -2916,6 +2917,44 @@ export function equipSelectedBackpackItem(targetSlot = null) {
     }
 }
 
+// ---- Equip management helpers ----
+// Equips every bag item that beats what is worn (one per slot, best gain first)
+export function equipUpgrades() {
+    const picks = findUpgrades(player);
+    if (picks.length === 0) {
+        postMessage('⚡ Nothing in your bag beats what you are wearing.', 'msg-info');
+        return;
+    }
+    const names = [];
+    for (const p of picks) {
+        const res = player.equipFromBackpack(p.idx, p.slot);
+        if (res) names.push(res.equipped.name);
+    }
+    selectedSlot = null;
+    postMessage(`⚡ Equipped ${names.length} upgrade(s): ${names.join(', ')}.`, 'msg-victory');
+    updateHUD();
+    populateSheet();
+    draw();
+}
+
+// Sorts the bag: keys, gear by slot and strength, gems, then consumables
+export function sortBag() {
+    const items = player.backpack.filter(Boolean);
+    items.sort((a, b) => {
+        const ka = bagSortKey(a), kb = bagSortKey(b);
+        for (let i = 0; i < ka.length; i++) {
+            if (ka[i] < kb[i]) return -1;
+            if (ka[i] > kb[i]) return 1;
+        }
+        return 0;
+    });
+    player.backpack.fill(null);
+    items.forEach((it, i) => { player.backpack[i] = it; });
+    selectedSlot = null;
+    postMessage('↕ Bag sorted.', 'msg-info');
+    populateSheet();
+}
+
 // ---- Gem sockets: set a gem from the bag into the selected item ----
 function getSelectedGear() {
     if (!selectedSlot) return null;
@@ -3389,15 +3428,26 @@ export function populateSheet() {
     const bagHtml = player.backpack.map((item, idx) => {
         const isSel = isBagSelected(idx);
         const look = setLook(item);
+        const adv = adviceFor(player, item);
+        const advChip = adv === 'upgrade' ? '<div class="adv-chip adv-up" title="Better than what you wear">▲</div>' : (adv === 'new' ? '<div class="adv-chip adv-new" title="Fills an empty slot">NEW</div>' : (adv === 'downgrade' ? '<div class="adv-chip adv-down" title="Worse than what you wear">▼</div>' : ''));
         return `
             <div class="backpack-slot ${item ? 'equipped' : ''} ${isSel ? 'selected' : ''}" style="${look.style}"
                  onclick="window.selectSlot('backpack', ${idx})"
                  title="Slot ${idx + 1}: ${item ? item.name : 'Empty'}">
-                ${item ? `${look.badge}${(item.count || 1) > 1 ? `<div class="count-chip">x${item.count}</div>` : ''}<div class="bag-icon">${item.icon}</div><div class="bag-name">${item.name}</div>` : `<span style="color:#444">Slot ${idx+1}</span>`}
+                ${item ? `${advChip}${look.badge}${(item.count || 1) > 1 ? `<div class="count-chip">x${item.count}</div>` : ''}<div class="bag-icon">${item.icon}</div><div class="bag-name">${item.name}</div>` : `<span style="color:#444">Slot ${idx+1}</span>`}
             </div>
         `;
     }).join('');
     document.getElementById('backpack-grid').innerHTML = bagHtml;
+
+    // Upgrade helper button label
+    const upBtn = document.getElementById('btn-equip-upgrades');
+    if (upBtn) {
+        const n = findUpgrades(player).length;
+        upBtn.innerText = `⚡ Equip upgrades (${n})`;
+        upBtn.disabled = n === 0;
+        upBtn.style.opacity = n === 0 ? '0.5' : '1';
+    }
 
     // Item Action Drawer
     const cardTitle = document.getElementById('item-card-title');
@@ -3416,6 +3466,8 @@ export function populateSheet() {
                 cardName.innerText = `${item.icon} ${item.name}`;
                 cardSlot.innerText = `Equipped (${item.slot})`;
                 cardDesc.innerText = item.desc || 'Equipped gear';
+                const cmpEl2 = document.getElementById('item-card-compare');
+                if (cmpEl2) cmpEl2.innerHTML = '';
 
                 let extraAimBtn = '';
                 if (item.delivery === 'RANGED' || item.delivery === 'AOE') {
@@ -3441,6 +3493,8 @@ export function populateSheet() {
                 cardName.innerText = `${item.icon} ${item.name}${(item.count || 1) > 1 ? ` x${item.count}` : ''}`;
                 cardSlot.innerText = item.isGem ? `Gem (tier ${item.tier})` : `Slot: ${item.slot ? item.slot.replace('_', ' ') : 'Consumable'}`;
                 cardDesc.innerText = item.desc || 'Standard item';
+                const cmpEl = document.getElementById('item-card-compare');
+                if (cmpEl) cmpEl.innerHTML = compareHtml(player, item);
 
                 let throwAimBtn = '';
                 if (item.delivery === 'RANGED' || item.delivery === 'AOE') {
@@ -3648,21 +3702,61 @@ function renderShop() {
                 <div style="flex:1; min-width:0;">
                     <div style="color:#e0e0f0; font-weight:bold;">${item.icon} ${item.name}</div>
                     <div style="color:#ffcc00; font-size:10px;">${item.desc || ''}</div>
+                    <div style="font-size:10px; color:#bbb;">${compareHtml(player, item)}</div>
                 </div>
                 <button class="btn-action-small" style="flex:none; ${can ? 'background:#2a2810; border-color:#ffd700; color:#ffd700;' : 'opacity:0.45;'}" ${can ? '' : 'disabled'} onclick="window.shopBuy(${i})">💰 ${price}</button>
             </div>`;
         }).join('') : `<div class="picker-row" style="color:#888;">The merchant has nothing left to sell.</div>`;
     } else {
+        // What you are wearing (for reference: worn gear cannot be sold from here)
+        const worn = Object.entries(player.equipment).filter(([, it]) => it);
+        const wornHtml = worn.length ? `
+            <div style="font-size:10px; color:#64d8cb; margin:2px 0;">👤 WORN (take it off in Gear to sell it):</div>
+            ${worn.map(([slot, it]) => `
+            <div class="picker-row" style="border-color:#2a4a52; opacity:0.9;">
+                <div style="flex:1; min-width:0;">
+                    <div style="color:#64d8cb; font-weight:bold;">${it.icon} ${it.name} <span style="color:#888; font-weight:normal;">(${SLOT_LABELS[slot] || slot})</span></div>
+                    <div style="color:#ffcc00; font-size:10px;">${it.desc || ''}</div>
+                </div>
+                <span style="flex:none; color:#64d8cb; font-size:10px;">worn</span>
+            </div>`).join('')}` : '';
+
         const sellables = player.backpack.map((item, idx) => ({ item, idx })).filter(x => x.item && !x.item.isKey);
-        body.innerHTML = sellables.length ? sellables.map(({ item, idx }) => `
+        const junk = sellables.filter(x => isJunk(player, x.item));
+        const junkTotal = junk.reduce((sum, x) => sum + sellPrice(x.item) * (x.item.count || 1), 0);
+        const junkBtn = junk.length ? `<button class="btn-action-small" style="width:100%; margin:4px 0; padding:8px; background:#2a1d10; border-color:#ff9944; color:#ffcc99;" onclick="window.shopSellJunk()">🗑️ Sell all junk gear (${junk.length} items, 💰 ${junkTotal})</button>` : '';
+
+        const verdictBadge = (item) => {
+            const v = adviceFor(player, item);
+            return { upgrade: '<span style="color:#55ff77">⬆ upgrade</span>', downgrade: '<span style="color:#ff9966">⬇ worse than worn</span>', new: '<span style="color:#64d8cb">🆕 empty slot</span>', sidegrade: '<span style="color:#aaa">↔ similar</span>' }[v] || '';
+        };
+
+        body.innerHTML = wornHtml + `<div style="font-size:10px; color:#ffcc00; margin:6px 0 2px;">🎒 IN YOUR BAG:</div>` + junkBtn + (sellables.length ? sellables.map(({ item, idx }) => `
             <div class="picker-row">
                 <div style="flex:1; min-width:0;">
-                    <div style="color:#e0e0f0; font-weight:bold;">${item.icon} ${item.name}</div>
+                    <div style="color:#e0e0f0; font-weight:bold;">${item.icon} ${item.name}${(item.count || 1) > 1 ? ` x${item.count}` : ''} ${verdictBadge(item)}</div>
                     <div style="color:#aaa; font-size:10px;">${item.desc || ''}</div>
                 </div>
                 <button class="btn-action-small" style="flex:none; background:#1a2a1a; border-color:#55ff77; color:#aaffaa;" onclick="window.shopSell(${idx})">Sell 💰 ${sellPrice(item)}</button>
-            </div>`).join('') : `<div class="picker-row" style="color:#888;">Your bag has nothing to sell.</div>`;
+            </div>`).join('') : `<div class="picker-row" style="color:#888;">Your bag has nothing to sell.</div>`);
     }
+}
+
+export function shopSellJunk() {
+    let total = 0, n = 0;
+    for (let i = 0; i < player.backpack.length; i++) {
+        const it = player.backpack[i];
+        if (it && isJunk(player, it)) {
+            const units = it.count || 1;
+            total += sellPrice(it) * units;
+            n += units;
+            player.backpack[i] = null;
+        }
+    }
+    player.gold += total;
+    postMessage(n ? `💰 Sold ${n} junk item(s) for ${total} gold.` : 'Nothing worth junking.', 'msg-loot');
+    renderShop();
+    updateHUD();
 }
 
 export function shopBuy(i) {
