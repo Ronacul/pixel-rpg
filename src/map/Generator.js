@@ -5,6 +5,9 @@ import { getBiomeForFloor } from '../data/Biomes.js';
 import { PRNG } from '../core/RNG.js';
 import { generateLootItem, MUSHROOM_TYPES } from '../data/Items.js';
 import { getBossForFloor } from '../data/Bosses.js';
+import { rollFloorModifier, FLOOR_MODIFIERS } from '../data/FloorModifiers.js';
+import { buildMerchantStock } from '../data/Economy.js';
+import { SHRINE_OFFERS } from '../data/Shrines.js';
 
 // Shared monster factory (also used by the test-level generator)
 export function makeMonster(def, id, x, y, floorLevel) {
@@ -55,6 +58,8 @@ export function generateFloor(baseSeed, floorLevel) {
     const floorSeed = `${baseSeed}_L${floorLevel}`;
     const prng = new PRNG(floorSeed);
     const biome = getBiomeForFloor(floorLevel);
+    const modifierId = rollFloorModifier(prng, floorLevel);
+    const mod = FLOOR_MODIFIERS[modifierId] || {};
 
     const terrain = new Uint8Array(MAP_WIDTH * MAP_HEIGHT);
     const visibility = new Uint8Array(MAP_WIDTH * MAP_HEIGHT);
@@ -281,7 +286,7 @@ export function generateFloor(baseSeed, floorLevel) {
                         terrain[y * MAP_WIDTH + x] = prng.chance(0.12) ? TILES.SECRET_DOOR : TILES.DOOR_CLOSED;
                     }
                     doors.push({ x, y, type: terrain[y * MAP_WIDTH + x] });
-                } else if ((isHorizontalChoke || isVerticalChoke) && prng.chance(0.035)) {
+                } else if ((isHorizontalChoke || isVerticalChoke) && prng.chance(0.035 * (mod.trapMult || 1))) {
                     // Hidden Floor Traps in chokepoint hallways (Avoid spawn room cx/cy)
                     const isNearSpawn = Math.hypot(rooms[0].cx - x, rooms[0].cy - y) < 4;
                     if (!isNearSpawn) {
@@ -346,14 +351,20 @@ export function generateFloor(baseSeed, floorLevel) {
 
         // Populate monsters based on biome & difficulty scaling
         const monsterDef = prng.choice(biome.monsters);
-        const monsterCount = room.isSecret ? 1 : prng.nextInt(1, 2);
+        let monsterCount = room.isSecret ? 1 : prng.nextInt(1, 2);
+        if (mod.monsterMult) {
+            const scaled = monsterCount * mod.monsterMult;
+            monsterCount = Math.floor(scaled) + (prng.chance(scaled % 1) ? 1 : 0);
+        }
 
         for (let m = 0; m < monsterCount; m++) {
             const mx = prng.nextInt(room.x + 1, room.x + room.w - 2);
             const my = prng.nextInt(room.y + 1, room.y + room.h - 2);
 
             if (terrain[my * MAP_WIDTH + mx] === TILES.FLOOR) {
-                monsters.push(makeMonster(monsterDef, `m_${floorLevel}_${idx}_${m}`, mx, my, floorLevel));
+                const mon = makeMonster(monsterDef, `m_${floorLevel}_${idx}_${m}`, mx, my, floorLevel);
+                if (mod.monsterHpMult) { mon.hp = Math.round(mon.hp * mod.monsterHpMult); mon.maxHp = mon.hp; }
+                monsters.push(mon);
             }
         }
 
@@ -407,6 +418,45 @@ export function generateFloor(baseSeed, floorLevel) {
         }
     });
 
+    // ------------------------------------------------------------------
+    // Floor extras: modifier bonus chests, a wandering merchant, a choice shrine
+    // ------------------------------------------------------------------
+    const candidateRooms = rooms.filter((r, i) => i !== 0 && !r.isSecret && !(bossDef && r === exitRoom) && r !== exitRoom);
+    const freeTileInRoom = (room) => {
+        for (let attempt = 0; attempt < 25; attempt++) {
+            const x = prng.nextInt(room.x + 1, room.x + room.w - 2);
+            const y = prng.nextInt(room.y + 1, room.y + room.h - 2);
+            if (terrain[y * MAP_WIDTH + x] === TILES.FLOOR &&
+                !chests.some(c => c.x === x && c.y === y) && !monsters.some(m => m.x === x && m.y === y) &&
+                !mushrooms.some(m => m.x === x && m.y === y)) return { x, y };
+        }
+        return null;
+    };
+
+    for (let i = 0; i < (mod.extraChests || 0) && candidateRooms.length > 0; i++) {
+        const spot = freeTileInRoom(prng.choice(candidateRooms));
+        if (spot) chests.push({ x: spot.x, y: spot.y, opened: false, isSecret: false, item: generateLootItem(prng, floorLevel + 1) });
+    }
+
+    let merchant = null;
+    if (!bossDef && floorLevel >= 2 && candidateRooms.length > 1 && prng.chance(0.3)) {
+        const spot = freeTileInRoom(prng.choice(candidateRooms));
+        if (spot) merchant = { x: spot.x, y: spot.y, name: 'Wandering Merchant', icon: '🧙', stock: buildMerchantStock(prng, floorLevel) };
+    }
+
+    const shrineOffers = {};
+    if (!bossDef && candidateRooms.length > 1 && prng.chance(0.4)) {
+        const room = prng.choice(candidateRooms);
+        const spot = freeTileInRoom(room);
+        if (spot && !(merchant && merchant.x === spot.x && merchant.y === spot.y)) {
+            terrain[spot.y * MAP_WIDTH + spot.x] = TILES.SHRINE;
+            const pool = SHRINE_OFFERS.map(o => o.id);
+            const picks = [];
+            while (picks.length < 3) picks.push(...pool.splice(prng.nextInt(0, pool.length - 1), 1));
+            shrineOffers[spot.y * MAP_WIDTH + spot.x] = picks;
+        }
+    }
+
     // Clear stray monsters / loot out of the arena, then place the boss
     if (bossArena) {
         const inArena = (x, y) => Math.abs(x - bossArena.cx) <= bossArena.half && Math.abs(y - bossArena.cy) <= bossArena.half;
@@ -439,7 +489,7 @@ export function generateFloor(baseSeed, floorLevel) {
         }
         return seen;
     };
-    const isFree = (x, y) => terrain[y * MAP_WIDTH + x] === TILES.FLOOR &&
+    const isFree = (x, y) => terrain[y * MAP_WIDTH + x] === TILES.FLOOR && !(merchant && merchant.x === x && merchant.y === y) &&
         !chests.some(c => c.x === x && c.y === y) && !monsters.some(m => m.x === x && m.y === y) &&
         !mushrooms.some(m => m.x === x && m.y === y) && !keys.some(k => k.x === x && k.y === y);
 
@@ -508,6 +558,12 @@ export function generateFloor(baseSeed, floorLevel) {
         keys,
         lockedDoors,
         bossArena,
+        merchant,
+        shrineOffers,
+        modifier: modifierId,
+        xpMult: mod.xpMult || 1,
+        goldMult: mod.goldMult || 1,
+        sightPenalty: mod.sightPenalty || 0,
         stairsUpPos,
         stairsDownPos,
         monsters,

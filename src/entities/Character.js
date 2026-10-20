@@ -14,6 +14,10 @@ export class PlayerCharacter {
         this.xp = 0;
         this.bonusHp = 0;
         this.attributePoints = 0;
+        this.gold = 0;
+        this.xpMultiplier = 1;   // per-floor modifier (e.g. Pitch Dark +25% XP)
+        this.xpBonusMult = 1;    // legacy perk
+        this.stats = { kills: 0, bossesSlain: 0, gold: 0, chests: 0, disarmed: 0, deepest: 1, bestItem: null, victory: false };
         this.turnCount = 0;
         this.alive = true;
 
@@ -164,7 +168,7 @@ export class PlayerCharacter {
     // Perception Metric: (DEX + INT + WIS) / 3 + Skill bonus + Set bonus + Feats/Race
     get per() {
         const setPer = this.setBonuses.perRadar || 0;
-        return Math.floor((this.dex + this.int + this.wis) / 3) + ((this.skills?.perception || 0) * 2) + setPer + this.passiveMods.per;
+        return Math.floor((this.dex + this.int + this.wis) / 3) + ((this.skills?.perception || 0) * 2) + setPer + this.passiveMods.per + (this.legacyPer || 0);
     }
     get perMod() {
         return Math.floor((this.per - 10) / 2);
@@ -286,7 +290,8 @@ export class PlayerCharacter {
 
     // Applies HP + queues the data-driven grants for each level gained. Choices (skill / attribute / feat /
     // mastery) are resolved afterwards by the UI via learnFeat / chooseMastery / boostSkill / boostAttribute.
-    gainXp(amount) {
+    gainXp(amount, raw = false) {
+        if (!raw) amount = Math.max(1, Math.round(amount * (this.xpMultiplier || 1) * (this.xpBonusMult || 1)));
         this.xp += amount;
         const levelUps = [];
 

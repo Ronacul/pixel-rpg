@@ -45,7 +45,8 @@ Legend: `[x]` done, `[~]` partially done (note says what is left), `[ ]` not sta
 - [x] Configurable map size (50 (**Tiny, default**) / 100 / 150 / 200) in the Settings screen (⚙️ Menu), A* pathfinding sized to walk distance
 - [x] Debug / test mode: `?seed=TEST-0001` kitchen-sink level, `?debug=1`, in-app debug panel, `window.pixelDebug` console API (see README)
 - [x] Slower XP curve and unified XP rewards (`XP_REWARDS`, `monsterXp`)
-- [ ] Bosses every 5th floor, equipment powers, socketed gems: designed in `docs/ROADMAP_BOSSES_GEMS.md`
+- [x] Bosses every 5th floor, equipment powers, socketed gems, shrines, merchant + gold, floor modifiers, Legacy perks, daily run (design notes: `docs/ROADMAP_BOSSES_GEMS.md`)
+- [ ] Companions / taming, light + stealth, floor quest goals, 2x2 bosses, Gem Extractor
 - [ ] Persist / resume a run (nothing is saved except settings)
 - [ ] Automated browser regression script for the `pixelDebug` checks
 - [x] Locked doors + keys + active Search (`E`); traps are rarer and never lethal; healing potions in loot; faster natural regen

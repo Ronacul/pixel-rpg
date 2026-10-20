@@ -44,9 +44,10 @@ export const TILES = {
     TRAP_GAS: 12,         // Hidden spore trap: spawns 3x3 poison gas zone + poison
     BARREL: 13,           // Destructible obstacle: drops loot or explosive blast
     ALTAR: 14,            // Sacred shrine: grants full heal and blessed buff
-    ALTAR_INERT: 15,      // Depleted shrine
+    ALTAR_INERT: 15,      // Depleted shrine / altar
     FOLIAGE: 16,          // Dense brush: slow passage, flammable into fire zone
-    LOCKED_DOOR: 17       // Needs the matching key (floor.lockedDoors[].keyId) to open
+    LOCKED_DOOR: 17,      // Needs the matching key (floor.lockedDoors[].keyId) to open
+    SHRINE: 18            // Choice shrine: pick a boon, pay its price (floor.shrineOffers)
 };
 
 export const VISIBILITY = {

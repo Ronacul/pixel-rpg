@@ -11,11 +11,11 @@ export class PerceptionSystem {
     }
 
     // Updates visibility map and detects secret doors and hidden traps within line-of-sight
-    static updateVisibility(floorData, playerX, playerY, perScore, perMod, onSecretFound = null, onTrapFound = null) {
+    static updateVisibility(floorData, playerX, playerY, perScore, perMod, onSecretFound = null, onTrapFound = null, radiusPenalty = 0) {
         const { terrain, visibility } = floorData;
         if (!floorData.trapsRevealed) floorData.trapsRevealed = new Set();
 
-        const radius = this.calculateSightRadius(perScore);
+        const radius = Math.max(2, this.calculateSightRadius(perScore) - radiusPenalty);
 
         // Transition current VISIBLE tiles to EXPLORED (Fog of War)
         for (let i = 0; i < visibility.length; i++) {

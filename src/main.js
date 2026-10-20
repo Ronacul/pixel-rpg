@@ -21,6 +21,10 @@ import { CLASSES, SKILLS, ClassManager } from './data/Classes.js';
 import { RaceManager, DEFAULT_RACE_ID } from './data/Races.js';
 import { FeatManager, FEATS } from './data/Feats.js';
 import { PROGRESSION, XP_TABLE, XP_REWARDS, MASTERIES, monsterXp } from './data/Progression.js';
+import { itemValue, buyPrice, sellPrice, goldForKill, goldForChest } from './data/Economy.js';
+import { SHRINE_OFFERS } from './data/Shrines.js';
+import { FLOOR_MODIFIERS } from './data/FloorModifiers.js';
+import { Legacy, LEGACY_PERKS, Daily, todayString } from './data/Legacy.js';
 import { EffectSystem, STATUS_TYPES, ZONE_TYPES, DELIVERY_TYPES } from './systems/Effects.js';
 
 // Viewport Camera & Zoom Settings
@@ -105,7 +109,9 @@ export function startPlaythrough(seedString, opts = {}) {
 
     prng = new PRNG(seedString);
     dungeonManager = new DungeonManager(seedString, { testMode });
+    runRecorded = false;
     player = new PlayerCharacter(opts.classId ?? settings.classId, opts.raceId ?? settings.raceId);
+    applyLegacyPerks(player);
 
     cancelTargeting();
     loadFloor(1, true);
@@ -142,11 +148,16 @@ function loadFloor(floorNum, enterFromAbove = true) {
         player.y = currentFloorData.stairsDownPos.y;
     }
 
+    player.xpMultiplier = currentFloorData.xpMult || 1;
+    player.stats.deepest = Math.max(player.stats.deepest, floorNum);
+    if (isDailyRun()) Daily.record(player.stats.deepest);
     runPerceptionRadar();
 
     const lockInfo = currentFloorData.lockedDoors?.filter(l => currentFloorData.terrain[l.y * MAP_WIDTH + l.x] === TILES.LOCKED_DOOR).length;
     const hiddenKeyCount = currentFloorData.keys?.filter(k => k.hidden).length || 0;
-    postMessage(`Floor ${floorNum}: ${currentFloorData.biome.name}${lockInfo ? ` | 🔒 ${lockInfo} locked door(s)${hiddenKeyCount ? `, a key is hidden: Search (E)` : ", key lies in sight"}` : ""}`, "msg-info");
+    const modDef = FLOOR_MODIFIERS[currentFloorData.modifier];
+    const bossDef = currentFloorData.monsters.find(m => m.isBoss && m.alive);
+    postMessage(`Floor ${floorNum}: ${currentFloorData.biome.name}${modDef ? ` | ${modDef.icon} ${modDef.name}: ${modDef.desc}` : ''}${bossDef ? ' | 👑 A boss guards the stairs!' : ''}${lockInfo ? ` | 🔒 ${lockInfo} locked${hiddenKeyCount ? ', a key is hidden: Search (E)' : ''}` : ''}${currentFloorData.merchant ? ' | 🧙 A merchant is on this floor' : ''}`, 'msg-info');
     updateHUD();
 }
 
@@ -169,7 +180,8 @@ function runPerceptionRadar() {
             const levelUps = player.gainXp(XP_REWARDS.trap);
             if (levelUps.length > 0) handleLevelUps(levelUps);
             updateHUD();
-        }
+        },
+        currentFloorData.sightPenalty || 0
     );
     applyPassiveSenses();
 }
@@ -264,6 +276,8 @@ function updateHUD() {
     document.getElementById('hud-max-hp').innerText = player.maxHp;
     document.getElementById('hud-ac').innerText = player.ac;
 
+    const hg = document.getElementById('hud-gold');
+    if (hg) hg.innerText = player.gold;
     const hr = document.getElementById('hud-rations');
     if (hr) hr.innerText = player.rations !== undefined ? player.rations : 5;
 
@@ -408,6 +422,12 @@ function draw() {
                 ctx.strokeStyle = '#1b3820';
                 ctx.strokeRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
                 drawGlyph('🌿', screenX, screenY, isDim ? 0.45 : 0.9);
+            } else if (tile === TILES.SHRINE) {
+                ctx.fillStyle = isDim ? '#1a1912' : '#2a2410';
+                ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+                ctx.strokeStyle = '#ffd700';
+                ctx.strokeRect(screenX + 1, screenY + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+                drawGlyph('⛩️', screenX, screenY, isDim ? 0.6 : 1.0);
             } else if (tile === TILES.LOCKED_DOOR) {
                 ctx.fillStyle = isDim ? '#181922' : '#2a1d0e';
                 ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
@@ -493,6 +513,12 @@ function draw() {
             const chest = chests.find(c => c.x === worldX && c.y === worldY);
             if (chest && (vis === VISIBILITY.VISIBLE || chest.opened)) {
                 drawGlyph(chest.opened ? '📭' : '📦', screenX, screenY, isDim ? 0.5 : 1.0);
+            }
+
+            // Wandering merchant
+            const mer = currentFloorData.merchant;
+            if (mer && mer.x === worldX && mer.y === worldY && vis !== VISIBILITY.UNEXPLORED) {
+                drawGlyph(mer.icon, screenX, screenY, isDim ? 0.5 : 1.0, 1.15);
             }
 
             // Keys lying on the floor
@@ -663,7 +689,11 @@ function addBlood(x, y) {
     }
 }
 
+let lastKillGold = 0;
 function addCorpse(monster) {
+    player.stats.kills++;
+    if (monster.isBoss) player.stats.bossesSlain++;
+    lastKillGold = addGold(goldForKill(prng, monster, currentFloorData.floorLevel));
     if (!currentFloorData.corpses) currentFloorData.corpses = [];
     const mName = monster.name;
     const isVenomous = mName.toLowerCase().includes('spider') || mName.toLowerCase().includes('viper') || mName.toLowerCase().includes('crawler') || mName.toLowerCase().includes('snake');
@@ -737,6 +767,11 @@ function makeBossLoot(def, floorLevel) {
 
 function showVictory() {
     postMessage('🏆 VICTORY! You have cleared all 25 floors. Keep exploring or start a new run from the Menu.', 'msg-victory');
+    const sum = document.getElementById('victory-summary');
+    if (sum) {
+        sum.innerHTML = buildRunSummary('Victory', true);
+        document.getElementById('victory-modal')?.classList.add('active');
+    }
 }
 
 // Single-step direction for terrified monster fleeing away from player
@@ -1044,6 +1079,8 @@ function handlePlayerDeath(slainBy) {
     document.getElementById('death-floor').innerText = `Floor ${dungeonManager.currentFloor}`;
     document.getElementById('death-slain-by').innerText = `Slain by: ${slainBy}`;
     document.getElementById('death-turns').innerText = `Turns Survived: ${player.turnCount}`;
+    const sum = document.getElementById('death-summary');
+    if (sum) sum.innerHTML = buildRunSummary(slainBy, false);
     document.getElementById('death-modal').classList.add('active');
 
     postMessage(`💀 YOU DIED on Floor ${dungeonManager.currentFloor}.`, 'msg-miss');
@@ -1132,6 +1169,20 @@ function stepPath(path) {
     if (isTrapTile(tile) && currentFloorData.trapsRevealed.has(targetIdx)) {
         cancelWalking();
         attemptDisarm(nextX, nextY);
+        return;
+    }
+
+    // 0c. Merchant (bump to trade) and choice shrines (step to open the offer)
+    if (currentFloorData.merchant && currentFloorData.merchant.x === nextX && currentFloorData.merchant.y === nextY) {
+        cancelWalking();
+        openShop();
+        draw();
+        return;
+    }
+    if (tile === TILES.SHRINE) {
+        cancelWalking();
+        openShrine(targetIdx);
+        draw();
         return;
     }
 
@@ -1226,11 +1277,13 @@ function stepPath(path) {
         chest.opened = true;
         const xpReward = XP_REWARDS.chestPerFloor * currentFloorData.floorLevel;
         const levelUps = player.gainXp(xpReward);
+        const chestGold = addGold(goldForChest(prng, currentFloorData.floorLevel));
+        player.stats.chests++;
         const added = player.addToBackpack(chest.item);
         if (added) {
-            postMessage(`🎁 Looted: ${chest.item.name}! Added to Backpack (+${xpReward} XP)`, 'msg-loot');
+            postMessage(`🎁 Looted: ${chest.item.name}! Added to Backpack (+${xpReward} XP, +${chestGold} gold)`, 'msg-loot');
         } else {
-            postMessage(`🎁 Found ${chest.item.name}, but Backpack is full! (+${xpReward} XP)`, 'msg-loot');
+            postMessage(`🎁 Found ${chest.item.name}, but Backpack is full! (+${xpReward} XP, +${chestGold} gold)`, 'msg-loot');
         }
         if (levelUps.length > 0) handleLevelUps(levelUps);
         updateHUD();
@@ -1401,6 +1454,7 @@ function attemptDisarm(x, y) {
     if (total >= dc) {
         f.terrain[idx] = TILES.FLOOR;
         f.trapsRevealed.delete(idx);
+        player.stats.disarmed++;
         postMessage(`🛠️ Disarmed the ${names[tile]}! (rolled ${total} vs DC ${dc}) +${XP_REWARDS.trap} XP`, 'msg-victory');
         const lvs = player.gainXp(XP_REWARDS.trap);
         if (lvs.length) handleLevelUps(lvs);
@@ -1422,6 +1476,7 @@ function buildPathAvoid() {
     const f = currentFloorData;
     const blocked = new Set();
     const costs = new Map();
+    if (f.merchant) blocked.add(f.merchant.y * MAP_WIDTH + f.merchant.x);
     for (const idx of f.trapsRevealed || []) {
         if (isTrapTile(f.terrain[idx])) blocked.add(idx);
     }
@@ -1465,7 +1520,7 @@ function resolveCombatTurn(monster, attackSource = null) {
         addCorpse(monster);
         const xpReward = monsterXp(monster, currentFloorData.floorLevel);
         const levelUps = player.gainXp(xpReward);
-        postMessage(`🏆 Defeated ${monster.name}! +${xpReward} XP`, 'msg-victory');
+        postMessage(`🏆 Defeated ${monster.name}! +${xpReward} XP, +${lastKillGold} gold`, 'msg-victory');
         if (levelUps.length > 0) handleLevelUps(levelUps);
     } else if (result.monsterCounter?.isHit) {
         addBlood(player.x, player.y);
@@ -1543,7 +1598,7 @@ function awardKill(monster) {
     addCorpse(monster);
     const xp = monsterXp(monster, currentFloorData.floorLevel);
     const lvs = player.gainXp(xp);
-    postMessage(`🏆 Defeated ${monster.name}! +${xp} XP`, 'msg-victory');
+    postMessage(`🏆 Defeated ${monster.name}! +${xp} XP, +${lastKillGold} gold`, 'msg-victory');
     if (lvs.length > 0) handleLevelUps(lvs);
 }
 
@@ -3405,6 +3460,255 @@ export function switchSheetTab(tabId) {
 }
 
 // ==========================================
+// 18. GOLD, MERCHANT, SHRINES, RUN SUMMARY & LEGACY
+// ==========================================
+function addGold(base) {
+    const amt = Math.max(1, Math.round(base * (currentFloorData?.goldMult || 1)));
+    player.gold += amt;
+    player.stats.gold += amt;
+    return amt;
+}
+
+// ---- Merchant ----
+let shopTab = 'buy';
+
+export function openShop() {
+    const m = currentFloorData.merchant;
+    if (!m) return;
+    shopTab = 'buy';
+    renderShop();
+    document.getElementById('shop-modal')?.classList.add('active');
+}
+
+export function closeShop() {
+    document.getElementById('shop-modal')?.classList.remove('active');
+}
+
+export function setShopTab(tab) {
+    shopTab = tab;
+    renderShop();
+}
+
+function renderShop() {
+    const m = currentFloorData.merchant;
+    const body = document.getElementById('shop-list');
+    if (!m || !body) return;
+    document.getElementById('shop-gold').innerText = player.gold;
+    document.getElementById('shop-tab-buy').classList.toggle('active', shopTab === 'buy');
+    document.getElementById('shop-tab-sell').classList.toggle('active', shopTab === 'sell');
+
+    if (shopTab === 'buy') {
+        body.innerHTML = m.stock.length ? m.stock.map((item, i) => {
+            const price = buyPrice(item);
+            const can = player.gold >= price;
+            return `
+            <div class="picker-row">
+                <div style="flex:1; min-width:0;">
+                    <div style="color:#e0e0f0; font-weight:bold;">${item.icon} ${item.name}</div>
+                    <div style="color:#ffcc00; font-size:10px;">${item.desc || ''}</div>
+                </div>
+                <button class="btn-action-small" style="flex:none; ${can ? 'background:#2a2810; border-color:#ffd700; color:#ffd700;' : 'opacity:0.45;'}" ${can ? '' : 'disabled'} onclick="window.shopBuy(${i})">💰 ${price}</button>
+            </div>`;
+        }).join('') : `<div class="picker-row" style="color:#888;">The merchant has nothing left to sell.</div>`;
+    } else {
+        const sellables = player.backpack.map((item, idx) => ({ item, idx })).filter(x => x.item && !x.item.isKey);
+        body.innerHTML = sellables.length ? sellables.map(({ item, idx }) => `
+            <div class="picker-row">
+                <div style="flex:1; min-width:0;">
+                    <div style="color:#e0e0f0; font-weight:bold;">${item.icon} ${item.name}</div>
+                    <div style="color:#aaa; font-size:10px;">${item.desc || ''}</div>
+                </div>
+                <button class="btn-action-small" style="flex:none; background:#1a2a1a; border-color:#55ff77; color:#aaffaa;" onclick="window.shopSell(${idx})">Sell 💰 ${sellPrice(item)}</button>
+            </div>`).join('') : `<div class="picker-row" style="color:#888;">Your bag has nothing to sell.</div>`;
+    }
+}
+
+export function shopBuy(i) {
+    const m = currentFloorData.merchant;
+    const item = m?.stock[i];
+    if (!item) return;
+    const price = buyPrice(item);
+    if (player.gold < price) { postMessage('💰 Not enough gold.', 'msg-miss'); return; }
+    if (!player.addToBackpack(item)) { postMessage('🎒 Your bag is full!', 'msg-miss'); return; }
+    player.gold -= price;
+    m.stock.splice(i, 1);
+    postMessage(`💰 Bought ${item.name} for ${price} gold.`, 'msg-loot');
+    renderShop();
+    updateHUD();
+}
+
+export function shopSell(idx) {
+    const item = player.backpack[idx];
+    if (!item) return;
+    const price = sellPrice(item);
+    player.backpack[idx] = null;
+    player.gold += price;
+    postMessage(`💰 Sold ${item.name} for ${price} gold.`, 'msg-loot');
+    renderShop();
+    updateHUD();
+}
+
+// ---- Choice shrines ----
+let activeShrineIdx = null;
+
+function openShrine(tileIdx) {
+    const ids = currentFloorData.shrineOffers?.[tileIdx];
+    if (!ids) return;
+    activeShrineIdx = tileIdx;
+    renderShrine();
+    document.getElementById('shrine-modal')?.classList.add('active');
+}
+
+export function closeShrine() {
+    document.getElementById('shrine-modal')?.classList.remove('active');
+    activeShrineIdx = null;
+}
+
+function describeCost(cost) {
+    if (cost.none) return 'Free';
+    const bits = [];
+    if (cost.gold) bits.push(`${cost.gold} gold`);
+    if (cost.hp) bits.push(`${cost.hp} HP`);
+    if (cost.ration) bits.push(`${cost.ration} ration`);
+    if (cost.status) bits.push(`${cost.status[0]} for ${cost.status[1]} turns`);
+    return bits.join(', ');
+}
+
+function canAffordShrine(cost) {
+    if (cost.gold && player.gold < cost.gold) return false;
+    if (cost.ration && player.rations < cost.ration) return false;
+    if (cost.hp && player.hp <= cost.hp) return false;
+    return true;
+}
+
+function renderShrine() {
+    const ids = currentFloorData.shrineOffers?.[activeShrineIdx];
+    const body = document.getElementById('shrine-list');
+    if (!ids || !body) return;
+    body.innerHTML = ids.map(id => {
+        const o = SHRINE_OFFERS.find(x => x.id === id);
+        const can = canAffordShrine(o.cost);
+        return `
+        <div class="picker-row" style="flex-direction:column; align-items:stretch; gap:4px;">
+            <div style="color:#ffe9a0; font-weight:bold;">${o.icon} ${o.name}</div>
+            <div style="color:#8dffb0; font-size:11px;">Boon: ${o.text}</div>
+            <div style="color:#ff9a9a; font-size:11px;">Price: ${describeCost(o.cost)}</div>
+            <button class="btn-action-small" style="${can ? 'background:#2a2810; border-color:#ffd700; color:#ffd700;' : 'opacity:0.45;'} padding:8px;" ${can ? '' : 'disabled'} onclick="window.shrineChoose('${o.id}')">${can ? 'Accept this bargain' : 'Cannot afford'}</button>
+        </div>`;
+    }).join('');
+}
+
+export function shrineChoose(offerId) {
+    const o = SHRINE_OFFERS.find(x => x.id === offerId);
+    if (!o || activeShrineIdx === null || !canAffordShrine(o.cost)) return;
+
+    // Pay
+    const c = o.cost;
+    if (c.gold) player.gold -= c.gold;
+    if (c.hp) player.hp = Math.max(1, player.hp - c.hp);
+    if (c.ration) player.rations -= c.ration;
+    if (c.status) EffectSystem.applyStatus(player, c.status[0], c.status[1], 1, o.name);
+
+    // Receive
+    const b = o.boon;
+    let text = `${o.icon} ${o.name}: `;
+    if (b.heal === 'full') { player.hp = player.maxHp; text += 'fully healed!'; }
+    if (b.gem) { const g = randomGem(prng, currentFloorData.floorLevel + 3); if (player.addToBackpack(g)) text += `received ${g.name}!`; else text += 'the gem fell away: bag full!'; }
+    if (b.reveal) { currentFloorData.visibility.forEach((v, i, arr) => { if (v === VISIBILITY.UNEXPLORED) arr[i] = VISIBILITY.EXPLORED; }); text += 'the floor is revealed!'; }
+    if (b.status) { EffectSystem.applyStatus(player, b.status[0], b.status[1], 1, o.name); text += `${b.status[0]} for ${b.status[1]} turns!`; }
+    if (b.maxHp) { player.bonusHp += b.maxHp; player.hp += b.maxHp; text += `+${b.maxHp} Max HP permanently!`; }
+    if (b.cooldowns) { for (const k in player.cooldowns) player.cooldowns[k] = 0; player.hp = Math.min(player.maxHp, player.hp + 10); text += 'powers recharged!'; }
+    if (b.gamble) {
+        if (prng.chance(0.5)) { player.gold += b.gamble; text += `the altar pays out ${b.gamble} gold!`; }
+        else text += 'the altar keeps your stake.';
+    }
+    if (b.xp) { const lvs = player.gainXp(b.xp); if (lvs.length) handleLevelUps(lvs); text += `+${b.xp} XP!`; }
+
+    // The shrine is spent
+    const idx = activeShrineIdx;
+    currentFloorData.terrain[idx] = TILES.ALTAR_INERT;
+    delete currentFloorData.shrineOffers[idx];
+    postMessage(text, 'msg-victory');
+    closeShrine();
+    runPerceptionRadar();
+    endTurn();
+    updateHUD();
+    populateSheet();
+    draw();
+}
+
+// ---- Run summary, Legacy points & daily run ----
+let runRecorded = false;
+
+function buildRunSummary(causeText, victory = false) {
+    const s = player.stats;
+    s.victory = victory;
+    s.deepest = Math.max(s.deepest, dungeonManager.currentFloor);
+    let rec = { earned: 0, total: Legacy.get().points };
+    if (!runRecorded) {
+        rec = Legacy.recordRun(s);
+        runRecorded = true;
+        if (isDailyRun()) Daily.record(s.deepest);
+    }
+    const best = player.getEquippedItems().concat(player.backpack.filter(Boolean)).sort((a, b) => itemValue(b) - itemValue(a))[0];
+    return `
+        <div>Class: <strong style="color:#ffcc00;">${player.race.name} ${player.characterClass.name}</strong> (Lv. ${player.level})</div>
+        <div>Deepest floor: <strong style="color:#ffcc00;">${s.deepest}</strong> &middot; Kills: <strong>${s.kills}</strong> &middot; Bosses: <strong>${s.bossesSlain}</strong></div>
+        <div>Gold earned: <strong>${s.gold}</strong> &middot; Chests: <strong>${s.chests}</strong> &middot; Traps disarmed: <strong>${s.disarmed}</strong></div>
+        ${best ? `<div>Best find: <strong style="color:#64d8cb;">${best.icon} ${best.name}</strong></div>` : ''}
+        <div style="margin-top:4px; color:#b9a8ff;">⭐ Legacy points earned: <strong>+${rec.earned}</strong> (total ${rec.total})</div>
+        ${isDailyRun() ? `<div style="color:#64d8cb;">📅 Daily run: best floor today F${Daily.bestFloor()}</div>` : ''}`;
+}
+
+function isDailyRun() {
+    return dungeonManager && dungeonManager.baseSeedString === Daily.seedFor(todayString(), PRNG);
+}
+
+function applyLegacyPerks(p) {
+    const owned = Legacy.get().perks;
+    if (owned.includes('pack_rat')) {
+        const potion = BASE_ITEMS.find(b => b.name === 'Minor Healing Potion');
+        p.addToBackpack(createItemFromBase(potion));
+        p.addToBackpack(createItemFromBase(potion));
+    }
+    if (owned.includes('lucky_purse')) p.gold += 40;
+    if (owned.includes('thick_skin')) { p.bonusHp += 4; p.hp = p.maxHp; }
+    if (owned.includes('sharp_eyes')) p.legacyPer = 1;
+    if (owned.includes('quick_study')) p.xpBonusMult = 1.1;
+    if (owned.includes('gem_cutter')) p.addToBackpack(createGem('topaz', 2));
+}
+
+export function renderLegacyPanel() {
+    const el = document.getElementById('legacy-panel');
+    if (!el) return;
+    const d = Legacy.get();
+    el.innerHTML = `
+        <div style="color:#b9a8ff; font-weight:bold; font-size:12px;">⭐ LEGACY: ${d.points} points <span style="color:#888ea6; font-weight:normal;">(${d.runs} runs, best floor ${d.best.floor})</span></div>
+        ${Object.values(LEGACY_PERKS).map(p => {
+            const has = d.perks.includes(p.id);
+            const can = !has && d.points >= p.cost;
+            return `<div class="picker-row" style="margin-top:4px;">
+                <div style="flex:1;"><div style="font-weight:bold; color:${has ? '#55ff77' : '#e0e0f0'};">${p.icon} ${p.name}</div><div style="font-size:10px; color:#aaa;">${p.desc}</div></div>
+                <button class="btn-action-small" style="flex:none; ${has ? 'opacity:0.5;' : can ? 'background:#1d1a33; border-color:#b070ff; color:#d9c2ff;' : 'opacity:0.45;'}" ${can ? '' : 'disabled'} onclick="window.buyLegacyPerk('${p.id}')">${has ? 'Owned' : `${p.cost} pts`}</button>
+            </div>`;
+        }).join('')}`;
+    const daily = document.getElementById('daily-info');
+    if (daily) daily.innerText = `Today ${todayString()}: best floor F${Daily.bestFloor()}`;
+}
+
+export function buyLegacyPerk(id) {
+    if (Legacy.buy(id)) postMessage(`⭐ Unlocked legacy perk ${LEGACY_PERKS[id].name}! It applies to your next run.`, 'msg-victory');
+    renderLegacyPanel();
+}
+
+export function startDailyRun() {
+    readSettingsFromModal();
+    closeSettings();
+    startPlaythrough(Daily.seedFor(todayString(), PRNG));
+    postMessage(`📅 Daily run ${todayString()}: everyone gets this seed today. Best floor so far: F${Daily.bestFloor()}.`, 'msg-info');
+}
+
+// ==========================================
 // 16. SETTINGS SCREEN (map size, class, race, debug tools)
 // ==========================================
 function fillSelect(id, options, selectedValue) {
@@ -3429,6 +3733,7 @@ export function updateSettingsPreview() {
 }
 
 export function openSettings(newGame = false) {
+    renderLegacyPanel();
     const title = document.getElementById("settings-title");
     if (title) title.innerText = newGame === true ? "🧙 NEW GAME: CREATE YOUR CHARACTER" : "☰ MENU";
     fillSelect('set-map-size', MAP_SIZES.map(s => ({ value: s.size, label: s.label })), settings.mapSize);
@@ -3527,6 +3832,8 @@ export const pixelDebug = {
         return boss.id;
     },
     log(n = 20) { return messageLog.slice(-n); },
+    killPlayer() { godMode = false; player.hp = 0; handlePlayerDeath('a debug command'); },
+    floorInfo() { const f = currentFloorData; return { modifier: f.modifier, merchant: !!f.merchant, shrines: Object.keys(f.shrineOffers || {}).length, boss: f.monsters.some(m => m.isBoss), xpMult: f.xpMult, goldMult: f.goldMult }; },
     boss() { const b = currentFloorData.monsters.find(m => m.isBoss); return b ? { name: b.name, hp: b.hp, maxHp: b.maxHp, x: b.x, y: b.y, alive: b.alive, airborne: b.airborne, phase: b.phaseIdx, telegraph: b.telegraph ? { move: b.telegraph.move, tiles: b.telegraph.tiles.length } : null } : null; },
     slayBoss() { const b = currentFloorData.monsters.find(m => m.isBoss && m.alive); if (!b) return false; b.hp = 0; b.alive = false; addCorpse(b); afterDebugChange('Boss slain.'); return true; },
     startRun(seed, opts = {}) { startPlaythrough(seed, opts); return this.state(); },
@@ -3542,7 +3849,7 @@ export const pixelDebug = {
     setLevel(level) {
         level = Math.max(1, Math.min(PROGRESSION.maxLevel, parseInt(level, 10) || 1));
         if (level <= player.level) return player.level;
-        const lvs = player.gainXp(XP_TABLE[level - 1] - player.xp);
+        const lvs = player.gainXp(XP_TABLE[level - 1] - player.xp, true);
         handleLevelUps(lvs);
         afterDebugChange(`Granted XP up to level ${level}.`);
         return player.level;
@@ -3595,6 +3902,7 @@ export const pixelDebug = {
         afterDebugChange(`Added ${n} power items.`);
         return n;
     },
+    addGold(n = 100) { player.gold += n; afterDebugChange(`+${n} gold.`); },
     clearBag() { player.backpack.fill(null); afterDebugChange('Bag emptied.'); },
     revealMap() {
         currentFloorData.visibility.fill(VISIBILITY.EXPLORED);

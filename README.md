@@ -86,3 +86,14 @@ Run locally with `./serve.ps1` (Windows PowerShell, http://localhost:8080) or an
 * **Foes** show a health bar over their tile, and the selected foe has a red ring plus an HP panel under the map.
 * **Traps:** Search (`E`) or Perception reveals them. A revealed trap is never walked into: tap or bump it to **disarm** (d20 + DEX mod + level/2, +4 Thief, vs DC 10 + floor/2; failing by 5+ sets it off). Auto-walk routes around known traps and lingering fire / gas. Traps cannot kill outright.
 * Keys: `Q`/Tab attack · Enter power · `E` search · `R` rest · `F` spells · `T` manual aim · `Z` zoom · `C` gear · Space wait.
+
+---
+
+## 👑 Bosses, Gear Powers, Gems, Shrines & Legacy
+
+* **Bosses (floors 5, 10, 15, 20, 25):** Bugbear Chieftain, Cave Troll, Chimaera, Stone Giant, Ancient Dragon. Each guards a pillared arena and **seals the stairs** until it dies. Bosses run scripted move cycles with HP phases. Big attacks are **telegraphed**: the tiles that will be hit glow red for one turn, so step out of them. The troll regenerates unless burning/poisoned, the dragon flies out of melee reach between breaths, and so on. Bosses drop a set piece or unique with sockets, gems, and gold.
+* **Equipment powers:** gear can carry triggered effects: ignite / chill / poison / bleed / stun on hit, lifesteal, heal on kill, thorns, Stoneskin when struck, fire and poison wards, trap and secret-door sense, and key sight. Named uniques (Emberfang, Thornmail Hauberk, Seer's Amulet...) always have them; ordinary loot can roll one ("... of Embers").
+* **Gem sockets:** gear rolls 0-3 sockets. Gems (ruby, sapphire, emerald, topaz, amethyst, diamond; chipped / flawed / perfect) give different bonuses on weapons, armor and jewelry. Open the item in **Gear** and press **Socket Gem**. Three matching gems fuse into the next tier.
+* **Shrines (⛩️)** offer three boons, each with a price (gold, HP, a ration, a debuff). **Wandering merchants (🧙)** buy and sell. Gold drops from foes and chests.
+* **Floor modifiers** (Pitch Dark, Bountiful, Treacherous, Ironhide, Swarming, Eerie Quiet) appear on some floors and are announced on arrival.
+* **Legacy:** every run, win or lose, earns Legacy points that buy permanent starting perks (Menu → New Run). **Daily Run** gives everyone the same seed per calendar day and tracks your best floor.

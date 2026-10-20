@@ -657,6 +657,7 @@
             <span id="hud-level" style="color: #64d8cb; font-size: 11px;">Lv.1</span>
             <span style="color: #ff5577;">❤️ <span id="hud-hp">28</span>/<span id="hud-max-hp">28</span></span>
             <span style="color: #ffaa55;">🍖 <span id="hud-rations">5</span></span>
+            <span style="color: #ffd700;">💰 <span id="hud-gold">0</span></span>
             <span style="color: #555;">|</span>
             <span style="color: #64d8cb;">AC <span id="hud-ac">12</span></span>
             <span id="hud-statuses" style="margin-left: 2px;"></span>
@@ -904,6 +905,7 @@
             <div style="background: #0d0d12; border: 1px solid #33151b; border-radius: 6px; padding: 10px; font-size: 13px; margin: 4px 0;">
                 <div>Depth Reached: <strong id="death-floor" style="color: #ffcc00;">Floor 1</strong></div>
                 <div id="death-turns" style="color: #aaa; margin-top: 4px;">Turns Survived: 0</div>
+                <div id="death-summary" style="margin-top: 6px; font-size: 11px; line-height: 1.5; color: #ddd; text-align: left;"></div>
             </div>
             <div style="font-size: 12px; color: #888; margin-bottom: 6px;">Restart your journey:</div>
             <div style="display: flex; gap: 8px;">
@@ -929,6 +931,54 @@
                 </div>
 
                 <div id="levelup-choices"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Merchant -->
+    <div id="shop-modal" class="modal-overlay" style="z-index: 126;" onclick="closeShop()">
+        <div class="modal-card" onclick="event.stopPropagation()" style="border-color: #ffd700;">
+            <div class="modal-header">
+                <div>
+                    <span class="modal-title" style="color: #ffd700;">🧙 WANDERING MERCHANT</span>
+                    <div style="font-size: 11px; color: #ffd700;">Your gold: 💰 <b id="shop-gold">0</b></div>
+                </div>
+                <button class="close-btn" onclick="closeShop()">✕</button>
+            </div>
+            <div class="tab-row">
+                <button id="shop-tab-buy" class="modal-tab big-tab active" onclick="setShopTab('buy')">🛒 Buy</button>
+                <button id="shop-tab-sell" class="modal-tab big-tab" onclick="setShopTab('sell')">💰 Sell</button>
+            </div>
+            <div id="shop-list" style="display: flex; flex-direction: column; gap: 4px; max-height: 52vh; overflow-y: auto; font-size: 11px;"></div>
+            <button class="modal-btn" style="margin-top: 8px;" onclick="closeShop()">Leave</button>
+        </div>
+    </div>
+
+    <!-- Choice shrine -->
+    <div id="shrine-modal" class="modal-overlay" style="z-index: 127;" onclick="closeShrine()">
+        <div class="modal-card" onclick="event.stopPropagation()" style="border-color: #ffd700;">
+            <div class="modal-header">
+                <div>
+                    <span class="modal-title" style="color: #ffd700;">⛩️ A SHRINE</span>
+                    <div style="font-size: 10px; color: #888;">Every boon has a price. Choose one, or walk away.</div>
+                </div>
+                <button class="close-btn" onclick="closeShrine()">✕</button>
+            </div>
+            <div id="shrine-list" style="display: flex; flex-direction: column; gap: 6px; max-height: 60vh; overflow-y: auto;"></div>
+            <button class="modal-btn" style="margin-top: 8px;" onclick="closeShrine()">Walk away</button>
+        </div>
+    </div>
+
+    <!-- Victory -->
+    <div id="victory-modal" class="modal-overlay" style="z-index: 130;">
+        <div class="modal-card" style="text-align: center; border-color: #ffd700;">
+            <div style="font-size: 44px;">🏆</div>
+            <div style="font-size: 20px; font-weight: bold; color: #ffd700; letter-spacing: 2px;">VICTORY</div>
+            <div style="font-size: 12px; color: #bbb; margin: 4px 0;">The Ancient Dragon is slain and the Abyssal Sanctum falls silent.</div>
+            <div id="victory-summary" style="background: #0d0d12; border: 1px solid #4a4220; border-radius: 6px; padding: 10px; font-size: 11px; line-height: 1.5; text-align: left; margin: 6px 0;"></div>
+            <div style="display: flex; gap: 8px;">
+                <button class="modal-btn" style="flex: 1;" onclick="document.getElementById('victory-modal').classList.remove('active')">Keep exploring</button>
+                <button class="modal-btn" style="flex: 1; background: #3d3a1a; border-color: #ffd700; color: #ffd700;" onclick="document.getElementById('victory-modal').classList.remove('active'); openSettings(true)">New run</button>
             </div>
         </div>
     </div>
@@ -1011,6 +1061,10 @@
                     <button class="modal-btn" style="flex: 1; font-size: 12px; padding: 12px 6px;" onclick="applySettings(false)">🔄 Restart Same Seed</button>
                 </div>
                 <button class="modal-btn" style="width: 100%; margin-top: 6px; font-size: 11px;" onclick="saveSettingsOnly(); closeSettings();">💾 Save Only (apply on next run)</button>
+
+                <button class="modal-btn" style="width: 100%; margin-top: 8px; font-size: 12px; padding: 12px; background: #14282a; border-color: #64d8cb; color: #64d8cb;" onclick="startDailyRun()">📅 Daily Run <span id="daily-info" style="font-size: 10px; font-weight: normal;"></span></button>
+
+                <div id="legacy-panel" style="margin-top: 10px; background: #0e101a; border: 1px solid #2d334d; border-radius: 6px; padding: 8px;"></div>
 
                 <div style="margin-top: 10px; font-size: 10px; color: #888ea6;">
                     <label><input type="checkbox" id="set-debug" onchange="saveSettingsOnly()"> Enable debug / test tools (adds a Debug tab)</label>
@@ -1101,9 +1155,18 @@
             closeGemPicker,
             pickerSocket,
             fuseSelectedGem,
+            openShop,
+            closeShop,
+            setShopTab,
+            shopBuy,
+            shopSell,
+            closeShrine,
+            shrineChoose,
+            buyLegacyPerk,
+            startDailyRun,
             pixelDebug
-        } from './src/main.js?v=11.0';
-        import { PRNG } from './src/core/RNG.js?v=11.0';
+        } from './src/main.js?v=12.0';
+        import { PRNG } from './src/core/RNG.js?v=12.0';
 
         window.openSheetModal = function() {
             populateSheet();
@@ -1159,6 +1222,14 @@
         window.saveSettingsOnly = saveSettingsOnly;
         window.updateSettingsPreview = updateSettingsPreview;
         window.pixelDebug = pixelDebug;
+        window.closeShop = closeShop;
+        window.setShopTab = setShopTab;
+        window.shopBuy = shopBuy;
+        window.shopSell = shopSell;
+        window.closeShrine = closeShrine;
+        window.shrineChoose = shrineChoose;
+        window.buyLegacyPerk = buyLegacyPerk;
+        window.startDailyRun = startDailyRun;
         window.openGemPicker = openGemPicker;
         window.closeGemPicker = closeGemPicker;
         window.pickerSocket = pickerSocket;

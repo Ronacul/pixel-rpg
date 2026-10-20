@@ -18,6 +18,8 @@ import { MAP_WIDTH, MAP_HEIGHT, TILES } from './Dungeon.js';
 import { getBiomeForFloor, BIOMES } from '../data/Biomes.js';
 import { BASE_ITEMS, createItemFromBase, MUSHROOM_TYPES } from '../data/Items.js';
 import { makeMonster } from './Generator.js';
+import { buildMerchantStock } from '../data/Economy.js';
+import { PRNG } from '../core/RNG.js';
 
 export const TEST_MIN_MAP_SIZE = 100;
 
@@ -55,6 +57,9 @@ export function generateTestFloor(baseSeed, floorLevel) {
     rect(4, 50, 94, 1); // spine y=50, x=4..97
     put(6, 50, TILES.STAIRS_UP);
     put(11, 50, TILES.DOOR_CLOSED); // door directly on the spine
+    put(5, 52, TILES.SHRINE);       // choice shrine
+    const merchant = { x: 8, y: 48, name: 'Wandering Merchant', icon: '🧙', stock: buildMerchantStock(new PRNG('TEST-SHOP'), floorLevel) };
+    const shrineOffers = { [52 * MAP_WIDTH + 5]: ['vigor', 'fortune', 'wager'] };
 
     const stairsUpPos = { x: 6, y: 50 };
     let stairsDownPos = { x: 6, y: 52 };
@@ -158,6 +163,12 @@ export function generateTestFloor(baseSeed, floorLevel) {
         chests,
         mushrooms,
         keys,
+        merchant,
+        shrineOffers,
+        modifier: null,
+        xpMult: 1,
+        goldMult: 1,
+        sightPenalty: 0,
         lockedDoors,
         corpses,
         hazardZones: [],

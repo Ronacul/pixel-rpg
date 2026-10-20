@@ -1,6 +1,8 @@
 # Roadmap: bosses, equipment powers, gem sockets, and engagement ideas
 
-Design notes for the next big features. Nothing here is implemented yet. Each piece reuses an existing system (data registries, `EffectSystem` statuses/zones, `Biomes.js`, `Items.js`).
+> **Status (implemented):** bosses (single-tile, drawn large), equipment powers, socketed gems with fusing, shrines with choices, wandering merchant + gold, floor modifiers, run summary + Legacy perks, daily run. **Not built yet:** 2x2 boss footprints, Gem Extractor, companions / taming, light and stealth, per-floor quest goals, sub-class unlocks via Legacy.
+
+Design notes for these features (see the status line above). Each piece reuses an existing system (data registries, `EffectSystem` statuses/zones, `Biomes.js`, `Items.js`).
 
 ## 1. Boss fights (every 5th floor: 5, 10, 15, 20, 25)
 
