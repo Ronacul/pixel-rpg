@@ -372,13 +372,60 @@ function updateHUD() {
     window.history.replaceState({}, '', url);
 }
 
-const messageLog = []; // recent messages (debug / verification)
+const MESSAGE_CAP = 400; // history kept in memory (plain text only)
+const messageLog = []; // { text, cls, turn }
+let msgExpanded = false;
+try { msgExpanded = localStorage.getItem('pixel_rpg_msg_expanded') === '1'; } catch (e) {}
+
 function postMessage(text, className = "") {
-    messageLog.push(text.replace(/<[^>]*>/g, ""));
-    if (messageLog.length > 300) messageLog.shift();
+    messageLog.push({ text: text.replace(/<[^>]*>/g, ""), cls: className, turn: player ? player.turnCount : 0 });
+    if (messageLog.length > MESSAGE_CAP) messageLog.shift();
+    renderMessageBar(text, className);
+    const modal = document.getElementById('log-modal');
+    if (modal && modal.classList.contains('active')) renderLog();
+}
+
+// One line normally; expanded shows the last few messages wrapped, newest at the bottom
+function renderMessageBar(text, className = "") {
     const bar = document.getElementById('message-bar');
-    bar.className = className;
-    bar.innerHTML = `> ${text}`;
+    if (!bar) return;
+    bar.classList.toggle('expanded', msgExpanded);
+    document.getElementById('msg-expand')?.classList.toggle('on', msgExpanded);
+    if (!msgExpanded) {
+        bar.className = className;
+        bar.innerHTML = `> ${text}`;
+        return;
+    }
+    bar.className = 'expanded';
+    bar.innerHTML = messageLog.slice(-5).map(m => `<div class="m-line ${m.cls}">> ${m.text}</div>`).join('');
+    bar.scrollTop = bar.scrollHeight;
+}
+
+export function toggleMsgExpand() {
+    msgExpanded = !msgExpanded;
+    try { localStorage.setItem('pixel_rpg_msg_expanded', msgExpanded ? '1' : '0'); } catch (e) {}
+    const last = messageLog[messageLog.length - 1];
+    renderMessageBar(last ? last.text : '', last ? last.cls : '');
+}
+
+function renderLog() {
+    const list = document.getElementById('log-list');
+    if (!list) return;
+    list.innerHTML = messageLog.length
+        ? messageLog.map(m => `<div class="l-line ${m.cls}"><span class="l-turn">t${m.turn}</span>${m.text}</div>`).join('')
+        : '<div class="l-line" style="color:#888;">Nothing yet.</div>';
+    list.scrollTop = list.scrollHeight;
+}
+
+export function openLog() {
+    renderLog();
+    document.getElementById('log-modal')?.classList.add('active');
+    const list = document.getElementById('log-list');
+    if (list) list.scrollTop = list.scrollHeight;
+}
+
+export function closeLog() {
+    document.getElementById('log-modal')?.classList.remove('active');
 }
 
 // ==========================================
@@ -3694,6 +3741,23 @@ export function moveRelative(dx, dy) {
     handleTap(player.x + dx, player.y + dy);
 }
 
+// The D-pad can fold down to a thin handle (touch players rarely need it). Collapsed by default on first run.
+let padCollapsed = true;
+try { const v = localStorage.getItem('pixel_rpg_pad_collapsed'); if (v !== null) padCollapsed = v === '1'; } catch (e) {}
+
+function applyPadCollapsed() {
+    const pad = document.getElementById('remote-control-pad');
+    const h = document.getElementById('pad-handle');
+    if (pad) pad.classList.toggle('collapsed', padCollapsed);
+    if (h) h.innerText = padCollapsed ? '▴ D-pad' : '▾ D-pad';
+}
+
+export function togglePadCollapsed() {
+    padCollapsed = !padCollapsed;
+    try { localStorage.setItem('pixel_rpg_pad_collapsed', padCollapsed ? '1' : '0'); } catch (e) {}
+    applyPadCollapsed();
+}
+
 export function toggleRemoteControl(forceState) {
     const pad = document.getElementById('remote-control-pad');
     const btn = document.getElementById('btn-remote-toggle');
@@ -3703,6 +3767,7 @@ export function toggleRemoteControl(forceState) {
     const newState = (typeof forceState === 'boolean') ? forceState : !isCurrentlyVisible;
 
     pad.style.display = newState ? 'flex' : 'none';
+    applyPadCollapsed();
     if (btn) {
         if (newState) {
             btn.classList.add('active-remote');
@@ -4756,7 +4821,7 @@ export const pixelDebug = {
         afterDebugChange(`Spawned ${def.name}.`);
         return boss.id;
     },
-    log(n = 20) { return messageLog.slice(-n); },
+    log(n = 20) { return messageLog.slice(-n).map(m => m.text); },
     killPlayer() { godMode = false; player.hp = 0; handlePlayerDeath('a debug command'); },
     floorInfo() { const f = currentFloorData; return { modifier: f.modifier, merchant: !!f.merchant, shrines: Object.keys(f.shrineOffers || {}).length, boss: f.monsters.some(m => m.isBoss), xpMult: f.xpMult, goldMult: f.goldMult }; },
     boss() { const b = currentFloorData.monsters.find(m => m.isBoss); return b ? { name: b.name, hp: b.hp, maxHp: b.maxHp, x: b.x, y: b.y, alive: b.alive, airborne: b.airborne, phase: b.phaseIdx, telegraph: b.telegraph ? { move: b.telegraph.move, tiles: b.telegraph.tiles.length } : null } : null; },

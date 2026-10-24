@@ -117,6 +117,18 @@
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
         }
 
+        #msg-wrap { display: flex; gap: 4px; width: 100%; max-width: 360px; margin-top: 6px; align-items: stretch; }
+        #msg-wrap #message-bar { flex: 1; min-width: 0; max-width: none; margin-top: 0; cursor: pointer; }
+        #message-bar.expanded { white-space: normal; max-height: 118px; overflow-y: auto; line-height: 1.35; padding: 6px 10px; }
+        #message-bar.expanded .m-line { padding: 2px 0; border-bottom: 1px solid #1d2030; }
+        #message-bar.expanded .m-line:last-child { border-bottom: none; }
+        .msg-btns { display: flex; flex-direction: column; gap: 3px; }
+        .msg-btn { flex: 1; width: 34px; border-radius: 6px; border: 1px solid #2d3043; background: #101118; color: #cfd3e6; font-size: 14px; cursor: pointer; padding: 0; }
+        #log-list .l-line { padding: 3px 0; border-bottom: 1px solid #1d2030; font-size: 11px; line-height: 1.35; color: #e0e0f0; }
+        #log-list .l-turn { color: #6a7290; font-size: 9px; margin-right: 5px; }
+        .remote-pad-container.collapsed { padding: 3px 12px; }
+        .remote-pad-container.collapsed .remote-dpad-grid { display: none; }
+        .pad-handle { align-self: center; padding: 3px 14px; border-radius: 10px; border: 1px solid #2d3043; background: #101118; color: #9aa0bd; font-size: 11px; cursor: pointer; font-family: inherit; }
         .msg-hit { color: #55ff77 !important; }
         .msg-miss { color: #ff6666 !important; }
         .msg-victory { color: #ffff55 !important; font-weight: bold; }
@@ -361,7 +373,7 @@
         }
 
         /* On-Screen Remote Controller (Virtual D-Pad) */
-        .remote-pad-container {
+        .remote-pad-container { flex-direction: column; gap: 4px;
             width: 100%;
             max-width: 360px;
             display: flex;
@@ -755,10 +767,17 @@
     </div>
 
     <!-- Single-Line Message Ticker -->
-    <div id="message-bar">> Exploring dungeon depths... Tap floor to move | Long-press to inspect.</div>
+    <div id="msg-wrap">
+        <div id="message-bar" onclick="toggleMsgExpand()" title="Tap to expand / collapse">> Exploring dungeon depths... Tap floor to move | Long-press to inspect.</div>
+        <div class="msg-btns">
+            <button id="msg-expand" class="msg-btn" onclick="toggleMsgExpand()" title="Show the last few messages">⤢</button>
+            <button class="msg-btn" onclick="openLog()" title="Message history">📜</button>
+        </div>
+    </div>
 
     <!-- On-Screen Remote Controller (Virtual D-Pad) -->
     <div id="remote-control-pad" class="remote-pad-container" style="display: none;">
+        <button id="pad-handle" class="pad-handle" onclick="togglePadCollapsed()">▾ D-pad</button>
         <div class="remote-dpad-grid">
             <button class="dpad-btn" data-dx="-1" data-dy="-1" title="North-West (↖)">↖</button>
             <button class="dpad-btn dpad-cardinal" data-dx="0" data-dy="-1" title="North / Up (⬆)">⬆</button>
@@ -1077,6 +1096,20 @@
     </div>
 
     <!-- Menu: Actions / New Run (map size, class, race) / Debug -->
+    <!-- Message history -->
+    <div id="log-modal" class="modal-overlay" style="z-index: 125;" onclick="closeLog()">
+        <div class="modal-card" onclick="event.stopPropagation()" style="max-height: 80vh;">
+            <div class="modal-header">
+                <span class="modal-title">📜 MESSAGES</span>
+                <button class="close-btn" onclick="closeLog()">✕</button>
+            </div>
+            <div id="log-list" style="overflow-y: auto; max-height: 58vh; padding-right: 4px;"></div>
+            <div style="display: flex; gap: 6px; margin-top: 8px;">
+                <button class="modal-btn" style="flex: 1;" onclick="closeLog()">Close</button>
+            </div>
+        </div>
+    </div>
+
     <!-- START SCREEN: home / continue the story / create a character / legacy -->
     <div id="start-modal" class="modal-overlay" style="z-index: 140;">
         <div class="modal-card start-card" onclick="event.stopPropagation()">
@@ -1248,6 +1281,10 @@
             boostStat,
             moveRelative,
             toggleRemoteControl,
+            toggleMsgExpand,
+            openLog,
+            closeLog,
+            togglePadCollapsed,
             searchArea,
             openSlotPicker,
             closeSlotPicker,
@@ -1310,8 +1347,8 @@
             sortBag,
             shopSellJunk,
             pixelDebug
-        } from './src/main.js?v=20.0';
-        import { PRNG } from './src/core/RNG.js?v=20.0';
+        } from './src/main.js?v=21.0';
+        import { PRNG } from './src/core/RNG.js?v=21.0';
 
         window.openSheetModal = function() {
             window.switchSheetTab(null);
@@ -1345,6 +1382,10 @@
         window.cancelTargeting = cancelTargeting;
         window.moveRelative = moveRelative;
         window.toggleRemoteControl = toggleRemoteControl;
+        window.toggleMsgExpand = toggleMsgExpand;
+        window.openLog = openLog;
+        window.closeLog = closeLog;
+        window.togglePadCollapsed = togglePadCollapsed;
 
         window.chooseMilestoneStat = function(stat) {
             boostStat(stat);
