@@ -6,6 +6,20 @@ A modular 2D retro RPG engine featuring procedural dungeons (50 (**Tiny, default
 
 ---
 
+## 📜 Modules (adventures) & carrying your hero forward
+
+Pick an adventure in **Menu → New Run → Module**. Each module lists its theme, number of floors and the level range its foes are tuned for.
+
+* **Dungeons of the Deep**: the original 25-floor descent.
+* **The Sunken Reaches** (12 floors): lakes, rivers with fords, waterfalls, drowned ruins and a Kraken. Deep water blocks movement but not sight or arrows.
+* **The Whispering Vale** (10 floors): wide glades, thick briars, hollow caves and the Elder Treant.
+
+Clearing a module saves your hero (level, feats, gear, bag, gold) to a roster. Choose that hero in the next module's **Hero** list ("Continue the story"): difficulty starts at the depth your level implies (about 0.75 levels per floor), so every module stays a fair fight. You can also save your hero at any time with the Menu's hero controls, and retire heroes you no longer want.
+
+Modules are plain JSON files in [`modules/`](modules/README.md): a minimal one is a dozen lines. Players can add their own from the menu (**Add a module file**); invalid files are rejected with a list of problems.
+
+---
+
 ## 🗺️ Dungeon Mechanics & 25-Floor Progression
 
 1. **Configurable Procedural Grid per Level:**

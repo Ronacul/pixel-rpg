@@ -23,6 +23,8 @@ import { CLASSES, SKILLS, ClassManager } from './data/Classes.js';
 import { RaceManager, DEFAULT_RACE_ID } from './data/Races.js';
 import { FeatManager, FEATS } from './data/Feats.js';
 import { COMPARTMENTS, compartmentRange, compartmentOfIndex, compartmentOf } from './data/Inventory.js';
+import { Modules, CORE_MODULE_ID, setActiveModule, activeModule, depthOffset, depthForLevel, levelBand, validateModule, PALETTES } from './data/Modules.js';
+import { Heroes } from './data/Heroes.js';
 import { ABILITY_KEYS, STANDARD_ARRAY, SCORE_MODES, creationFor, rollAbilityScores, finalScores, classEligibility } from './data/Creation.js';
 import { KEY_ACTIONS, KEY_PRESETS, DEFAULT_PRESET, RESERVED_KEYS, normalizeKey, keyLabel, resolveBinds, buildKeyMap } from './data/Keybinds.js';
 import { PROGRESSION, XP_TABLE, XP_REWARDS, MASTERIES, monsterXp } from './data/Progression.js';
@@ -69,7 +71,7 @@ let hoverWorldPos = null;   // { x, y } currently targeted by cursor
 
 // ---- Persistent settings (map size, class, race, debug tools) ----
 const SETTINGS_KEY = 'pixel_rpg_settings_v2'; // v2: default map size is now Tiny (50x50)
-let settings = { mapSize: DEFAULT_MAP_SIZE, classId: 'warrior', raceId: DEFAULT_RACE_ID, debug: false, sprites: true, keyPreset: DEFAULT_PRESET, keyOverrides: {}, scoreMode: 'template', rolls: null };
+let settings = { mapSize: DEFAULT_MAP_SIZE, classId: 'warrior', raceId: DEFAULT_RACE_ID, debug: false, sprites: true, keyPreset: DEFAULT_PRESET, keyOverrides: {}, scoreMode: 'template', rolls: null, moduleId: CORE_MODULE_ID, heroId: null };
 let godMode = false;
 
 function loadSettings() {
@@ -133,8 +135,17 @@ export function startPlaythrough(seedString, opts = {}) {
     prng = new PRNG(seedString);
     dungeonManager = new DungeonManager(seedString, { testMode });
     runRecorded = false;
-    player = new PlayerCharacter(opts.classId ?? settings.classId, opts.raceId ?? settings.raceId, opts.rolls !== undefined ? opts.rolls : activeScores());
-    applyLegacyPerks(player);
+    // Module + hero: a saved hero carries class, gear and level into the module; difficulty depth starts where their level says
+    const heroEntry = testMode ? null : (opts.heroId !== undefined ? Heroes.get(opts.heroId) : (settings.heroId ? Heroes.get(settings.heroId) : null));
+    const mod = testMode ? Modules.get(CORE_MODULE_ID) : Modules.get(opts.moduleId ?? settings.moduleId);
+    if (heroEntry) {
+        player = PlayerCharacter.fromSave(heroEntry.data);
+        setActiveModule(mod, Math.max(0, depthForLevel(player.level) - 1));
+    } else {
+        player = new PlayerCharacter(opts.classId ?? settings.classId, opts.raceId ?? settings.raceId, opts.rolls !== undefined ? opts.rolls : activeScores());
+        setActiveModule(mod, 0);
+        applyLegacyPerks(player);
+    }
 
     cancelTargeting();
     loadFloor(1, true);
@@ -180,7 +191,7 @@ function loadFloor(floorNum, enterFromAbove = true) {
     const hiddenKeyCount = currentFloorData.keys?.filter(k => k.hidden).length || 0;
     const modDef = FLOOR_MODIFIERS[currentFloorData.modifier];
     const bossDef = currentFloorData.monsters.find(m => m.isBoss && m.alive);
-    postMessage(`Floor ${floorNum}: ${currentFloorData.biome.name}${modDef ? ` | ${modDef.icon} ${modDef.name}: ${modDef.desc}` : ''}${bossDef ? ' | 👑 A boss guards the stairs!' : ''}${lockInfo ? ` | 🔒 ${lockInfo} locked${hiddenKeyCount ? ', a key is hidden: Search (E)' : ''}` : ''}${currentFloorData.merchant ? ' | 🧙 A merchant is on this floor' : ''}`, 'msg-info');
+    postMessage(`Floor ${floorNum}/${activeModule.floors}: ${currentFloorData.biome.name}${modDef ? ` | ${modDef.icon} ${modDef.name}: ${modDef.desc}` : ''}${bossDef ? ' | 👑 A boss guards the stairs!' : ''}${lockInfo ? ` | 🔒 ${lockInfo} locked${hiddenKeyCount ? ', a key is hidden: Search (E)' : ''}` : ''}${currentFloorData.merchant ? ' | 🧙 A merchant is on this floor' : ''}`, 'msg-info');
     updateHUD();
 }
 
@@ -292,7 +303,7 @@ function resetPan() {
 // ==========================================
 function updateHUD() {
     document.getElementById('seed-display').innerText = dungeonManager.baseSeedString;
-    document.getElementById('hud-floor').innerText = `F${dungeonManager.currentFloor}`;
+    document.getElementById('hud-floor').innerText = `F${dungeonManager.currentFloor}/${activeModule.floors}`;
     const hl = document.getElementById('hud-level');
     if (hl) hl.innerText = `Lv.${player.level}`;
     document.getElementById('hud-hp').innerText = player.hp;
@@ -427,6 +438,30 @@ function draw() {
                 ctx.strokeStyle = isDim ? '#12141a' : '#4f5872';
                 ctx.strokeRect(screenX + 1, screenY + 1, TILE_SIZE - 2, TILE_SIZE - 2);
                 drawGlyph('🏛️', screenX, screenY, isDim ? 0.45 : 1.0);
+            } else if (tile === TILES.WATER || tile === TILES.SHALLOWS) {
+                const deep = tile === TILES.WATER;
+                const base = biome.waterColor || '#1d4e7a';
+                ctx.fillStyle = base;
+                ctx.globalAlpha = isDim ? 0.45 : (deep ? 0.95 : 0.6);
+                ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+                ctx.globalAlpha = 1;
+                if (!deep) { ctx.fillStyle = isDim ? '#0e1218' : biome.floorColor; ctx.globalAlpha = 0.45; ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE); ctx.globalAlpha = 1; }
+                // shimmer ripples (stable per tile)
+                ctx.strokeStyle = `rgba(190, 230, 255, ${isDim ? 0.10 : 0.28})`;
+                ctx.lineWidth = Math.max(1, TILE_SIZE / 16);
+                const r1 = (worldX * 7 + worldY * 13) % 5, r2 = (worldX * 11 + worldY * 5) % 4;
+                ctx.beginPath();
+                ctx.moveTo(screenX + TILE_SIZE * (0.15 + r1 * 0.04), screenY + TILE_SIZE * (0.3 + r2 * 0.12));
+                ctx.lineTo(screenX + TILE_SIZE * (0.5 + r1 * 0.04), screenY + TILE_SIZE * (0.3 + r2 * 0.12));
+                ctx.moveTo(screenX + TILE_SIZE * 0.45, screenY + TILE_SIZE * (0.7 - r2 * 0.05));
+                ctx.lineTo(screenX + TILE_SIZE * 0.85, screenY + TILE_SIZE * (0.7 - r2 * 0.05));
+                ctx.stroke();
+                ctx.lineWidth = 1;
+                // waterfall: deep water directly below a cliff
+                if (deep && worldY > 0 && terrain[(worldY - 1) * MAP_WIDTH + worldX] === TILES.WALL) {
+                    ctx.fillStyle = `rgba(235, 248, 255, ${isDim ? 0.25 : 0.7})`;
+                    for (let s = 0; s < 3; s++) ctx.fillRect(screenX + TILE_SIZE * (0.2 + s * 0.28), screenY, Math.max(1, TILE_SIZE / 9), TILE_SIZE * 0.85);
+                }
             } else if (tile === TILES.PIT) {
                 ctx.fillStyle = '#020204';
                 ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
@@ -782,7 +817,7 @@ function onBossDeath(boss) {
     }
 
     const final = !!def.loot?.final;
-    postMessage(final ? `🏆 ${boss.name} is SLAIN! The Abyssal Sanctum falls silent...` : `👑 ${boss.name} has fallen! The seal on the stairs breaks.`, 'msg-victory');
+    postMessage(final ? `🏆 ${boss.name} is SLAIN! ${activeModule.name} falls silent...` : `👑 ${boss.name} has fallen! The seal on the stairs breaks.`, 'msg-victory');
 
     const lvs = player.gainXp(0, true); // boss XP already came through the normal kill reward
     if (lvs.length) handleLevelUps(lvs);
@@ -826,10 +861,13 @@ function makeBossLoot(def, floorLevel) {
 }
 
 function showVictory() {
-    postMessage('🏆 VICTORY! You have cleared all 25 floors. Keep exploring or start a new run from the Menu.', 'msg-victory');
+    postMessage(`🏆 VICTORY! You have cleared all ${activeModule.floors} floors of ${activeModule.name}. Your hero was saved: continue the story in another module from the Menu.`, 'msg-victory');
     const sum = document.getElementById('victory-summary');
     if (sum) {
         sum.innerHTML = buildRunSummary('Victory', true);
+        const sub = document.getElementById('victory-sub');
+        if (sub) sub.innerText = `${activeModule.name} is complete! Your hero was saved to the roster; carry them into the next module.`;
+        Heroes.save(player, activeModule.id, 'cleared');
         document.getElementById('victory-modal')?.classList.add('active');
     }
 }
@@ -854,7 +892,7 @@ function getStepAwayFrom(sx, sy, px, py, terrain, monsters) {
         const ny = sy + d.dy;
         if (nx < 0 || nx >= MAP_WIDTH || ny < 0 || ny >= MAP_HEIGHT) continue;
         const t = terrain[ny * MAP_WIDTH + nx];
-        const isImpassable = (t === TILES.WALL || t === TILES.PILLAR || t === TILES.PIT || t === TILES.RUBBLE || t === TILES.DOOR_CLOSED || t === TILES.LOCKED_DOOR || t === TILES.BARREL);
+        const isImpassable = (t === TILES.WALL || t === TILES.PILLAR || t === TILES.PIT || t === TILES.WATER || t === TILES.RUBBLE || t === TILES.DOOR_CLOSED || t === TILES.LOCKED_DOOR || t === TILES.BARREL);
         const occupied = monsters.some(other => other.alive && other.x === nx && other.y === ny);
         const isPlayerTile = (nx === px && ny === py);
         if (!isImpassable && !occupied && !isPlayerTile) {
@@ -1131,7 +1169,7 @@ function getStepTowards(sx, sy, tx, ty, terrain, monsters) {
             if (visited.has(k)) continue;
 
             const t = terrain[ny * MAP_WIDTH + nx];
-            const isImpassable = (t === TILES.WALL || t === TILES.PILLAR || t === TILES.PIT || t === TILES.RUBBLE || t === TILES.LOCKED_DOOR || t === TILES.BARREL);
+            const isImpassable = (t === TILES.WALL || t === TILES.PILLAR || t === TILES.PIT || t === TILES.WATER || t === TILES.RUBBLE || t === TILES.LOCKED_DOOR || t === TILES.BARREL);
             const occupied = monsters.some(m => m.alive && m.x === nx && m.y === ny);
 
             if ((!isImpassable || (nx === tx && ny === ty)) && !occupied) {
@@ -1324,9 +1362,9 @@ function stepPath(path) {
     }
 
     // 5. Impassable Hazards (Pits, Pillars)
-    if (tile === TILES.PIT || tile === TILES.PILLAR) {
+    if (tile === TILES.PIT || tile === TILES.PILLAR || tile === TILES.WATER) {
         cancelWalking();
-        postMessage('🚫 Impassable obstacle.', 'msg-miss');
+        postMessage(tile === TILES.WATER ? '🌊 Too deep to cross: look for a ford of shallows.' : '🚫 Impassable obstacle.', 'msg-miss');
         draw();
         return;
     }
@@ -1441,10 +1479,10 @@ function stepPath(path) {
             draw();
             return;
         }
-        if (dungeonManager.currentFloor < 25) {
+        if (dungeonManager.currentFloor < activeModule.floors) {
             loadFloor(dungeonManager.currentFloor + 1, true);
         } else {
-            postMessage('🏆 You reached the final 25th floor depths!', 'msg-victory');
+            postMessage(`🏆 You reached the final depths of ${activeModule.name}!`, 'msg-victory');
         }
         draw();
         return;
@@ -2369,6 +2407,10 @@ export function inspectTileAt(worldX, worldY) {
             data = { icon: '🔒', name: 'Locked Door', desc: 'Reinforced and bolted.', details: `Opens with the ${lock ? lock.keyName : 'matching key'}. Keys lie somewhere else on this floor: use Search (E) in rooms to find hidden things.${zoneInfo}` };
         } else if (tile === TILES.PILLAR) {
             data = { icon: '🏛️', name: 'Marble Stone Pillar', desc: 'Solid architectural column.', details: `Impassable structure. Blocks projectiles and provides +2 Tactical Cover AC to adjacent combatants against ranged attacks.${zoneInfo}` };
+        } else if (tile === TILES.WATER) {
+            data = { icon: '🌊', name: 'Deep Water', desc: 'Too deep and fast to wade.', details: `Impassable, but you can see and shoot across it. Look for a ford (shallows) to cross.${zoneInfo}` };
+        } else if (tile === TILES.SHALLOWS) {
+            data = { icon: '💧', name: 'Shallows', desc: 'Knee-deep water.', details: `Passable. Fords across rivers and lakes.${zoneInfo}` };
         } else if (tile === TILES.PIT) {
             data = { icon: '🕳️', name: 'Bottomless Chasm', desc: 'Deep abyssal drop into the unknown.', details: `Impassable terrain hazard. Falling into it causes fatal fall damage.${zoneInfo}` };
         } else if (tile === TILES.BARREL) {
@@ -4212,7 +4254,7 @@ export function buyLegacyPerk(id) {
 export function startDailyRun() {
     readSettingsFromModal();
     closeSettings();
-    startPlaythrough(Daily.seedFor(todayString(), PRNG), { rolls: STANDARD_ARRAY }); // everyone gets the same scores on the daily
+    startPlaythrough(Daily.seedFor(todayString(), PRNG), { rolls: STANDARD_ARRAY, moduleId: CORE_MODULE_ID, heroId: null }); // everyone gets the same scores on the daily
     postMessage(`📅 Daily run ${todayString()}: everyone gets this seed today. Best floor so far: F${Daily.bestFloor()}.`, 'msg-info');
 }
 
@@ -4306,6 +4348,7 @@ export function openSettings(newGame = false) {
     fillSelect('set-class', ClassManager.getSelectableClasses().map(c => ({ value: c.id, label: `${c.icon} ${c.name}` })), settings.classId);
     fillSelect('set-race', RaceManager.getAllRaces().map(r => ({ value: r.id, label: `${r.icon} ${r.name}` })), settings.raceId);
     fillSelect('set-scores', Object.entries(SCORE_MODES).map(([id, m]) => ({ value: id, label: m.label })), settings.scoreMode);
+    refreshModulePanel();
     const dbg = document.getElementById('set-debug');
     if (dbg) dbg.checked = !!settings.debug;
     refreshCreation();
@@ -4339,6 +4382,9 @@ export function closeSettings() {
 
 function readSettingsFromModal() {
     settings.mapSize = normalizeMapSize(document.getElementById('set-map-size')?.value);
+    const modVal = document.getElementById('set-module')?.value;
+    if (modVal && Modules.has(modVal)) settings.moduleId = modVal;
+    settings.heroId = document.getElementById('set-hero')?.value || null;
     settings.classId = ClassManager.getClass(document.getElementById('set-class')?.value).id;
     settings.raceId = RaceManager.getRace(document.getElementById('set-race')?.value).id;
     const modeVal = document.getElementById('set-scores')?.value;
@@ -4350,10 +4396,19 @@ function readSettingsFromModal() {
 // Settings that change the world (map size / class / race) take effect on a NEW run.
 export function applySettings(newSeed = true) {
     readSettingsFromModal();
+    if (!settings.heroId) {
+        // A new hero must satisfy the race restrictions and stat minimums of the chosen class
+        const el = classEligibility(ClassManager.getClass(settings.classId), RaceManager.getRace(settings.raceId), activeScores());
+        if (!el.ok) {
+            const prev = document.getElementById('set-preview');
+            if (prev) prev.insertAdjacentHTML('beforeend', `<div style="margin-top:4px; color:#ff9a9a;">⛔ Can't start: ${el.reasons.join('; ')}. Pick another class, race or reroll.</div>`);
+            return;
+        }
+    }
     closeSettings();
     const seed = newSeed ? PRNG.generateRandomSeed() : dungeonManager.baseSeedString;
     startPlaythrough(seed);
-    postMessage(`⚙️ New run: ${player.race.name} ${player.characterClass.name} on a ${MAP_WIDTH}x${MAP_HEIGHT} map.`, 'msg-info');
+    postMessage(`⚙️ New run in ${activeModule.icon} ${activeModule.name}: ${player.race.name} ${player.characterClass.name} (Lv ${player.level}) on a ${MAP_WIDTH}x${MAP_HEIGHT} map${depthOffset ? `, difficulty depth ${depthOffset + 1}+` : ''}.`, 'msg-info');
 }
 
 export function saveSettingsOnly() {
@@ -4481,7 +4536,7 @@ export const pixelDebug = {
     },
     startRun(seed, opts = {}) { startPlaythrough(seed, opts); return this.state(); },
     jumpToFloor(n) {
-        n = Math.max(1, Math.min(25, parseInt(n, 10) || 1));
+        n = Math.max(1, Math.min(activeModule.floors, parseInt(n, 10) || 1));
         cancelWalking();
         cancelTargeting();
         loadFloor(n, true);
@@ -4600,7 +4655,7 @@ export const pixelDebug = {
         const seen = new Uint8Array(W * H);
         const q = [f.stairsUpPos.y * W + f.stairsUpPos.x];
         seen[q[0]] = 1;
-        const blocked = new Set([TILES.WALL, TILES.PILLAR, TILES.PIT, TILES.RUBBLE, TILES.LOCKED_DOOR]); // locked doors count as solid: stairs must be reachable without any key
+        const blocked = new Set([TILES.WALL, TILES.PILLAR, TILES.PIT, TILES.WATER, TILES.RUBBLE, TILES.LOCKED_DOOR]); // locked doors count as solid: stairs must be reachable without any key
         for (let h = 0; h < q.length; h++) {
             const i = q[h], x = i % W, y = (i - x) / W;
             for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
@@ -4638,7 +4693,7 @@ export const pixelDebug = {
         const seen = new Uint8Array(W * H);
         const q = [f.stairsUpPos.y * W + f.stairsUpPos.x];
         seen[q[0]] = 1;
-        const blocked = new Set([TILES.WALL, TILES.PILLAR, TILES.PIT, TILES.RUBBLE, TILES.LOCKED_DOOR, ...(secretsSolid ? [TILES.SECRET_DOOR] : [])]);
+        const blocked = new Set([TILES.WALL, TILES.PILLAR, TILES.PIT, TILES.WATER, TILES.RUBBLE, TILES.LOCKED_DOOR, ...(secretsSolid ? [TILES.SECRET_DOOR] : [])]);
         for (let h = 0; h < q.length; h++) {
             const i = q[h], x = i % W, y = (i - x) / W;
             for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
@@ -4662,6 +4717,140 @@ export const pixelDebug = {
 };
 
 // ==========================================
+// Modules & heroes (New Run tab)
+// ==========================================
+const USER_MODULES_KEY = 'pixel_rpg_user_modules_v1';
+
+// Fetches the module files listed in modules/index.json, plus any the player imported earlier
+export async function loadModules() {
+    try {
+        const idx = await (await fetch('./modules/index.json', { cache: 'no-cache' })).json();
+        for (const file of idx) {
+            try {
+                const raw = await (await fetch(`./modules/${file}`, { cache: 'no-cache' })).json();
+                const res = Modules.register(raw);
+                if (!res.ok) console.warn(`Module ${file} rejected:`, res.errors);
+            } catch (e) { console.warn(`Module ${file} failed to load`, e); }
+        }
+    } catch (e) { /* no modules folder: only the built-in module */ }
+    try {
+        for (const raw of JSON.parse(localStorage.getItem(USER_MODULES_KEY) || '[]')) {
+            const res = Modules.register(raw);
+            if (res.ok) res.module.imported = true;
+        }
+    } catch (e) {}
+    refreshModulePanel();
+}
+
+export function importModuleFile(input) {
+    const msg = document.getElementById('module-msg');
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+        let raw;
+        try { raw = JSON.parse(reader.result); } catch (e) { msg.innerHTML = `<span style="color:#ff9a9a;">Not valid JSON: ${e.message}</span>`; return; }
+        const res = Modules.register(raw);
+        if (!res.ok) { msg.innerHTML = `<span style="color:#ff9a9a;">Module rejected:<br>• ${res.errors.join('<br>• ')}</span>`; return; }
+        res.module.imported = true;
+        try {
+            const kept = JSON.parse(localStorage.getItem(USER_MODULES_KEY) || '[]').filter(r => r.id !== raw.id);
+            kept.push(raw);
+            localStorage.setItem(USER_MODULES_KEY, JSON.stringify(kept));
+        } catch (e) {}
+        settings.moduleId = res.module.id;
+        saveSettings();
+        msg.innerHTML = `<span style="color:#55ff77;">Added ${res.module.icon} ${res.module.name} (${res.module.floors} floors).</span>`;
+        input.value = '';
+        refreshModulePanel();
+    };
+    reader.readAsText(file);
+}
+
+// The hero the next run will use (null = create a new one)
+function selectedHeroEntry() {
+    return settings.heroId ? Heroes.get(settings.heroId) : null;
+}
+
+export function refreshModulePanel() {
+    const modEl = document.getElementById('set-module');
+    const heroEl = document.getElementById('set-hero');
+    if (!modEl || !heroEl) return;
+
+    if (!Modules.has(settings.moduleId)) settings.moduleId = CORE_MODULE_ID;
+    modEl.innerHTML = Modules.list().map(m => `<option value="${m.id}">${m.icon} ${m.name} — ${m.floors} floors${m.theme ? ` (${m.theme})` : ''}</option>`).join('');
+    modEl.value = settings.moduleId;
+
+    const heroes = Heroes.list();
+    if (settings.heroId && !heroes.some(h => h.id === settings.heroId)) settings.heroId = null;
+    heroEl.innerHTML = `<option value="">✨ New hero (create below)</option>` + heroes.map(h => {
+        const from = Modules.has(h.moduleId) ? Modules.get(h.moduleId).name : h.moduleId;
+        return `<option value="${h.id}">${h.label} Lv${h.level} — saved after ${from}</option>`;
+    }).join('');
+    heroEl.value = settings.heroId || '';
+
+    const mod = Modules.get(settings.moduleId);
+    const hero = selectedHeroEntry();
+    const offset = hero ? Math.max(0, depthForLevel(hero.level) - 1) : 0;
+    const band = levelBand(mod, offset);
+    document.getElementById('module-card').innerHTML = `
+        <div><strong>${mod.icon} ${mod.name}</strong>${mod.theme ? ` <span style="color:#888ea6;">• ${mod.theme}</span>` : ''}</div>
+        <div style="margin-top:2px;">${mod.desc}</div>
+        <div style="margin-top:3px; color:#9aa0bd;">${mod.floors} floors • ${mod.stages.length} regions • ${Object.keys(mod.bosses).length} bosses • foes tuned for about Lv ${band.from}–${band.to}${hero ? ` (your Lv ${hero.level} hero starts at difficulty depth ${offset + 1})` : ' (a new hero starts at depth 1)'}${mod.author && !mod.builtin ? ` • by ${mod.author}` : ''}</div>`;
+
+    const heroCard = document.getElementById('hero-card');
+    document.getElementById('new-hero-fields').style.display = hero ? 'none' : 'block';
+    if (hero) {
+        const p = hero.data;
+        heroCard.style.display = 'block';
+        heroCard.innerHTML = `<div><strong>${hero.label}</strong> • Lv ${hero.level} • ${hero.gold} gold • ${p.stats?.kills || 0} kills</div>
+            <div style="color:#9aa0bd; margin-top:2px;">Keeps level, feats, gear and bag. Health, hunger and effects are restored for the new chapter.</div>
+            <button class="btn-action-small" style="margin-top:5px; flex:none; padding:5px 10px;" onclick="deleteSelectedHero()">🗑️ Retire this hero</button>`;
+    } else {
+        heroCard.style.display = 'none';
+        refreshCreation();
+    }
+}
+
+export function onModuleChange() {
+    settings.moduleId = document.getElementById('set-module').value;
+    saveSettings();
+    refreshModulePanel();
+}
+
+export function onHeroChange() {
+    settings.heroId = document.getElementById('set-hero').value || null;
+    saveSettings();
+    refreshModulePanel();
+}
+
+export function deleteSelectedHero() {
+    if (!settings.heroId) return;
+    if (!confirm('Retire this saved hero for good?')) return;
+    Heroes.remove(settings.heroId);
+    settings.heroId = null;
+    saveSettings();
+    refreshModulePanel();
+}
+
+export function saveHeroNow() {
+    if (!player || !player.alive) return;
+    const entry = Heroes.save(player, activeModule.id);
+    postMessage(entry ? `💾 Saved ${entry.label} (Lv ${entry.level}) to your hero roster.` : '⚠️ Could not save the hero (storage full or blocked).', entry ? 'msg-info' : 'msg-miss');
+}
+
+// After a victory: pick the next module with this hero selected
+export function continueStory() {
+    document.getElementById('victory-modal')?.classList.remove('active');
+    if (player?.heroId) settings.heroId = player.heroId;
+    const mods = Modules.list();
+    const i = mods.findIndex(m => m.id === activeModule.id);
+    settings.moduleId = mods[(i + 1) % mods.length].id;
+    saveSettings();
+    openSettings(true);
+}
+
+// ==========================================
 // Initial launch: URL params ?seed= ?map= ?class= ?race= ?debug=1 ?floor= ?level=
 // ==========================================
 loadSettings();
@@ -4671,7 +4860,9 @@ if (urlParams.get('debug') === '1') settings.debug = true;
 startPlaythrough(initSeed, {
     mapSize: urlParams.get('map') ?? undefined,
     classId: urlParams.get('class') ?? undefined,
-    raceId: urlParams.get('race') ?? undefined
+    raceId: urlParams.get('race') ?? undefined,
+    moduleId: urlParams.get('module') ?? CORE_MODULE_ID,
+    heroId: null
 });
 if (urlParams.get('floor')) pixelDebug.jumpToFloor(urlParams.get('floor'));
 if (urlParams.get('level')) pixelDebug.setLevel(urlParams.get('level'));

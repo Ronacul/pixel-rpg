@@ -1,0 +1,72 @@
+{
+  "id": "sunken_reaches",
+  "name": "The Sunken Reaches",
+  "icon": "🌊",
+  "theme": "Lakes, rivers & waterfalls",
+  "author": "Pixel RPG",
+  "desc": "A drowned borderland of mangrove marshes, flooded ruins and a roaring gorge. Deep water blocks the way, so hunt for fords. Something huge sleeps at the bottom.",
+  "floors": 12,
+  "layout": { "roomSize": [6, 11], "doors": 0.4, "barrels": 0.4 },
+  "stages": [
+    {
+      "name": "Mangrove Shallows", "floors": [1, 3], "palette": "marsh",
+      "desc": "Brackish water between tangled roots and reeds.",
+      "monsters": ["giant_crab", "bog_lizard", "mire_slime"],
+      "layout": { "lakes": 4, "rivers": 1, "rough": 0.35, "foliage": 2.5, "pillars": 0.2 }
+    },
+    {
+      "name": "Flooded Ruins", "floors": [4, 6], "palette": "lagoon",
+      "desc": "A sunken town: pillars rise from still black water.",
+      "monsters": ["drowned_dead", "river_serpent", "giant_crab"],
+      "layout": { "lakes": 5, "rivers": 2, "rough": 0.1, "pillars": 1.6, "doors": 0.7 }
+    },
+    {
+      "name": "The Roaring Gorge", "floors": [7, 9], "palette": "reef",
+      "desc": "Waterfalls pour off the cliffs into churning pools.",
+      "monsters": ["river_serpent", "tide_hag", "kelp_horror"],
+      "layout": { "lakes": 6, "rivers": 2, "rough": 0.4, "pillars": 0.5 }
+    },
+    {
+      "name": "The Drowned Deep", "floors": [10, 12], "palette": "deep",
+      "desc": "Lightless halls where the lake becomes the sea.",
+      "monsters": ["water_wraith", "kraken_spawn", "tide_hag", "kelp_horror"],
+      "layout": { "lakes": 7, "rivers": 1, "rough": 0.25 }
+    }
+  ],
+  "bosses": {
+    "4": {
+      "name": "Crab Monarch", "icon": "🦀", "scale": 1.5, "sprite": { "id": "spider" },
+      "hp": 90, "ac": 16, "dice": 8, "diceCount": 2, "bonusDmg": 2, "hpMult": 4.5, "xpBonus": 150,
+      "desc": "A shelled tyrant whose claws shatter shields. His court of crabs scuttles to his call.",
+      "minion": "giant_crab",
+      "phases": [
+        { "below": 100, "script": ["melee", "slam", "melee", "melee"] },
+        { "below": 50, "script": ["charge", "melee", "summon", "slam"], "onEnter": { "msg": "clacks his claws and calls his court!", "summon": true } }
+      ],
+      "loot": { "gem": 1 }
+    },
+    "8": {
+      "name": "Marsh Hydra", "icon": "🐍", "scale": 1.6, "sprite": { "id": "lizard" },
+      "hp": 190, "ac": 16, "dice": 10, "diceCount": 2, "bonusDmg": 3, "hpMult": 5.5, "xpBonus": 360,
+      "desc": "Many necks, one hunger. It spits a choking marsh gas and regrows what you sever.",
+      "breath": { "zone": "POISON_GAS", "length": 5 },
+      "phases": [
+        { "below": 100, "script": ["melee", "breath", "melee", "slam"] },
+        { "below": 40, "script": ["breath", "breath", "slam", "melee"], "onEnter": { "msg": "rears up, every head hissing!", "dmgMult": 1.2 } }
+      ],
+      "loot": { "gem": 2 }
+    },
+    "12": {
+      "name": "The Drowned Kraken", "icon": "🦑", "scale": 1.7, "sprite": { "id": "eye" },
+      "hp": 260, "ac": 18, "dice": 12, "diceCount": 2, "bonusDmg": 4, "hpMult": 6.5, "xpBonus": 520,
+      "desc": "Older than the lake and angrier than the storm. Its arms strike from every side.",
+      "minion": "kraken_spawn",
+      "phases": [
+        { "below": 100, "script": ["melee", "slam", "roar", "melee"] },
+        { "below": 60, "script": ["slam", "summon", "melee", "slam"], "onEnter": { "msg": "thrashes, summoning its brood!", "summon": true } },
+        { "below": 30, "script": ["slam", "slam", "roar", "melee"], "onEnter": { "msg": "drags the whole lake into its rage!", "dmgMult": 1.3 } }
+      ],
+      "loot": { "gem": 3 }
+    }
+  }
+}

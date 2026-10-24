@@ -6,7 +6,7 @@ import { MAP_WIDTH, MAP_HEIGHT, TILES } from '../map/Dungeon.js';
 import { EffectSystem } from './Effects.js';
 import { CombatSystem, rollMonsterDamage } from './Combat.js';
 
-const SOLID = new Set([TILES.WALL, TILES.PILLAR, TILES.RUBBLE, TILES.DOOR_CLOSED, TILES.LOCKED_DOOR, TILES.SECRET_DOOR, TILES.BARREL]);
+const SOLID = new Set([TILES.WALL, TILES.WATER, TILES.PILLAR, TILES.RUBBLE, TILES.DOOR_CLOSED, TILES.LOCKED_DOOR, TILES.SECRET_DOOR, TILES.BARREL]);
 
 function inBounds(x, y) { return x >= 0 && y >= 0 && x < MAP_WIDTH && y < MAP_HEIGHT; }
 function isSolid(terrain, x, y) { return !inBounds(x, y) || SOLID.has(terrain[y * MAP_WIDTH + x]); }

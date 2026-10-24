@@ -1001,10 +1001,11 @@
         <div class="modal-card" style="text-align: center; border-color: #ffd700;">
             <div style="font-size: 44px;">🏆</div>
             <div style="font-size: 20px; font-weight: bold; color: #ffd700; letter-spacing: 2px;">VICTORY</div>
-            <div style="font-size: 12px; color: #bbb; margin: 4px 0;">The Ancient Dragon is slain and the Abyssal Sanctum falls silent.</div>
+            <div id="victory-sub" style="font-size: 12px; color: #bbb; margin: 4px 0;">The final boss is slain and the module is complete.</div>
             <div id="victory-summary" style="background: #0d0d12; border: 1px solid #4a4220; border-radius: 6px; padding: 10px; font-size: 11px; line-height: 1.5; text-align: left; margin: 6px 0;"></div>
             <div style="display: flex; gap: 8px;">
                 <button class="modal-btn" style="flex: 1;" onclick="document.getElementById('victory-modal').classList.remove('active')">Keep exploring</button>
+                <button class="modal-btn" style="flex: 1; background: #14282a; border-color: #64d8cb; color: #64d8cb;" onclick="continueStory()">📜 Continue the story</button>
                 <button class="modal-btn" style="flex: 1; background: #3d3a1a; border-color: #ffd700; color: #ffd700;" onclick="document.getElementById('victory-modal').classList.remove('active'); openSettings(true)">New run</button>
             </div>
         </div>
@@ -1080,6 +1081,16 @@
                 <label class="set-label">🗺️ Map size (tiles per side)</label>
                 <select id="set-map-size" class="set-select"></select>
 
+                <label class="set-label">📜 Module (adventure)</label>
+                <select id="set-module" class="set-select" onchange="onModuleChange()"></select>
+                <div id="module-card" style="background: #0e101a; border: 1px solid #2d334d; border-radius: 6px; padding: 8px; margin-top: 6px; font-size: 10px; line-height: 1.45; color: #cfd3e6;"></div>
+
+                <label class="set-label">🧝 Hero</label>
+                <select id="set-hero" class="set-select" onchange="onHeroChange()"></select>
+                <button class="btn-action-small" style="margin-top:5px; flex:none; padding:5px 10px; font-size:10px;" onclick="saveHeroNow()">💾 Save my current hero to the roster</button>
+                <div id="hero-card" style="display:none; margin-top:6px; font-size:10px; color:#cfd3e6; background:#0e101a; border:1px solid #2d334d; border-radius:6px; padding:8px;"></div>
+
+                <div id="new-hero-fields">
                 <label class="set-label">🎭 Class</label>
                 <select id="set-class" class="set-select" onchange="updateSettingsPreview()"></select>
 
@@ -1091,6 +1102,14 @@
                 <div id="roll-box" style="display:none; margin-top:6px;"></div>
 
                 <div id="set-preview" style="background: #0e101a; border: 1px solid #2d334d; border-radius: 6px; padding: 8px; margin-top: 8px; font-size: 10px; line-height: 1.4; color: #cfd3e6;"></div>
+                </div>
+
+                <details style="margin-top: 8px; font-size: 10px; color: #9aa0bd;">
+                    <summary style="cursor: pointer;">➕ Add a module file (.json)</summary>
+                    <div style="margin-top: 4px;">A module is one small JSON file: theme, number of floors, stages with palette + monsters, and bosses. See <code>modules/README.md</code> and the examples in <code>modules/</code>.</div>
+                    <input type="file" id="module-file" accept=".json,application/json" onchange="importModuleFile(this)" style="margin-top: 4px; font-size: 10px; max-width: 100%;">
+                    <div id="module-msg" style="margin-top: 4px;"></div>
+                </details>
 
                 <div style="display: flex; gap: 6px; margin-top: 10px;">
                     <button class="modal-btn" style="flex: 1; font-size: 12px; padding: 12px 6px;" onclick="applySettings(true)">🎲 New Run (random seed)</button>
@@ -1183,6 +1202,13 @@
             saveSettingsOnly,
             updateSettingsPreview,
             refreshCreation,
+            onModuleChange,
+            onHeroChange,
+            importModuleFile,
+            continueStory,
+            saveHeroNow,
+            deleteSelectedHero,
+            loadModules,
             rerollScores,
             usePower,
             cyclePower,
@@ -1212,8 +1238,8 @@
             sortBag,
             shopSellJunk,
             pixelDebug
-        } from './src/main.js?v=17.0';
-        import { PRNG } from './src/core/RNG.js?v=17.0';
+        } from './src/main.js?v=18.0';
+        import { PRNG } from './src/core/RNG.js?v=18.0';
 
         window.openSheetModal = function() {
             populateSheet();
@@ -1269,6 +1295,13 @@
         window.saveSettingsOnly = saveSettingsOnly;
         window.updateSettingsPreview = updateSettingsPreview;
         window.refreshCreation = refreshCreation;
+        window.onModuleChange = onModuleChange;
+        window.onHeroChange = onHeroChange;
+        window.importModuleFile = importModuleFile;
+        window.continueStory = continueStory;
+        window.saveHeroNow = saveHeroNow;
+        window.deleteSelectedHero = deleteSelectedHero;
+        loadModules();
         window.rerollScores = rerollScores;
         window.pixelDebug = pixelDebug;
         window.toggleGraphics = toggleGraphics;
@@ -1303,7 +1336,7 @@
         window.cycleZoom = cycleZoom;
 
         // Debug floor selector (1-25)
-        document.getElementById('dbg-floor').innerHTML = Array.from({ length: 25 }, (_, i) => `<option value="${i + 1}">F${i + 1}</option>`).join('');
+        document.getElementById('dbg-floor').innerHTML = Array.from({ length: 40 }, (_, i) => `<option value="${i + 1}">F${i + 1}</option>`).join('');
         document.getElementById('btn-settings').addEventListener('click', () => openSettings());
         document.getElementById('btn-search-main').addEventListener('click', searchArea);
         document.getElementById('btn-attack-main').addEventListener('click', autoTargetAndAttack);

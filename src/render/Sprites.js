@@ -53,7 +53,7 @@ class SpriteStoreClass {
     }
 
     biomeKey(biome) {
-        return BIOME_KEYS[biome?.id] || 'castle';
+        return biome?.look || BIOME_KEYS[biome?.id] || 'castle';
     }
 
     // Cached canvas for a sprite id + role selection

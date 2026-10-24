@@ -1,10 +1,10 @@
 // Procedural Dungeon Generator (configurable map size, 150x150 default) with Dense Small Rooms, Short Hallways, Doors & Secret Doors
 
 import { MAP_WIDTH, MAP_HEIGHT, TILES, VISIBILITY } from './Dungeon.js';
-import { getBiomeForFloor } from '../data/Biomes.js';
+import { stageForFloor, bossForFloor, layoutForFloor, activeModule, depthOffset, CORE_MODULE_ID } from '../data/Modules.js';
 import { PRNG } from '../core/RNG.js';
+import { roughenWalls, addWater } from './Terrain.js';
 import { generateLootItem, MUSHROOM_TYPES } from '../data/Items.js';
-import { getBossForFloor } from '../data/Bosses.js';
 import { rollFloorModifier, FLOOR_MODIFIERS } from '../data/FloorModifiers.js';
 import { buildMerchantStock } from '../data/Economy.js';
 import { SHRINE_OFFERS } from '../data/Shrines.js';
@@ -69,11 +69,15 @@ export function makeBoss(def, x, y, floorLevel) {
     };
 }
 
-export function generateFloor(baseSeed, floorLevel) {
-    const floorSeed = `${baseSeed}_L${floorLevel}`;
+export function generateFloor(baseSeed, moduleFloor) {
+    // moduleFloor = level within the module (display, stairs, bosses); floorLevel = difficulty depth (a stronger hero starts deeper)
+    const floorLevel = moduleFloor + depthOffset;
+    const lay = layoutForFloor(moduleFloor);
+    const floorSeed = activeModule.id === CORE_MODULE_ID && depthOffset === 0 ? `${baseSeed}_L${moduleFloor}` : `${baseSeed}_${activeModule.id}_L${moduleFloor}`;
     const prng = new PRNG(floorSeed);
-    const biome = getBiomeForFloor(floorLevel);
-    const modifierId = rollFloorModifier(prng, floorLevel);
+    const biome = stageForFloor(moduleFloor);
+    let modifierId = rollFloorModifier(prng, floorLevel);
+    if (bossForFloor(moduleFloor)) modifierId = null; // boss floors are never modified
     const mod = FLOOR_MODIFIERS[modifierId] || {};
 
     const terrain = new Uint8Array(MAP_WIDTH * MAP_HEIGHT);
@@ -86,11 +90,13 @@ export function generateFloor(baseSeed, floorLevel) {
     const rooms = [];
     // Room attempts scale with map area (65-85 attempts on a 100x100 map)
     const areaScale = (MAP_WIDTH * MAP_HEIGHT) / 10000;
-    const roomAttempts = Math.max(8, Math.round(prng.nextInt(65, 85) * areaScale));
+    const roomHi = Math.max(5, Math.min(lay.roomSize[1], Math.floor(MAP_WIDTH / 4)));
+    const roomLo = Math.min(lay.roomSize[0], roomHi);
+    const roomAttempts = Math.max(8, Math.round(prng.nextInt(65, 85) * areaScale * lay.rooms));
 
     for (let i = 0; i < roomAttempts; i++) {
-        const w = prng.nextInt(5, 9);
-        const h = prng.nextInt(5, 9);
+        const w = prng.nextInt(roomLo, roomHi);
+        const h = prng.nextInt(roomLo, roomHi);
         const x = prng.nextInt(3, MAP_WIDTH - w - 3);
         const y = prng.nextInt(3, MAP_HEIGHT - h - 3);
 
@@ -148,7 +154,7 @@ export function generateFloor(baseSeed, floorLevel) {
             }
 
             // Symmetrical Stone Pillars in large rooms (Provides Cover)
-            if (room.w >= 7 && room.h >= 7 && prng.chance(0.65)) {
+            if (room.w >= 7 && room.h >= 7 && prng.chance(0.65 * lay.pillars)) {
                 const px1 = room.x + 2;
                 const py1 = room.y + 2;
                 const px2 = room.x + room.w - 3;
@@ -162,7 +168,7 @@ export function generateFloor(baseSeed, floorLevel) {
             }
 
             // Destructible Barrels & Crates in room corners
-            if (prng.chance(0.7)) {
+            if (prng.chance(0.7 * lay.barrels)) {
                 const cornerCandidates = [
                     { x: room.x + 1, y: room.y + 1 },
                     { x: room.x + room.w - 2, y: room.y + 1 },
@@ -177,7 +183,7 @@ export function generateFloor(baseSeed, floorLevel) {
             }
 
             // Flammable Foliage & Briars in damp cavern rooms
-            if (prng.chance(0.35)) {
+            if (prng.chance(Math.min(0.95, 0.35 * lay.foliage))) {
                 const fx = prng.nextInt(room.x + 1, room.x + room.w - 2);
                 const fy = prng.nextInt(room.y + 1, room.y + room.h - 2);
                 for (let dy = -1; dy <= 1; dy++) {
@@ -280,6 +286,9 @@ export function generateFloor(baseSeed, floorLevel) {
         secretRoomCandidates[s].isSecret = true;
     }
 
+    // Module layout: ragged cave rock before doors are placed
+    roughenWalls(terrain, prng, rooms, lay.rough);
+
     // Door Placement along doorways / chokepoints
     const doors = [];
     for (let y = 2; y < MAP_HEIGHT - 2; y++) {
@@ -293,7 +302,7 @@ export function generateFloor(baseSeed, floorLevel) {
                 const isHorizontalChoke = (north === TILES.WALL && south === TILES.WALL && west === TILES.FLOOR && east === TILES.FLOOR);
                 const isVerticalChoke   = (west === TILES.WALL && east === TILES.WALL && north === TILES.FLOOR && south === TILES.FLOOR);
 
-                if ((isHorizontalChoke || isVerticalChoke) && prng.chance(0.28)) {
+                if ((isHorizontalChoke || isVerticalChoke) && prng.chance(0.28 * lay.doors)) {
                     const inSecretRoom = rooms.some(r => r.isSecret && Math.abs(r.cx - x) < r.w && Math.abs(r.cy - y) < r.h);
                     if (inSecretRoom) {
                         terrain[y * MAP_WIDTH + x] = TILES.SECRET_DOOR;
@@ -301,7 +310,7 @@ export function generateFloor(baseSeed, floorLevel) {
                         terrain[y * MAP_WIDTH + x] = prng.chance(0.12) ? TILES.SECRET_DOOR : TILES.DOOR_CLOSED;
                     }
                     doors.push({ x, y, type: terrain[y * MAP_WIDTH + x] });
-                } else if ((isHorizontalChoke || isVerticalChoke) && prng.chance(0.035 * (mod.trapMult || 1))) {
+                } else if ((isHorizontalChoke || isVerticalChoke) && prng.chance(0.035 * (mod.trapMult || 1) * lay.traps)) {
                     // Hidden Floor Traps in chokepoint hallways (Avoid spawn room cx/cy)
                     const isNearSpawn = Math.hypot(rooms[0].cx - x, rooms[0].cy - y) < 4;
                     if (!isNearSpawn) {
@@ -335,11 +344,11 @@ export function generateFloor(baseSeed, floorLevel) {
         }
     }
     const stairsDownPos = { x: exitRoom.cx, y: exitRoom.cy };
-    terrain[stairsDownPos.y * MAP_WIDTH + stairsDownPos.x] = (floorLevel < 25) ? TILES.STAIRS_DOWN : TILES.FLOOR;
+    terrain[stairsDownPos.y * MAP_WIDTH + stairsDownPos.x] = (moduleFloor < activeModule.floors) ? TILES.STAIRS_DOWN : TILES.FLOOR;
 
     // Boss floors (5, 10, 15, 20, 25): carve a pillared arena around the exit room. The boss waits there and the
     // stairs stay sealed until it falls (enforced in main.js).
-    const bossDef = getBossForFloor(floorLevel);
+    const bossDef = bossForFloor(moduleFloor);
     let bossArena = null;
     if (bossDef) {
         const ax = exitRoom.cx, ay = exitRoom.cy;
@@ -352,8 +361,17 @@ export function generateFloor(baseSeed, floorLevel) {
         }
         stairsDownPos.x = ax;
         stairsDownPos.y = ay + half - 1;
-        terrain[stairsDownPos.y * MAP_WIDTH + stairsDownPos.x] = (floorLevel < 25) ? TILES.STAIRS_DOWN : TILES.FLOOR;
+        terrain[stairsDownPos.y * MAP_WIDTH + stairsDownPos.x] = (moduleFloor < activeModule.floors) ? TILES.STAIRS_DOWN : TILES.FLOOR;
         bossArena = { cx: ax, cy: ay, half };
+    }
+
+    // Module layout: lakes and rivers (kept off the stairs and boss arena; fords guarantee every room stays reachable)
+    if (lay.lakes > 0 || lay.rivers > 0) {
+        const dry = [{ x: stairsUpPos.x, y: stairsUpPos.y, r: 3 }, { x: stairsDownPos.x, y: stairsDownPos.y, r: 3 }];
+        if (bossArena) dry.push({ x: bossArena.cx, y: bossArena.cy, r: bossArena.half + 2 });
+        const wetTargets = rooms.filter(r => !r.isSecret).map(r => ({ x: r.cx, y: r.cy }));
+        wetTargets.push({ x: stairsDownPos.x, y: stairsDownPos.y });
+        addWater(terrain, prng, { lakes: lay.lakes, rivers: lay.rivers }, dry, stairsUpPos, wetTargets);
     }
 
     // Monsters & Chests
@@ -491,7 +509,7 @@ export function generateFloor(baseSeed, floorLevel) {
     const lockedDoors = [];
     const keys = [];
     const KEY_NAMES = ['Iron Key', 'Brass Key', 'Silver Key'];
-    const SOLID = new Set([TILES.WALL, TILES.PILLAR, TILES.PIT, TILES.RUBBLE, TILES.LOCKED_DOOR]);
+    const SOLID = new Set([TILES.WALL, TILES.PILLAR, TILES.PIT, TILES.RUBBLE, TILES.LOCKED_DOOR, TILES.WATER]);
     const flood = (start) => {
         const seen = new Uint8Array(MAP_WIDTH * MAP_HEIGHT);
         const q = [start.y * MAP_WIDTH + start.x];
@@ -568,6 +586,7 @@ export function generateFloor(baseSeed, floorLevel) {
 
     return {
         floorLevel,
+        floor: moduleFloor,
         biome,
         terrain,
         visibility,

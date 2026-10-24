@@ -125,6 +125,30 @@ export class PlayerCharacter {
     }
 
     // Dynamic Attribute Getters (Base + Equipment + Active Buffs + Set Bonuses + Feats)
+    // ---- persistence (hero roster): everything except the registry-owned class/race objects ----
+    toSave() {
+        const o = JSON.parse(JSON.stringify(this, (k, v) => (k === 'characterClass' || k === 'race') ? undefined : v));
+        o.classId = this.characterClass.id;
+        o.raceId = this.race.id;
+        return o;
+    }
+
+    static fromSave(d) {
+        const { classId, raceId, ...rest } = d;
+        const p = new PlayerCharacter(classId, raceId, d.scoreRolls ?? null);
+        Object.assign(p, JSON.parse(JSON.stringify(rest)));
+        // A new chapter: fresh body, fresh effects, floor-bound progress reset
+        p.alive = true;
+        p.activeBuffs = [];
+        p.statuses = [];
+        p.cooldowns = {};
+        p.hungerTurns = 0;
+        p.xpMultiplier = 1;
+        p.stats = { ...p.stats, deepest: 1 };
+        p.hp = p.maxHp;
+        return p;
+    }
+
     getEquippedItems() {
         return Object.values(this.equipment).filter(Boolean);
     }

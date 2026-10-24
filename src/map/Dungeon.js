@@ -47,7 +47,9 @@ export const TILES = {
     ALTAR_INERT: 15,      // Depleted shrine / altar
     FOLIAGE: 16,          // Dense brush: slow passage, flammable into fire zone
     LOCKED_DOOR: 17,      // Needs the matching key (floor.lockedDoors[].keyId) to open
-    SHRINE: 18            // Choice shrine: pick a boon, pay its price (floor.shrineOffers)
+    SHRINE: 18,           // Choice shrine: pick a boon, pay its price (floor.shrineOffers)
+    WATER: 19,            // Deep water: impassable, does not block sight
+    SHALLOWS: 20          // Wading water: passable
 };
 
 export const VISIBILITY = {

@@ -1,0 +1,61 @@
+{
+  "id": "whispering_vale",
+  "name": "The Whispering Vale",
+  "icon": "🌲",
+  "theme": "Forest, caves & valley",
+  "author": "Pixel RPG",
+  "desc": "From a wolf-haunted greenwood trail down into hollow caves, across a moonlit valley and into the heart of the Elderwood. Wide glades, thick briars, few doors.",
+  "floors": 10,
+  "layout": { "roomSize": [7, 13], "rooms": 0.75, "doors": 0.15, "barrels": 0.2 },
+  "stages": [
+    {
+      "name": "Greenwood Trail", "floors": [1, 3], "palette": "glade",
+      "desc": "Sunlit glades, tall oaks and tracks of something hunting.",
+      "monsters": ["dire_wolf", "wood_goblin", "web_weaver"],
+      "layout": { "foliage": 3, "rough": 0.45, "pillars": 0.8, "lakes": 1 }
+    },
+    {
+      "name": "Hollow Caves", "floors": [4, 6], "palette": "grotto",
+      "desc": "Dripping tunnels under the roots, glowing with fungus.",
+      "monsters": ["cave_bat", "web_weaver", "fungal_ooze", "owlbear"],
+      "layout": { "foliage": 0.6, "rough": 0.65, "pillars": 1.4, "doors": 0 }
+    },
+    {
+      "name": "Moonlit Valley", "floors": [7, 8], "palette": "autumn",
+      "desc": "A broad valley of standing stones, streams and drifting wisps.",
+      "monsters": ["dire_wolf", "briar_wisp", "owlbear", "stone_golem"],
+      "layout": { "foliage": 2, "rough": 0.3, "lakes": 2, "rivers": 1 }
+    },
+    {
+      "name": "Heart of the Elderwood", "floors": [9, 10], "palette": "forest",
+      "desc": "Roots as wide as halls. The forest itself is watching.",
+      "monsters": ["valley_troll", "briar_wisp", "thorn_stalker", "entling_guard"],
+      "layout": { "foliage": 3, "rough": 0.5, "pillars": 1.2 }
+    }
+  ],
+  "bosses": {
+    "5": {
+      "name": "Alpha Dire Wolf", "icon": "🐺", "scale": 1.5, "sprite": { "id": "wolf" },
+      "hp": 100, "ac": 15, "dice": 8, "diceCount": 2, "bonusDmg": 3, "hpMult": 4.5, "xpBonus": 180,
+      "desc": "The pack leader. Fast, vicious, and never alone for long.",
+      "minion": "dire_wolf",
+      "phases": [
+        { "below": 100, "script": ["melee", "charge", "melee"] },
+        { "below": 50, "script": ["roar", "summon", "charge", "melee"], "onEnter": { "msg": "howls, and the pack answers!", "summon": true } }
+      ],
+      "loot": { "gem": 1 }
+    },
+    "10": {
+      "name": "The Elder Treant", "icon": "🌳", "scale": 1.7, "sprite": { "id": "treant" },
+      "hp": 240, "ac": 17, "dice": 12, "diceCount": 2, "bonusDmg": 4, "hpMult": 6, "xpBonus": 480, "regen": 4,
+      "desc": "The oldest tree in the Vale. Its roots lash out and the woods mend its bark.",
+      "minion": "thorn_stalker",
+      "phases": [
+        { "below": 100, "script": ["melee", "slam", "boulder", "melee"] },
+        { "below": 55, "script": ["slam", "summon", "melee", "boulder"], "onEnter": { "msg": "wakes the briars!", "summon": true } },
+        { "below": 25, "script": ["slam", "roar", "slam", "melee"], "onEnter": { "msg": "bellows, the whole grove trembling!", "dmgMult": 1.3 } }
+      ],
+      "loot": { "gem": 3 }
+    }
+  }
+}
