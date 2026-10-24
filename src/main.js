@@ -3625,8 +3625,12 @@ export function populateSheet() {
     // 15 Backpack slots
     const isBagSelected = (idx) => selectedSlot?.type === 'backpack' && selectedSlot?.id === idx;
     const bagRange = compartmentRange(bagTab);
+    let lastUsed = bagRange[0] - 1;
+    for (let i = bagRange[0]; i < bagRange[1]; i++) if (player.backpack[i]) lastUsed = i;
+    const tailLimit = lastUsed + 4; // after the last item only a few empty slots are drawn
     const bagHtml = player.backpack.map((item, idx) => {
         if (idx < bagRange[0] || idx >= bagRange[1]) return '';
+        if (!item && idx > tailLimit) return '';
         const isSel = isBagSelected(idx);
         const look = setLook(item);
         const adv = adviceFor(player, item);
