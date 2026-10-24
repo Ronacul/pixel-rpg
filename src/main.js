@@ -25,6 +25,7 @@ import { FeatManager, FEATS } from './data/Feats.js';
 import { COMPARTMENTS, compartmentRange, compartmentOfIndex, compartmentOf } from './data/Inventory.js';
 import { Modules, CORE_MODULE_ID, setActiveModule, activeModule, depthOffset, depthForLevel, levelBand, validateModule, PALETTES } from './data/Modules.js';
 import { Heroes } from './data/Heroes.js';
+import { gemIconSvg, gemColor, socketPipsHtml, itemIconHtml } from './render/GemIcon.js';
 import { ABILITY_KEYS, STANDARD_ARRAY, SCORE_MODES, creationFor, rollAbilityScores, finalScores, classEligibility } from './data/Creation.js';
 import { KEY_ACTIONS, KEY_PRESETS, DEFAULT_PRESET, RESERVED_KEYS, normalizeKey, keyLabel, resolveBinds, buildKeyMap } from './data/Keybinds.js';
 import { PROGRESSION, XP_TABLE, XP_REWARDS, MASTERIES, monsterXp } from './data/Progression.js';
@@ -62,7 +63,7 @@ let targetCursor = null;
 let walkTimer = null;
 let levelUpQueue = [];
 let currentLevelUpData = null;
-let currentSheetTab = 'gear'; // 'gear' | 'stats'
+let currentSheetTab = 'worn'; // 'worn' | 'bags' | 'stats' | 'log'
 
 // Targeting Mode State Machine
 let targetingMode = false;
@@ -123,7 +124,7 @@ export function startPlaythrough(seedString, opts = {}) {
     targetCursor = null;
     levelUpQueue = [];
     currentLevelUpData = null;
-    currentSheetTab = 'gear';
+    currentSheetTab = 'worn';
     selectedSlot = null;
     godMode = false;
 
@@ -140,9 +141,12 @@ export function startPlaythrough(seedString, opts = {}) {
     const mod = testMode ? Modules.get(CORE_MODULE_ID) : Modules.get(opts.moduleId ?? settings.moduleId);
     if (heroEntry) {
         player = PlayerCharacter.fromSave(heroEntry.data);
+        currentSetup = { moduleId: mod.id, heroId: heroEntry.id };
         setActiveModule(mod, Math.max(0, depthForLevel(player.level) - 1));
     } else {
-        player = new PlayerCharacter(opts.classId ?? settings.classId, opts.raceId ?? settings.raceId, opts.rolls !== undefined ? opts.rolls : activeScores());
+        const rollsUsed = opts.rolls !== undefined ? opts.rolls : activeScores();
+        player = new PlayerCharacter(opts.classId ?? settings.classId, opts.raceId ?? settings.raceId, rollsUsed);
+        currentSetup = { moduleId: mod.id, heroId: null, classId: player.characterClass.id, raceId: player.race.id, rolls: rollsUsed };
         setActiveModule(mod, 0);
         applyLegacyPerks(player);
     }
@@ -157,7 +161,7 @@ export function startPlaythrough(seedString, opts = {}) {
 }
 
 export function restartSameSeed() {
-    startPlaythrough(dungeonManager.baseSeedString);
+    startPlaythrough(dungeonManager.baseSeedString, { ...(currentSetup || {}), mapSize: MAP_WIDTH });
 }
 
 function loadFloor(floorNum, enterFromAbove = true) {
@@ -3015,7 +3019,7 @@ export function equipSelectedBackpackItem(targetSlot = null) {
 function gemListHtml(item) {
     if (!item || !item.sockets) return '';
     const free = freeSockets(item);
-    const rows = (item.gems || []).map(g => `<div style="color:#cdb8ff;">${g.icon} ${g.name}: <span style="color:#ffcc00;">${g.summary}</span></div>`).join('');
+    const rows = (item.gems || []).map(g => `<div style="color:${gemColor(g.type)};">${gemIconSvg(g.type, g.tier, 14)} ${g.name}: <b>${g.summary}</b></div>`).join('');
     const empty = free > 0 ? `<div style="color:#8a92b0;">◇ ${free} empty socket${free > 1 ? 's' : ''}: a gem here adds a bonus by colour (see the gem for details)</div>` : '';
     return `<div style="margin-top:3px; font-size:10px;"><b style="color:#d9c2ff;">💎 Sockets:</b>${rows}${empty}</div>`;
 }
@@ -3084,19 +3088,19 @@ function renderGemPicker() {
     title.innerText = `💎 ${item.name}`;
     const gems = player.backpack.map((g, idx) => ({ g, idx })).filter(x => x.g && x.g.isGem);
     const free = freeSockets(item);
-    const sockets = '◆'.repeat(item.gems?.length || 0) + '◇'.repeat(free);
+    const sockets = socketPipsHtml(item, 10);
     const rows = gems.length ? gems.map(({ g, idx }) => {
         const preview = describePreview(previewGem(g, item), describePower);
         return `
         <div class="picker-row">
             <div style="flex:1; min-width:0;">
-                <div style="color:#e0e0f0; font-weight:bold;">${g.icon} ${g.name} <span style="color:#666; font-weight:normal;">(bag ${idx + 1})</span></div>
+                <div style="color:${gemColor(g.gemType)}; font-weight:bold;">${gemIconSvg(g.gemType, g.tier, 18)} ${g.name} <span style="color:#666; font-weight:normal;">(bag ${idx + 1})</span></div>
                 <div style="color:#ffcc00; font-size:10px;">Adds: ${preview}</div>
             </div>
             <button class="btn-action-small" style="flex:none; background:#1d1a33; border-color:#b070ff; color:#d9c2ff;" ${free > 0 ? '' : 'disabled'} onclick="window.pickerSocket(${idx})">Socket</button>
         </div>`;
     }).join('') : `<div class="picker-row" style="color:#888;">You have no gems in your bag. Find them in chests and barrels, from bosses, or at a merchant.</div>`;
-    const set = (item.gems || []).map(g => `<div style="font-size:10px; color:#bbb;">${g.icon} ${g.name}: ${g.summary}</div>`).join('');
+    const set = (item.gems || []).map(g => `<div style="font-size:10px; color:${gemColor(g.type)};">${gemIconSvg(g.type, g.tier, 14)} ${g.name}: ${g.summary}</div>`).join('');
     body.innerHTML = `<div style="font-size:11px; color:#b9a8ff;">Sockets: ${sockets} (gems are permanent)</div>${set}${rows}`;
 }
 
@@ -3586,7 +3590,7 @@ export function populateSheet() {
                  title="${slotName}: ${isEquipped ? item.name : 'Unequipped (Tap to inspect)'}">
                 ${look.badge}
                 <div class="slot-label">${slotName}</div>
-                <div class="slot-icon">${isEquipped ? item.icon : iconPlaceholder}</div>
+                <div class="slot-icon">${isEquipped ? itemIconHtml(item, 30) : iconPlaceholder}</div>${isEquipped ? socketPipsHtml(item, 7) : ''}
                 ${isEquipped ? `
                     <div class="slot-name">${item.name}</div>
                     <div class="slot-stat">${item.desc || ''}</div>
@@ -3631,7 +3635,7 @@ export function populateSheet() {
             <div class="backpack-slot ${item ? 'equipped' : ''} ${isSel ? 'selected' : ''}" style="${look.style}"
                  onclick="window.selectSlot('backpack', ${idx})"
                  title="Slot ${idx + 1}: ${item ? item.name : 'Empty'}">
-                ${item ? `${advChip}${look.badge}${(item.count || 1) > 1 ? `<div class="count-chip">x${item.count}</div>` : ''}<div class="bag-icon">${item.icon}</div><div class="bag-name">${item.name}</div>` : `<span style="color:#444">Slot ${idx+1}</span>`}
+                ${item ? `${advChip}${look.badge}${(item.count || 1) > 1 ? `<div class="count-chip">x${item.count}</div>` : ''}<div class="bag-icon">${itemIconHtml(item, 30)}</div>${socketPipsHtml(item, 7)}<div class="bag-name">${item.name}</div>` : `<span style="color:#444">Slot ${idx+1}</span>`}
             </div>
         `;
     }).join('');
@@ -3668,7 +3672,7 @@ export function populateSheet() {
             cardTitle.innerText = `Selected Body Slot: ${selectedSlot.id.replace('_', ' ').toUpperCase()}`;
             if (item) {
                 cardContent.style.display = 'block';
-                cardName.innerText = `${item.icon} ${item.name}`;
+                cardName.innerHTML = `${itemIconHtml(item, 16)} ${item.name} ${socketPipsHtml(item, 8)}`;
                 cardSlot.innerText = `Equipped (${item.slot})`;
                 cardDesc.innerText = item.desc || 'Equipped gear';
                 const cmpEl2 = document.getElementById('item-card-compare');
@@ -3696,7 +3700,7 @@ export function populateSheet() {
             if (item) {
                 cardTitle.innerText = `Selected Backpack Item (Slot ${selectedSlot.id + 1}):`;
                 cardContent.style.display = 'block';
-                cardName.innerText = `${item.icon} ${item.name}${(item.count || 1) > 1 ? ` x${item.count}` : ''}`;
+                cardName.innerHTML = `${itemIconHtml(item, 16)} ${item.name}${(item.count || 1) > 1 ? ` x${item.count}` : ''} ${socketPipsHtml(item, 8)}`;
                 cardSlot.innerText = item.isGem ? `Gem (tier ${item.tier})` : `Slot: ${item.slot ? item.slot.replace('_', ' ') : 'Consumable'}`;
                 cardDesc.innerText = item.desc || 'Standard item';
                 const cmpEl = document.getElementById('item-card-compare');
@@ -3852,17 +3856,20 @@ export function campRest() {
 }
 
 export function switchSheetTab(tabId) {
+    if (!tabId) tabId = currentSheetTab;
+    if (tabId === 'gear') tabId = 'worn'; // older callers
     currentSheetTab = tabId;
-    const gearBtn = document.getElementById('tab-btn-gear');
-    const statsBtn = document.getElementById('tab-btn-stats');
-    const gearPane = document.getElementById('sheet-gear-pane');
-    const statsPane = document.getElementById('sheet-stats-pane');
-
-    if (gearBtn) gearBtn.className = `modal-tab ${tabId === 'gear' ? 'active' : ''}`;
-    if (statsBtn) statsBtn.className = `modal-tab ${tabId === 'stats' ? 'active' : ''}`;
-
-    if (gearPane) gearPane.style.display = tabId === 'gear' ? 'block' : 'none';
-    if (statsPane) statsPane.style.display = tabId === 'stats' ? 'flex' : 'none';
+    for (const t of ['worn', 'bags', 'stats', 'log']) {
+        const btn = document.getElementById(`tab-btn-${t}`);
+        if (btn) btn.className = `modal-tab ${tabId === t ? 'active' : ''}`;
+    }
+    const show = (id, on, display = 'block') => { const el = document.getElementById(id); if (el) el.style.display = on ? display : 'none'; };
+    const gear = tabId === 'worn' || tabId === 'bags';
+    show('sheet-gear-pane', gear);
+    show('sheet-worn-pane', tabId === 'worn');
+    show('sheet-bags-pane', tabId === 'bags');
+    show('sheet-stats-pane', tabId === 'stats', 'flex');
+    show('sheet-log-pane', tabId === 'log', 'flex');
 
     populateSheet();
 }
@@ -4252,7 +4259,7 @@ export function buyLegacyPerk(id) {
 }
 
 export function startDailyRun() {
-    readSettingsFromModal();
+    closeStart();
     closeSettings();
     startPlaythrough(Daily.seedFor(todayString(), PRNG), { rolls: STANDARD_ARRAY, moduleId: CORE_MODULE_ID, heroId: null }); // everyone gets the same scores on the daily
     postMessage(`📅 Daily run ${todayString()}: everyone gets this seed today. Best floor so far: F${Daily.bestFloor()}.`, 'msg-info');
@@ -4340,23 +4347,6 @@ export function updateSettingsPreview() {
         ${elig.ok ? '' : `<div style="margin-top:3px; color:#ff9a9a;">⚠️ ${elig.reasons.join('; ')}</div>`}`;
 }
 
-export function openSettings(newGame = false) {
-    renderLegacyPanel();
-    const title = document.getElementById("settings-title");
-    if (title) title.innerText = newGame === true ? "🧙 NEW GAME: CREATE YOUR CHARACTER" : "☰ MENU";
-    fillSelect('set-map-size', MAP_SIZES.map(s => ({ value: s.size, label: s.label })), settings.mapSize);
-    fillSelect('set-class', ClassManager.getSelectableClasses().map(c => ({ value: c.id, label: `${c.icon} ${c.name}` })), settings.classId);
-    fillSelect('set-race', RaceManager.getAllRaces().map(r => ({ value: r.id, label: `${r.icon} ${r.name}` })), settings.raceId);
-    fillSelect('set-scores', Object.entries(SCORE_MODES).map(([id, m]) => ({ value: id, label: m.label })), settings.scoreMode);
-    refreshModulePanel();
-    const dbg = document.getElementById('set-debug');
-    if (dbg) dbg.checked = !!settings.debug;
-    refreshCreation();
-    refreshDebugPanel();
-    const modal = document.getElementById('settings-modal');
-    switchMenuTab(newGame === true ? 'newrun' : 'actions');
-    if (modal) modal.classList.add('active');
-}
 
 export function switchMenuTab(tab) {
     if (tab === 'keys') renderKeysPanel();
@@ -4381,15 +4371,13 @@ export function closeSettings() {
 }
 
 function readSettingsFromModal() {
-    settings.mapSize = normalizeMapSize(document.getElementById('set-map-size')?.value);
-    const modVal = document.getElementById('set-module')?.value;
-    if (modVal && Modules.has(modVal)) settings.moduleId = modVal;
-    settings.heroId = document.getElementById('set-hero')?.value || null;
-    settings.classId = ClassManager.getClass(document.getElementById('set-class')?.value).id;
-    settings.raceId = RaceManager.getRace(document.getElementById('set-race')?.value).id;
-    const modeVal = document.getElementById('set-scores')?.value;
-    settings.scoreMode = SCORE_MODES[modeVal] ? modeVal : 'template';
-    settings.debug = !!document.getElementById('set-debug')?.checked;
+    const val = (id) => document.getElementById(id)?.value || '';
+    if (val('set-map-size')) settings.mapSize = normalizeMapSize(val('set-map-size'));
+    if (val('set-class')) settings.classId = ClassManager.getClass(val('set-class')).id;
+    if (val('set-race')) settings.raceId = RaceManager.getRace(val('set-race')).id;
+    const modeVal = val('set-scores');
+    if (modeVal) settings.scoreMode = SCORE_MODES[modeVal] ? modeVal : 'template';
+    if (document.getElementById('set-debug')) settings.debug = !!document.getElementById('set-debug').checked;
     saveSettings();
 }
 
@@ -4739,7 +4727,7 @@ export async function loadModules() {
             if (res.ok) res.module.imported = true;
         }
     } catch (e) {}
-    refreshModulePanel();
+    refreshStartIfOpen();
 }
 
 export function importModuleFile(input) {
@@ -4762,76 +4750,16 @@ export function importModuleFile(input) {
         saveSettings();
         msg.innerHTML = `<span style="color:#55ff77;">Added ${res.module.icon} ${res.module.name} (${res.module.floors} floors).</span>`;
         input.value = '';
-        refreshModulePanel();
+        refreshStartIfOpen();
     };
     reader.readAsText(file);
 }
 
 // The hero the next run will use (null = create a new one)
-function selectedHeroEntry() {
-    return settings.heroId ? Heroes.get(settings.heroId) : null;
-}
 
-export function refreshModulePanel() {
-    const modEl = document.getElementById('set-module');
-    const heroEl = document.getElementById('set-hero');
-    if (!modEl || !heroEl) return;
 
-    if (!Modules.has(settings.moduleId)) settings.moduleId = CORE_MODULE_ID;
-    modEl.innerHTML = Modules.list().map(m => `<option value="${m.id}">${m.icon} ${m.name} — ${m.floors} floors${m.theme ? ` (${m.theme})` : ''}</option>`).join('');
-    modEl.value = settings.moduleId;
 
-    const heroes = Heroes.list();
-    if (settings.heroId && !heroes.some(h => h.id === settings.heroId)) settings.heroId = null;
-    heroEl.innerHTML = `<option value="">✨ New hero (create below)</option>` + heroes.map(h => {
-        const from = Modules.has(h.moduleId) ? Modules.get(h.moduleId).name : h.moduleId;
-        return `<option value="${h.id}">${h.label} Lv${h.level} — saved after ${from}</option>`;
-    }).join('');
-    heroEl.value = settings.heroId || '';
 
-    const mod = Modules.get(settings.moduleId);
-    const hero = selectedHeroEntry();
-    const offset = hero ? Math.max(0, depthForLevel(hero.level) - 1) : 0;
-    const band = levelBand(mod, offset);
-    document.getElementById('module-card').innerHTML = `
-        <div><strong>${mod.icon} ${mod.name}</strong>${mod.theme ? ` <span style="color:#888ea6;">• ${mod.theme}</span>` : ''}</div>
-        <div style="margin-top:2px;">${mod.desc}</div>
-        <div style="margin-top:3px; color:#9aa0bd;">${mod.floors} floors • ${mod.stages.length} regions • ${Object.keys(mod.bosses).length} bosses • foes tuned for about Lv ${band.from}–${band.to}${hero ? ` (your Lv ${hero.level} hero starts at difficulty depth ${offset + 1})` : ' (a new hero starts at depth 1)'}${mod.author && !mod.builtin ? ` • by ${mod.author}` : ''}</div>`;
-
-    const heroCard = document.getElementById('hero-card');
-    document.getElementById('new-hero-fields').style.display = hero ? 'none' : 'block';
-    if (hero) {
-        const p = hero.data;
-        heroCard.style.display = 'block';
-        heroCard.innerHTML = `<div><strong>${hero.label}</strong> • Lv ${hero.level} • ${hero.gold} gold • ${p.stats?.kills || 0} kills</div>
-            <div style="color:#9aa0bd; margin-top:2px;">Keeps level, feats, gear and bag. Health, hunger and effects are restored for the new chapter.</div>
-            <button class="btn-action-small" style="margin-top:5px; flex:none; padding:5px 10px;" onclick="deleteSelectedHero()">🗑️ Retire this hero</button>`;
-    } else {
-        heroCard.style.display = 'none';
-        refreshCreation();
-    }
-}
-
-export function onModuleChange() {
-    settings.moduleId = document.getElementById('set-module').value;
-    saveSettings();
-    refreshModulePanel();
-}
-
-export function onHeroChange() {
-    settings.heroId = document.getElementById('set-hero').value || null;
-    saveSettings();
-    refreshModulePanel();
-}
-
-export function deleteSelectedHero() {
-    if (!settings.heroId) return;
-    if (!confirm('Retire this saved hero for good?')) return;
-    Heroes.remove(settings.heroId);
-    settings.heroId = null;
-    saveSettings();
-    refreshModulePanel();
-}
 
 export function saveHeroNow() {
     if (!player || !player.alive) return;
@@ -4840,14 +4768,205 @@ export function saveHeroNow() {
 }
 
 // After a victory: pick the next module with this hero selected
+
+// ==========================================
+// Start screen: home / continue the story / new character / legacy
+// ==========================================
+let currentSetup = null; // how the running game was started (for "new seed")
+let storyHeroId = null;
+let storyModuleId = null;
+let createStep = 1;
+
+// The in-game menu (actions, keys, debug). `true` is the old "new game" call and now opens the start screen.
+export function openSettings(newGame = false) {
+    if (newGame === true) { openStart('home'); return; }
+    const dbg = document.getElementById('set-debug');
+    if (dbg) dbg.checked = !!settings.debug;
+    refreshDebugPanel();
+    switchMenuTab('actions');
+    document.getElementById('settings-modal')?.classList.add('active');
+}
+
+export function openStart(view = 'home') {
+    closeSettings();
+    document.getElementById('start-modal')?.classList.add('active');
+    startShow(view);
+}
+
+export function closeStart() {
+    document.getElementById('start-modal')?.classList.remove('active');
+}
+
+function refreshStartIfOpen() {
+    if (document.getElementById('start-modal')?.classList.contains('active')) startShow(currentStartView);
+}
+
+let currentStartView = 'home';
+export function startShow(view) {
+    currentStartView = view;
+    for (const v of ['home', 'story', 'create', 'legacy']) {
+        const el = document.getElementById(`start-${v}`);
+        if (el) el.style.display = v === view ? 'flex' : 'none';
+    }
+    if (view === 'home') renderStartHome();
+    if (view === 'story') renderStory();
+    if (view === 'create') { createStep = 1; renderCreate(); }
+    if (view === 'legacy') renderLegacyPanel();
+}
+
+// Heroes that cleared a module list it in `cleared`; the next suggestion is the first module they have not cleared
+function suggestedModuleFor(hero) {
+    const mods = Modules.list();
+    const done = new Set(hero?.cleared || []);
+    return (mods.find(m => !done.has(m.id) && m.id !== hero?.moduleId) || mods.find(m => !done.has(m.id)) || mods[0]).id;
+}
+
+function describeSetup() {
+    const setup = currentSetup || { moduleId: settings.moduleId, heroId: settings.heroId, classId: settings.classId, raceId: settings.raceId };
+    const hero = setup.heroId ? Heroes.get(setup.heroId) : null;
+    const mod = Modules.get(setup.moduleId);
+    if (hero) return `${hero.label} Lv ${hero.level} • ${mod.icon} ${mod.name}`;
+    const cls = ClassManager.getClass(setup.classId), race = RaceManager.getRace(setup.raceId);
+    return `${race.name} ${cls.name} • ${mod.icon} ${mod.name}`;
+}
+
+function renderStartHome() {
+    const heroes = Heroes.list();
+    const sub = document.getElementById('start-sub');
+    if (sub) sub.innerText = player ? `Current run: ${player.race.name} ${player.characterClass.name} Lv ${player.level} • F${dungeonManager.currentFloor}/${activeModule.floors} • ${activeModule.name}` : '';
+    const cont = document.getElementById('start-continue');
+    if (cont) {
+        if (heroes.length) {
+            const h = heroes[0];
+            const next = Modules.get(suggestedModuleFor(h));
+            cont.disabled = false;
+            cont.innerHTML = `📜 Continue the story<small>${h.label} Lv ${h.level} → next: ${next.icon} ${next.name}</small>`;
+        } else {
+            cont.disabled = true;
+            cont.innerHTML = `📜 Continue the story<small>clear an adventure to save a hero</small>`;
+        }
+    }
+    const ns = document.getElementById('start-newseed');
+    if (ns) ns.innerHTML = `🎲 New seed<small>${describeSetup()}</small>`;
+    const retry = document.getElementById('start-retry');
+    if (retry) retry.disabled = !dungeonManager;
+    renderLegacyPanel(); // also fills the daily-run label
+}
+
+// Module cards: `heroEntry` (or null for a new hero) sets the level band shown; cleared modules are ticked
+function moduleCardsHtml(selectedId, handler, heroEntry, suggestedId = null) {
+    const offset = heroEntry ? Math.max(0, depthForLevel(heroEntry.level) - 1) : 0;
+    const done = new Set(heroEntry?.cleared || []);
+    return Modules.list().map(m => {
+        const band = levelBand(m, offset);
+        const tags = `${done.has(m.id) ? '<span class="tag tag-ok">✓ cleared</span>' : ''}${m.id === suggestedId ? '<span class="tag tag-new">★ next</span>' : ''}`;
+        return `<button class="pick-card ${m.id === selectedId ? 'sel' : ''}" onclick="${handler}('${m.id}')">
+            <b>${m.icon} ${m.name}</b>${tags}
+            <div style="color:#9aa0bd;">${m.theme ? `${m.theme} • ` : ''}${m.floors} floors • foes about Lv ${band.from}–${band.to}</div>
+            <div>${m.desc}</div></button>`;
+    }).join('');
+}
+
+// ---- Continue the story ----
+function renderStory() {
+    const heroes = Heroes.list();
+    if (!heroes.length) { startShow('home'); return; }
+    if (!heroes.some(h => h.id === storyHeroId)) storyHeroId = heroes[0].id;
+    const hero = heroes.find(h => h.id === storyHeroId);
+    if (!storyModuleId || !Modules.has(storyModuleId)) storyModuleId = suggestedModuleFor(hero);
+    document.getElementById('story-heroes').innerHTML = heroes.map(h => {
+        const cleared = (h.cleared || []).map(id => Modules.has(id) ? Modules.get(id).icon : '').join('');
+        return `<div style="display:flex; gap:4px;"><button class="pick-card ${h.id === storyHeroId ? 'sel' : ''}" style="flex:1;" onclick="pickStoryHero('${h.id}')">
+            <b>${h.label} • Lv ${h.level}</b>${cleared ? `<span class="tag tag-ok">${cleared}</span>` : ''}
+            <div style="color:#9aa0bd;">${h.gold} gold • saved after ${Modules.has(h.moduleId) ? Modules.get(h.moduleId).name : h.moduleId}</div></button>
+            ${h.id === storyHeroId ? `<button class="start-back" style="align-self:stretch;" title="Retire this hero" onclick="retireHero('${h.id}')">🗑️</button>` : ''}</div>`;
+    }).join('');
+    document.getElementById('story-modules').innerHTML = moduleCardsHtml(storyModuleId, 'pickStoryModule', hero, suggestedModuleFor(hero));
+    const m = Modules.get(storyModuleId);
+    const offset = Math.max(0, depthForLevel(hero.level) - 1);
+    document.getElementById('story-begin').innerHTML = `Begin ${m.icon} ${m.name} ▶<small>difficulty depth ${offset + 1}+ for your Lv ${hero.level} hero</small>`;
+}
+
+export function pickStoryHero(id) { storyHeroId = id; storyModuleId = null; renderStory(); }
+export function pickStoryModule(id) { storyModuleId = id; renderStory(); }
+
+export function retireHero(id) {
+    if (!confirm('Retire this saved hero for good?')) return;
+    Heroes.remove(id);
+    if (settings.heroId === id) { settings.heroId = null; saveSettings(); }
+    storyHeroId = null;
+    renderStory();
+}
+
+export function beginStory() {
+    settings.heroId = storyHeroId;
+    settings.moduleId = storyModuleId;
+    saveSettings();
+    closeStart();
+    startPlaythrough(PRNG.generateRandomSeed());
+    postMessage(`📜 Chapter begins in ${activeModule.icon} ${activeModule.name}: ${player.race.name} ${player.characterClass.name} (Lv ${player.level}), difficulty depth ${depthOffset + 1}+.`, 'msg-info');
+}
+
+// After a victory: straight to the story screen with this hero and a different adventure suggested
 export function continueStory() {
     document.getElementById('victory-modal')?.classList.remove('active');
-    if (player?.heroId) settings.heroId = player.heroId;
-    const mods = Modules.list();
-    const i = mods.findIndex(m => m.id === activeModule.id);
-    settings.moduleId = mods[(i + 1) % mods.length].id;
+    storyHeroId = player?.heroId || null;
+    storyModuleId = null;
+    openStart('story');
+}
+
+// ---- New character ----
+function renderCreate() {
+    fillSelect('set-map-size', MAP_SIZES.map(s => ({ value: s.size, label: s.label })), settings.mapSize);
+    fillSelect('set-class', ClassManager.getSelectableClasses().map(c => ({ value: c.id, label: `${c.icon} ${c.name}` })), settings.classId);
+    fillSelect('set-race', RaceManager.getAllRaces().map(r => ({ value: r.id, label: `${r.icon} ${r.name}` })), settings.raceId);
+    fillSelect('set-scores', Object.entries(SCORE_MODES).map(([id, m]) => ({ value: id, label: m.label })), settings.scoreMode);
+    document.getElementById('create-step1').style.display = createStep === 1 ? 'block' : 'none';
+    document.getElementById('create-step2').style.display = createStep === 2 ? 'block' : 'none';
+    document.getElementById('create-title').innerText = createStep === 1 ? '✨ New character: hero' : '✨ New character: adventure';
+    if (createStep === 1) refreshCreation();
+    else {
+        if (!Modules.has(settings.moduleId)) settings.moduleId = CORE_MODULE_ID;
+        document.getElementById('create-modules').innerHTML = moduleCardsHtml(settings.moduleId, 'pickCreateModule', null);
+    }
+}
+
+export function pickCreateModule(id) { settings.moduleId = id; saveSettings(); renderCreate(); }
+
+export function createNext() {
+    readSettingsFromModal();
+    const el = classEligibility(ClassManager.getClass(settings.classId), RaceManager.getRace(settings.raceId), activeScores());
+    if (!el.ok) {
+        document.getElementById('set-preview')?.insertAdjacentHTML('beforeend', `<div style="margin-top:4px; color:#ff9a9a;">⛔ ${el.reasons.join('; ')}. Pick another class, race or reroll.</div>`);
+        return;
+    }
+    createStep = 2;
+    renderCreate();
+}
+
+export function createBack() {
+    if (createStep === 2) { createStep = 1; renderCreate(); } else startShow('home');
+}
+
+export function beginCreate() {
+    readSettingsFromModal();
+    settings.heroId = null; // a brand-new hero
     saveSettings();
-    openSettings(true);
+    closeStart();
+    startPlaythrough(PRNG.generateRandomSeed());
+    postMessage(`⚙️ New run in ${activeModule.icon} ${activeModule.name}: ${player.race.name} ${player.characterClass.name} on a ${MAP_WIDTH}x${MAP_HEIGHT} map.`, 'msg-info');
+}
+
+// ---- Home buttons ----
+export function startNewSeed() {
+    closeStart();
+    startPlaythrough(PRNG.generateRandomSeed(), currentSetup ? { ...currentSetup } : {});
+    postMessage(`🎲 New seed: ${player.race.name} ${player.characterClass.name} (Lv ${player.level}) in ${activeModule.icon} ${activeModule.name}.`, 'msg-info');
+}
+
+export function startRetry() {
+    closeStart();
+    restartSameSeed();
 }
 
 // ==========================================

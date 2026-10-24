@@ -279,6 +279,32 @@
 
         .tab-row { display: flex; gap: 6px; margin: 4px 0 10px 0; }
         .big-tab { padding: 12px 6px !important; font-size: 13px !important; border-radius: 8px !important; }
+        .sheet-tabs { display: flex; gap: 4px; margin: 4px 0 8px 0; }
+        .sheet-tabs .modal-tab { flex: 1; padding: 9px 2px; font-size: 12px; white-space: nowrap; }
+        .sock-pips { margin-top: 1px; }
+
+        /* Start screen */
+        .start-card { max-width: 340px; gap: 8px; }
+        .start-view { display: flex; flex-direction: column; gap: 8px; }
+        .start-title { text-align: center; font-size: 22px; font-weight: bold; color: #ffcc00; letter-spacing: 3px; margin-top: 4px; }
+        .start-sub { text-align: center; font-size: 10px; color: #888ea6; margin-top: -4px; }
+        .start-big { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 100%; padding: 13px 10px; border-radius: 8px; border: 1px solid #3b425e; background: #1a1e2d; color: #f0f0ff; font-family: inherit; font-size: 14px; font-weight: bold; cursor: pointer; }
+        .start-big small { font-size: 10px; font-weight: normal; color: #9aa0bd; }
+        .start-big.primary { background: #3d3a1a; border-color: #ffd700; color: #ffd700; }
+        .start-big:disabled { opacity: 0.4; cursor: default; }
+        .start-row { display: flex; gap: 6px; }
+        .start-small { flex: 1; padding: 10px 4px; border-radius: 6px; border: 1px solid #3b425e; background: #151826; color: #d0d4ea; font-family: inherit; font-size: 11px; font-weight: bold; cursor: pointer; }
+        .start-head { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: bold; color: #ffcc00; }
+        .start-back { padding: 6px 10px; border-radius: 6px; border: 1px solid #3b425e; background: #151826; color: #d0d4ea; font-family: inherit; font-size: 12px; cursor: pointer; }
+        .start-label { font-size: 11px; font-weight: bold; color: #64d8cb; margin-top: 2px; }
+        .pick-list { display: flex; flex-direction: column; gap: 5px; }
+        .pick-card { text-align: left; padding: 8px 10px; border-radius: 8px; border: 1px solid #2d334d; background: #0e101a; color: #cfd3e6; font-family: inherit; font-size: 10px; line-height: 1.4; cursor: pointer; }
+        .pick-card.sel { border-color: #ffd700; background: #1d1c10; box-shadow: 0 0 8px rgba(255, 215, 0, 0.25); }
+        .pick-card b { font-size: 12px; color: #f0f0ff; }
+        .pick-card .tag { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 8px; font-size: 9px; font-weight: bold; }
+        .tag-ok { background: #1f4a2a; color: #aaffaa; }
+        .tag-new { background: #3d3a1a; color: #ffd700; }
+        .info-box { background: #0e101a; border: 1px solid #2d334d; border-radius: 6px; padding: 8px; font-size: 10px; line-height: 1.4; color: #cfd3e6; }
         .menu-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
         .menu-btn {
             display: flex; flex-direction: column; align-items: center; gap: 2px;
@@ -493,10 +519,8 @@
         /* 15 Backpack Grid */
         #backpack-grid {
             display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
+            grid-template-columns: repeat(4, minmax(0, 1fr));
             gap: 5px;
-            max-height: 300px;
-            overflow-y: auto;
             background: #090a0f;
             padding: 6px;
             border: 1px solid #202230;
@@ -762,9 +786,9 @@
             </div>
 
             <!-- Modal Tab Navigation: Gear (25) vs Attributes & Progression Log -->
-            <div style="display: flex; gap: 6px; margin: 4px 0 8px 0;">
-                <button id="tab-btn-gear" class="modal-tab active" onclick="window.switchSheetTab('gear')">🎒 Equipment & Bags</button>
-                <button id="tab-btn-stats" class="modal-tab" onclick="window.switchSheetTab('stats')">📊 Attributes & Level Log</button>
+            <div class="sheet-tabs">
+                <button id="tab-btn-worn" class="modal-tab active" onclick="window.switchSheetTab('worn')">👤 Worn</button><button id="tab-btn-bags" class="modal-tab" onclick="window.switchSheetTab('bags')">🎒 Bags</button>
+                <button id="tab-btn-stats" class="modal-tab" onclick="window.switchSheetTab('stats')">📊 Stats</button><button id="tab-btn-log" class="modal-tab" onclick="window.switchSheetTab('log')">📖 Feats</button>
             </div>
 
             <!-- PANE 1: EQUIPMENT & BAG (25 SLOTS) -->
@@ -773,14 +797,14 @@
                 <div id="sheet-set-bonuses" style="display: none; margin-top: 2px;"></div>
 
                 <!-- Visual Paperdoll Body Layout -->
-                <div style="font-size: 11px; color: #ffcc00; margin-top: 6px; font-weight: bold; display: flex; justify-content: space-between;">
-                    <span>👤 EQUIPPED ON BODY (10 SLOTS):</span>
-                    <span style="font-size: 10px; color: #888ea6;">Tap a slot to choose gear</span>
-                </div>
+                <div id="sheet-worn-pane">
+                <div style="font-size: 10px; color: #888ea6; margin-top: 6px; text-align: right;">Tap a slot to choose gear</div>
                 <div id="paperdoll-body" style="background: #090a0f; border: 1px solid #232535; border-radius: 6px; padding: 6px; margin-top: 2px;">
                     <!-- Generated dynamically -->
                 </div>
+                </div>
 
+                <div id="sheet-bags-pane" style="display: none;">
                 <!-- Equip management helpers -->
                 <div style="display: flex; gap: 6px; margin-top: 8px;">
                     <button id="btn-equip-upgrades" class="btn-action-small" style="padding: 9px 6px; background: #193826; border-color: #55ff77; color: #aaffaa;" onclick="equipUpgrades()">⚡ Equip upgrades (0)</button>
@@ -797,6 +821,7 @@
                 <div id="backpack-grid" style="margin-top: 2px;">
                     <!-- Generated dynamically -->
                 </div>
+                </div>
 
                 <!-- Floating action bar: sticks to the bottom of the sheet so Equip / Drop stay next to the inventory -->
                 <div id="item-action-card">
@@ -806,12 +831,14 @@
                             <span id="item-card-name" style="font-weight: bold; color: #64d8cb;">Item Name</span>
                             <span id="item-card-slot" style="color: #aaa; font-size: 10px;">Slot</span>
                         </div>
-                        <div id="item-card-desc" style="color: #ffcc00; font-size: 10px; margin: 2px 0;">Item stats</div>
-                        <div id="item-card-compare" style="font-size: 10px; color: #bbb;"></div>
-                        <div id="item-card-gems"></div>
                         <div class="item-action-row" id="item-card-actions">
                             <!-- Action buttons injected dynamically -->
                         </div>
+                        <div id="item-card-compare" style="font-size: 10px; color: #bbb; margin-top: 3px;"></div>
+                        <details id="item-card-details" style="margin-top: 3px;">
+                            <summary id="item-card-desc" style="color: #ffcc00; font-size: 10px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Item stats</summary>
+                            <div id="item-card-gems"></div>
+                        </details>
                     </div>
                 </div>
             </div>
@@ -885,6 +912,10 @@
                     </div>
                 </div>
 
+            </div>
+
+            <!-- PANE 3: FEATS, TRAITS & LEVEL LOG -->
+            <div id="sheet-log-pane" style="display: none; flex-direction: column; gap: 8px;">
                 <!-- Level-by-Level Progression History Timeline -->
                 <div style="background: #090a12; border: 1px solid #23283c; border-radius: 6px; padding: 6px;">
                     <div style="font-size: 11px; font-weight: bold; color: #ffcc00; margin-bottom: 4px;">📜 LEVEL PROGRESSION HISTORY LOG:</div>
@@ -1042,6 +1073,74 @@
     </div>
 
     <!-- Menu: Actions / New Run (map size, class, race) / Debug -->
+    <!-- START SCREEN: home / continue the story / create a character / legacy -->
+    <div id="start-modal" class="modal-overlay" style="z-index: 140;">
+        <div class="modal-card start-card" onclick="event.stopPropagation()">
+            <!-- Home -->
+            <div id="start-home" class="start-view">
+                <div class="start-title">⚔️ PIXEL RPG</div>
+                <div id="start-sub" class="start-sub"></div>
+                <button id="start-continue" class="start-big primary" onclick="startShow('story')"></button>
+                <button class="start-big" onclick="startShow('create')">✨ New character<small>pick a class, race and adventure</small></button>
+                <button id="start-newseed" class="start-big" onclick="startNewSeed()"></button>
+                <div class="start-row">
+                    <button id="start-retry" class="start-small" onclick="startRetry()">↺ Retry this seed</button>
+                    <button class="start-small" onclick="startDailyRun()">📅 Daily run<span id="daily-info" style="display:block; font-size:9px; font-weight:normal;"></span></button>
+                </div>
+                <div class="start-row">
+                    <button class="start-small" onclick="startShow('legacy')">⭐ Legacy</button>
+                    <button class="start-small" onclick="closeStart(); openSettings();">☰ Menu</button>
+                    <button id="start-resume" class="start-small" onclick="closeStart()">▶ Resume</button>
+                </div>
+            </div>
+
+            <!-- Continue the story with a saved hero -->
+            <div id="start-story" class="start-view" style="display: none;">
+                <div class="start-head"><button class="start-back" onclick="startShow('home')">‹ Back</button><span>📜 Continue the story</span></div>
+                <div class="start-label">Hero</div>
+                <div id="story-heroes" class="pick-list"></div>
+                <div class="start-label">Next adventure <span style="color:#888ea6; font-weight:normal;">difficulty scales to your hero</span></div>
+                <div id="story-modules" class="pick-list"></div>
+                <button id="story-begin" class="start-big primary" onclick="beginStory()">Begin ▶</button>
+            </div>
+
+            <!-- Create a new character: step 1 hero, step 2 adventure -->
+            <div id="start-create" class="start-view" style="display: none;">
+                <div class="start-head"><button class="start-back" onclick="createBack()">‹ Back</button><span id="create-title">✨ New character</span></div>
+                <div id="create-step1">
+                    <label class="set-label">🎭 Class</label>
+                    <select id="set-class" class="set-select" onchange="updateSettingsPreview()"></select>
+                    <label class="set-label">🧬 Race</label>
+                    <select id="set-race" class="set-select" onchange="refreshCreation()"></select>
+                    <label class="set-label">🎲 Ability scores</label>
+                    <select id="set-scores" class="set-select" onchange="refreshCreation()"></select>
+                    <div id="roll-box" style="display:none; margin-top:6px;"></div>
+                    <div id="set-preview" class="info-box" style="margin-top: 8px;"></div>
+                    <button class="start-big primary" onclick="createNext()">Choose adventure ›</button>
+                </div>
+                <div id="create-step2" style="display: none;">
+                    <div class="start-label">Adventure</div>
+                    <div id="create-modules" class="pick-list"></div>
+                    <label class="set-label">🗺️ Map size</label>
+                    <select id="set-map-size" class="set-select"></select>
+                    <details style="margin-top: 8px; font-size: 10px; color: #9aa0bd;">
+                        <summary style="cursor: pointer;">➕ Add a module file (.json)</summary>
+                        <div style="margin-top: 4px;">A module is one small JSON file (theme, floors, stages, bosses). See <code>modules/README.md</code>.</div>
+                        <input type="file" id="module-file" accept=".json,application/json" onchange="importModuleFile(this)" style="margin-top: 4px; font-size: 10px; max-width: 100%;">
+                        <div id="module-msg" style="margin-top: 4px;"></div>
+                    </details>
+                    <button class="start-big primary" onclick="beginCreate()">Begin ▶</button>
+                </div>
+            </div>
+
+            <!-- Legacy perks -->
+            <div id="start-legacy" class="start-view" style="display: none;">
+                <div class="start-head"><button class="start-back" onclick="startShow('home')">‹ Back</button><span>⭐ Legacy</span></div>
+                <div id="legacy-panel"></div>
+            </div>
+        </div>
+    </div>
+
     <div id="settings-modal" class="modal-overlay" onclick="closeSettings()">
         <div class="modal-card" onclick="event.stopPropagation()" style="max-height: 90vh; overflow-y: auto;">
             <div class="modal-header">
@@ -1052,7 +1151,6 @@
             <div class="tab-row">
                 <button id="menu-tab-actions" class="modal-tab big-tab active" onclick="switchMenuTab('actions')">🎮 Actions</button>
                 <button id="menu-tab-keys" class="modal-tab big-tab" onclick="switchMenuTab('keys')">⌨️ Keys</button>
-                <button id="menu-tab-newrun" class="modal-tab big-tab" onclick="switchMenuTab('newrun')">🧙 New Run</button>
                 <button id="menu-tab-debug" class="modal-tab big-tab" style="display: none;" onclick="switchMenuTab('debug')">🛠️ Debug</button>
             </div>
 
@@ -1067,63 +1165,18 @@
                     <button class="menu-btn" onclick="menuDo(() => openSheetModal())"><span>👤</span>Character<small>C</small></button>
                     <button class="menu-btn" onclick="toggleGraphics()"><span>🎨</span>Graphics: <b id="graphics-label">Pixel art</b><small>pixel art or classic emoji</small></button>
                 </div>
+                <button class="menu-btn" style="width: 100%; margin-top: 6px; flex-direction: row; justify-content: center; gap: 8px;" onclick="saveHeroNow()"><span>💾</span>Save this hero to the roster (carry into other adventures)</button>
+                <button class="menu-btn" style="width: 100%; margin-top: 6px; flex-direction: row; justify-content: center; gap: 8px;" onclick="menuDo(() => openStart('home'))"><span>🏠</span>Start screen: new game, continue story, daily run</button>
                 <div id="key-help" style="font-size: 10px; color: #888ea6; margin-top: 8px; line-height: 1.4;">
+                </div>
+                <div style="margin-top: 10px; font-size: 10px; color: #888ea6;">
+                    <label><input type="checkbox" id="set-debug" onchange="saveSettingsOnly()"> Enable debug / test tools (adds a Debug tab)</label>
                 </div>
             </div>
 
             <!-- TAB: Keys -->
             <div id="menu-pane-keys" style="display: none;">
                 <div id="keys-panel"></div>
-            </div>
-
-            <!-- TAB: New Run -->
-            <div id="menu-pane-newrun" style="display: none;">
-                <label class="set-label">🗺️ Map size (tiles per side)</label>
-                <select id="set-map-size" class="set-select"></select>
-
-                <label class="set-label">📜 Module (adventure)</label>
-                <select id="set-module" class="set-select" onchange="onModuleChange()"></select>
-                <div id="module-card" style="background: #0e101a; border: 1px solid #2d334d; border-radius: 6px; padding: 8px; margin-top: 6px; font-size: 10px; line-height: 1.45; color: #cfd3e6;"></div>
-
-                <label class="set-label">🧝 Hero</label>
-                <select id="set-hero" class="set-select" onchange="onHeroChange()"></select>
-                <button class="btn-action-small" style="margin-top:5px; flex:none; padding:5px 10px; font-size:10px;" onclick="saveHeroNow()">💾 Save my current hero to the roster</button>
-                <div id="hero-card" style="display:none; margin-top:6px; font-size:10px; color:#cfd3e6; background:#0e101a; border:1px solid #2d334d; border-radius:6px; padding:8px;"></div>
-
-                <div id="new-hero-fields">
-                <label class="set-label">🎭 Class</label>
-                <select id="set-class" class="set-select" onchange="updateSettingsPreview()"></select>
-
-                <label class="set-label">🧬 Race</label>
-                <select id="set-race" class="set-select" onchange="refreshCreation()"></select>
-
-                <label class="set-label">🎲 Ability scores</label>
-                <select id="set-scores" class="set-select" onchange="refreshCreation()"></select>
-                <div id="roll-box" style="display:none; margin-top:6px;"></div>
-
-                <div id="set-preview" style="background: #0e101a; border: 1px solid #2d334d; border-radius: 6px; padding: 8px; margin-top: 8px; font-size: 10px; line-height: 1.4; color: #cfd3e6;"></div>
-                </div>
-
-                <details style="margin-top: 8px; font-size: 10px; color: #9aa0bd;">
-                    <summary style="cursor: pointer;">➕ Add a module file (.json)</summary>
-                    <div style="margin-top: 4px;">A module is one small JSON file: theme, number of floors, stages with palette + monsters, and bosses. See <code>modules/README.md</code> and the examples in <code>modules/</code>.</div>
-                    <input type="file" id="module-file" accept=".json,application/json" onchange="importModuleFile(this)" style="margin-top: 4px; font-size: 10px; max-width: 100%;">
-                    <div id="module-msg" style="margin-top: 4px;"></div>
-                </details>
-
-                <div style="display: flex; gap: 6px; margin-top: 10px;">
-                    <button class="modal-btn" style="flex: 1; font-size: 12px; padding: 12px 6px;" onclick="applySettings(true)">🎲 New Run (random seed)</button>
-                    <button class="modal-btn" style="flex: 1; font-size: 12px; padding: 12px 6px;" onclick="applySettings(false)">🔄 Restart Same Seed</button>
-                </div>
-                <button class="modal-btn" style="width: 100%; margin-top: 6px; font-size: 11px;" onclick="saveSettingsOnly(); closeSettings();">💾 Save Only (apply on next run)</button>
-
-                <button class="modal-btn" style="width: 100%; margin-top: 8px; font-size: 12px; padding: 12px; background: #14282a; border-color: #64d8cb; color: #64d8cb;" onclick="startDailyRun()">📅 Daily Run <span id="daily-info" style="font-size: 10px; font-weight: normal;"></span></button>
-
-                <div id="legacy-panel" style="margin-top: 10px; background: #0e101a; border: 1px solid #2d334d; border-radius: 6px; padding: 8px;"></div>
-
-                <div style="margin-top: 10px; font-size: 10px; color: #888ea6;">
-                    <label><input type="checkbox" id="set-debug" onchange="saveSettingsOnly()"> Enable debug / test tools (adds a Debug tab)</label>
-                </div>
             </div>
 
             <!-- TAB: Debug -->
@@ -1202,12 +1255,22 @@
             saveSettingsOnly,
             updateSettingsPreview,
             refreshCreation,
-            onModuleChange,
-            onHeroChange,
+            openStart,
+            closeStart,
+            startShow,
+            pickStoryHero,
+            pickStoryModule,
+            retireHero,
+            beginStory,
+            pickCreateModule,
+            createNext,
+            createBack,
+            beginCreate,
+            startNewSeed,
+            startRetry,
             importModuleFile,
             continueStory,
             saveHeroNow,
-            deleteSelectedHero,
             loadModules,
             rerollScores,
             usePower,
@@ -1238,11 +1301,11 @@
             sortBag,
             shopSellJunk,
             pixelDebug
-        } from './src/main.js?v=18.0';
-        import { PRNG } from './src/core/RNG.js?v=18.0';
+        } from './src/main.js?v=19.0';
+        import { PRNG } from './src/core/RNG.js?v=19.0';
 
         window.openSheetModal = function() {
-            populateSheet();
+            window.switchSheetTab(null);
             document.getElementById('sheet-modal').classList.add('active');
         };
 
@@ -1295,12 +1358,10 @@
         window.saveSettingsOnly = saveSettingsOnly;
         window.updateSettingsPreview = updateSettingsPreview;
         window.refreshCreation = refreshCreation;
-        window.onModuleChange = onModuleChange;
-        window.onHeroChange = onHeroChange;
+        for (const [k, f] of Object.entries({ openStart, closeStart, startShow, pickStoryHero, pickStoryModule, retireHero, beginStory, pickCreateModule, createNext, createBack, beginCreate, startNewSeed, startRetry })) window[k] = f;
         window.importModuleFile = importModuleFile;
         window.continueStory = continueStory;
         window.saveHeroNow = saveHeroNow;
-        window.deleteSelectedHero = deleteSelectedHero;
         loadModules();
         window.rerollScores = rerollScores;
         window.pixelDebug = pixelDebug;

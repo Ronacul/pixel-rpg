@@ -5,7 +5,11 @@ const KEY = 'pixel_rpg_heroes_v1';
 const MAX_HEROES = 12;
 
 function load() {
-    try { const v = JSON.parse(localStorage.getItem(KEY)); return Array.isArray(v) ? v : []; } catch (e) { return []; }
+    try {
+        const v = JSON.parse(localStorage.getItem(KEY));
+        if (!Array.isArray(v)) return [];
+        return v.map(h => (h.cleared ? h : { ...h, cleared: h.note === 'cleared' ? [h.moduleId] : [] })); // older saves
+    } catch (e) { return []; }
 }
 function store(list) {
     try { localStorage.setItem(KEY, JSON.stringify(list)); return true; } catch (e) { return false; }
@@ -23,6 +27,7 @@ export const Heroes = {
         save.heroId = player.heroId;
         const entry = {
             id: player.heroId, savedAt: Date.now(), moduleId, note,
+            cleared: [...new Set([...(list.find(h => h.id === player.heroId)?.cleared || []), ...(note === 'cleared' ? [moduleId] : [])])],
             level: player.level, classId: player.characterClass.id, raceId: player.race.id,
             label: `${player.race.name} ${player.characterClass.name}`,
             gold: player.gold, data: save
