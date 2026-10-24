@@ -1,6 +1,6 @@
 // Gear management helpers: score items, compare against what is equipped, flag upgrades and junk.
 
-import { getCompatibleSlots } from '../data/Items.js';
+import { getCompatibleSlots, visibleView } from '../data/Items.js';
 import { describePower } from '../data/Powers.js';
 
 const STAT_KEYS = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
@@ -12,6 +12,7 @@ function avgDamage(item) {
 
 // A single rough "how good is this" number. Only meant for ranking items for the SAME slot.
 export function itemScore(item) {
+    item = visibleView(item); // unidentified magic cannot be judged yet
     if (!item) return 0;
     let s = (item.ac || 0) * 3;
     for (const k of STAT_KEYS) s += (item[k] || 0) * 2;
@@ -38,6 +39,8 @@ export function comparisonTarget(player, item) {
 
 // Stat-by-stat differences new vs current, as { label, delta } entries
 export function diffItems(newItem, current) {
+    newItem = visibleView(newItem);
+    current = visibleView(current);
     const rows = [];
     const add = (label, a, b) => {
         const d = Math.round((a - b) * 10) / 10;
@@ -59,6 +62,7 @@ export function diffItems(newItem, current) {
 // 'upgrade' | 'downgrade' | 'sidegrade' | 'new' | null (not gear)
 export function adviceFor(player, item) {
     if (!item || !item.slot || item.isConsumable || item.isGem || item.isKey) return null;
+    if (item.unid) return 'unknown';
     const target = comparisonTarget(player, item);
     if (!target) return null;
     if (!target.current) return 'new';
@@ -70,6 +74,7 @@ export function adviceFor(player, item) {
 
 // HTML snippet comparing a bag item with whatever it would replace
 export function compareHtml(player, item) {
+    if (item?.unid) return `<div style="margin-top:3px;"><b style="color:#b9a8ff;">❓ Unidentified</b> Wearing it identifies it over time, but any magic on it is a gamble (it may be cursed). Identify it first to compare.</div>`;
     const target = comparisonTarget(player, item);
     if (!target) return '';
     const { rows, gained, lost } = diffItems(item, target.current);
@@ -80,7 +85,7 @@ export function compareHtml(player, item) {
     const parts = rows.map(r => `<span style="color:${r.delta > 0 ? '#55ff77' : '#ff6677'}">${r.delta > 0 ? '▲ +' : '▼ '}${r.delta} ${r.label}</span>`);
     gained.forEach(g => parts.push(`<span style="color:#55ff77">▲ ${g}</span>`));
     lost.forEach(l => parts.push(`<span style="color:#ff6677">▼ loses ${l}</span>`));
-    const tag = { upgrade: '⬆️ Upgrade', downgrade: '⬇️ Worse than what you wear', sidegrade: '↔️ About equal', new: '🆕 Fills an empty slot' }[verdict] || '';
+    const tag = { unknown: '❓ Unknown', upgrade: '⬆️ Upgrade', downgrade: '⬇️ Worse than what you wear', sidegrade: '↔️ About equal', new: '🆕 Fills an empty slot' }[verdict] || '';
     return `<div style="margin-top:3px;"><b style="color:#ffcc00;">${tag}</b> ${head} ${parts.join(' ') || 'no change'}</div>`;
 }
 
@@ -106,7 +111,7 @@ export function findUpgrades(player) {
 // Bag gear that is strictly worse than everything you wear in its slots, with nothing special about it
 export function isJunk(player, item) {
     if (adviceFor(player, item) !== 'downgrade') return false;
-    if (item.setId || (item.powers && item.powers.length) || (item.gems && item.gems.length)) return false;
+    if (item.unid || item.setId || (item.powers && item.powers.length) || (item.gems && item.gems.length)) return false;
     return true;
 }
 

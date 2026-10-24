@@ -247,7 +247,13 @@ export class PlayerCharacter {
 
     // Consumables (food, mushrooms, potions, flasks...) stack by name. Gear and gems take one slot each.
     static isStackable(item) {
+        if (item && item.isGem) return true; // gems stack by colour and tier
         return !!item && !!item.isConsumable && !item.isKey;
+    }
+
+    // Items stack when their keys match. A gem whose curse is hidden must not merge with clean ones, but must not look different either.
+    static stackKey(item) {
+        return `${item.name}|${item.cursed ? 'c' : ''}${item.curseKnown ? 'k' : ''}${item.checked ? 'v' : ''}`;
     }
 
     // Index range [start, end) of the compartment an item belongs to
@@ -264,7 +270,7 @@ export class PlayerCharacter {
             const add = item.count || 1;
             for (let i = a; i < b; i++) {
                 const s = this.backpack[i];
-                if (s && PlayerCharacter.isStackable(s) && s.name === item.name && (s.count || 1) < 99) {
+                if (s && PlayerCharacter.isStackable(s) && PlayerCharacter.stackKey(s) === PlayerCharacter.stackKey(item) && (s.count || 1) < 99) {
                     s.count = (s.count || 1) + add;
                     return true;
                 }
@@ -287,7 +293,7 @@ export class PlayerCharacter {
         for (let i = a; i < b; i++) {
             const s = this.backpack[i];
             if (s === null) return true;
-            if (PlayerCharacter.isStackable(item) && s && PlayerCharacter.isStackable(s) && s.name === item.name && (s.count || 1) < 99) return true;
+            if (PlayerCharacter.isStackable(item) && s && PlayerCharacter.isStackable(s) && PlayerCharacter.stackKey(s) === PlayerCharacter.stackKey(item) && (s.count || 1) < 99) return true;
         }
         return false;
     }
@@ -347,6 +353,7 @@ export class PlayerCharacter {
 
     // Equip backpack[backpackIdx] into targetSlot (defaults to auto-pick). The displaced item swaps into the bag.
     equipFromBackpack(backpackIdx, targetSlot = null) {
+        this.blockReason = null;
         if (backpackIdx < 0 || backpackIdx >= this.backpack.length) return null;
         const item = this.backpack[backpackIdx];
         if (!item || !item.slot) return null;
@@ -355,6 +362,11 @@ export class PlayerCharacter {
         if (!slot || !getCompatibleSlots(item).includes(slot)) return null;
 
         const previousItem = this.equipment[slot];
+        this.blockReason = null;
+        if (previousItem && previousItem.curse && previousItem.curse.sticky) {
+            this.blockReason = `${previousItem.name} is cursed and will not come off. Lift the curse first (holy water, remove curse, an altar or a merchant).`;
+            return null;
+        }
 
         // Equipping from a stack (e.g. a flask) takes ONE unit; the displaced item goes back into the bag
         if ((item.count || 1) > 1) {
@@ -385,10 +397,11 @@ export class PlayerCharacter {
     unequipToBackpack(slot) {
         const item = this.equipment[slot];
         if (!item) return { success: false, reason: 'Slot is empty' };
+        if (item.curse && item.curse.sticky) return { success: false, reason: `${item.name} is cursed and will not come off. Lift the curse first (holy water, remove curse, an altar or a merchant).` };
         if (!this.canStore(item)) return { success: false, reason: `Your ${COMPARTMENTS.find(c => c.id === compartmentOf(item)).label} bag is full` };
         this.addToBackpack(item);
         this.equipment[slot] = null;
-        const backpackIdx = this.backpack.findIndex(s => s && (s === item || (PlayerCharacter.isStackable(item) && s.name === item.name)));
+        const backpackIdx = this.backpack.findIndex(s => s && (s === item || (PlayerCharacter.isStackable(item) && PlayerCharacter.stackKey(s) === PlayerCharacter.stackKey(item))));
         return { success: true, item, slot, backpackIdx };
     }
 
@@ -543,7 +556,7 @@ export class PlayerCharacter {
     canUseAbility(abilityId) {
         const ability = this.characterClass.abilities.find(a => a.id === abilityId);
         if (!ability || ability.level > this.level) return false;
-        if (!this.activeFeats.includes(abilityId)) return false;
+        if (!ability.utility && !this.activeFeats.includes(abilityId)) return false; // utility spells need no slot
         const cd = this.cooldowns[abilityId] || 0;
         return cd <= 0;
     }

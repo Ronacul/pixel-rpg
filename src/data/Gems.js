@@ -51,17 +51,65 @@ const GEM_TABLE = {
     }
 };
 
-export function createGem(type, tier = 1) {
+// opts: { cursed } - a cursed gem still gives its bonus, but costs the item something once it is set (see gemCursePenalty).
+// The curse is hidden until the gem is identified (scroll, Identify spell, a bard's lore, a merchant) and then shows as a
+// shadowed icon; holy water or shattering removes it.
+export function createGem(type, tier = 1, opts = {}) {
     const t = GEM_TYPES[type];
     const name = `${GEM_TIER_NAMES[tier - 1]} ${t.name}`;
-    return {
+    const gem = {
         name,
+        baseName: name,
         icon: t.icon,
         isGem: true,
         gemType: type,
         tier,
-        desc: `${name} (set it into a socket via Gear → item → Socket Gem). Gives: ${describeGemEffects(type, tier)}`
+        cursed: !!opts.cursed,
+        curseKnown: false,
+        desc: ''
     };
+    refreshGemDesc(gem);
+    return gem;
+}
+
+export function refreshGemDesc(gem) {
+    const tail = gem.cursed && gem.curseKnown ? ` ☠️ CURSED: socketing costs the item ${describeGemCurse(gem)}. Holy water purifies it; shattering it from a socket also breaks the curse.` : '';
+    gem.desc = `${gem.name} (set it into a socket via Gear → item → Socket Gem). Gives: ${describeGemEffects(gem.gemType, gem.tier)}${tail}`;
+}
+
+// The price a cursed gem exacts, as item mods (negative)
+export function gemCursePenalty(gem, category = 'armor') {
+    const mods = { maxHp: -3 * gem.tier };
+    if (category === 'weapon') mods.attack = -gem.tier;
+    return mods;
+}
+
+export function describeGemCurse(gem, category = 'armor') {
+    return Object.entries(gemCursePenalty(gem, category)).map(([k, v]) => `${v} ${MOD_LABELS[k] || k}`).join(', ');
+}
+
+// Reveals a loose gem's nature. Returns 'cursed' | 'clean' | null (already known)
+export function identifyGem(gem) {
+    if (!gem || !gem.isGem) return null;
+    if (gem.cursed && !gem.curseKnown) {
+        gem.curseKnown = true;
+        gem.name = `Shadowed ${gem.baseName || gem.name}`;
+        refreshGemDesc(gem);
+        return 'cursed';
+    }
+    if (!gem.cursed && !gem.checked) { gem.checked = true; return 'clean'; }
+    return null;
+}
+
+// Holy water: loose cursed gem becomes clean
+export function purifyGem(gem) {
+    if (!gem || !gem.cursed) return false;
+    gem.cursed = false;
+    gem.curseKnown = false;
+    gem.checked = true;
+    gem.name = gem.baseName || gem.name.replace(/^Shadowed /, '');
+    refreshGemDesc(gem);
+    return true;
 }
 
 export function randomGem(prng, floorLevel = 1) {
@@ -71,7 +119,7 @@ export function randomGem(prng, floorLevel = 1) {
     let tier = 1;
     if (floorLevel >= 8 && prng.chance(0.3)) tier = 2;
     if (floorLevel >= 16 && prng.chance(0.2)) tier = 3;
-    return createGem(type, tier);
+    return createGem(type, tier, { cursed: prng.chance(0.07) });
 }
 
 export function gemCategory(item) {
@@ -104,48 +152,152 @@ export function freeSockets(item) {
     return (item.sockets || 0) - (item.gems ? item.gems.length : 0);
 }
 
-// Permanently sets `gem` into `item`: mutates the item's stats / mods / powers and records the gem
-export function socketGem(item, gem, powerLabel) {
+// Permanently sets `gem` into `item`: mutates the item's stats / mods / powers and records the gem.
+// opts.hidden: the gem is part of an unidentified item, so it is listed as unknown until identified.
+export function socketGem(item, gem, powerLabel, opts = {}) {
     if (!item || !gem || !gem.isGem) return { success: false, reason: 'Not a gem' };
     if (freeSockets(item) <= 0) return { success: false, reason: 'No free sockets on that item' };
     const preview = previewGem(gem, item);
+    const applied = { stats: {}, mods: {}, power: null, curse: null };
 
-    for (const [k, v] of Object.entries(preview.stats)) item[k] = (item[k] || 0) + v;
+    for (const [k, v] of Object.entries(preview.stats)) { if (v) { item[k] = (item[k] || 0) + v; applied.stats[k] = v; } }
     if (!item.mods) item.mods = {};
-    for (const [k, v] of Object.entries(preview.mods)) if (v) item.mods[k] = (item.mods[k] || 0) + v;
+    for (const [k, v] of Object.entries(preview.mods)) if (v) { item.mods[k] = (item.mods[k] || 0) + v; applied.mods[k] = v; }
     if (preview.power) {
         if (!item.powers) item.powers = [];
         const same = item.powers.find(p => p.id === preview.power.id);
         if (same) {
-            if (preview.power.chance !== undefined) same.chance = Math.min(0.8, (same.chance || 0) + preview.power.chance * 0.5);
-            if (preview.power.value !== undefined) same.value = (same.value || 0) + preview.power.value * 0.5;
+            applied.power = { id: preview.power.id, merged: true };
+            if (preview.power.chance !== undefined) { const d = preview.power.chance * 0.5; applied.power.dChance = d; same.chance = Math.min(0.8, (same.chance || 0) + d); }
+            if (preview.power.value !== undefined) { const d = preview.power.value * 0.5; applied.power.dValue = d; same.value = (same.value || 0) + d; }
         } else {
             item.powers.push({ ...preview.power });
+            applied.power = { id: preview.power.id, merged: false };
         }
+    }
+    if (gem.cursed) {
+        const penalty = gemCursePenalty(gem, gemCategory(item));
+        for (const [k, v] of Object.entries(penalty)) item.mods[k] = (item.mods[k] || 0) + v;
+        applied.curse = penalty;
     }
     if (!item.gems) item.gems = [];
     const summary = describePreview(preview, powerLabel);
-    item.gems.push({ type: gem.gemType, tier: gem.tier, icon: gem.icon, name: gem.name, summary });
-    return { success: true, summary };
+    item.gems.push({
+        type: gem.gemType, tier: gem.tier, icon: gem.icon, name: gem.name, summary,
+        cursed: !!gem.cursed, curseKnown: !!gem.curseKnown, known: !opts.hidden, applied
+    });
+    return { success: true, summary, cursed: !!gem.cursed };
 }
 
-// 3 matching gems of the same tier fuse into one gem of the next tier. Returns the new gem or null.
+// Undoes a socketed gem's bonuses (and curse) exactly as they were applied
+function reverseApplied(item, g) {
+    const ap = g.applied || legacyApplied(item, g);
+    for (const [k, v] of Object.entries(ap.stats || {})) item[k] = (item[k] || 0) - v;
+    for (const [k, v] of Object.entries(ap.mods || {})) if (item.mods) { item.mods[k] = (item.mods[k] || 0) - v; if (!item.mods[k]) delete item.mods[k]; }
+    for (const [k, v] of Object.entries(ap.curse || {})) if (item.mods) { item.mods[k] = (item.mods[k] || 0) - v; if (!item.mods[k]) delete item.mods[k]; }
+    if (ap.power && item.powers) {
+        const p = item.powers.find(x => x.id === ap.power.id);
+        if (p) {
+            if (ap.power.merged) {
+                if (ap.power.dChance) p.chance = Math.max(0, (p.chance || 0) - ap.power.dChance);
+                if (ap.power.dValue) p.value = Math.max(0, (p.value || 0) - ap.power.dValue);
+            } else {
+                item.powers = item.powers.filter(x => x !== p);
+            }
+        }
+    }
+}
+
+// Gems socketed before reversal data was recorded: recompute from the gem table
+function legacyApplied(item, g) {
+    const pv = previewGem({ gemType: g.type, tier: g.tier }, item);
+    return { stats: pv.stats, mods: pv.mods, power: pv.power ? { id: pv.power.id, merged: false } : null, curse: null };
+}
+
+// Shatter a gem out of its socket: the stone is lost one tier lower (a tier-1 stone is destroyed) and any curse is broken.
+// Returns { gem } with the downgraded stone (or null).
+export function shatterGem(item, idx) {
+    const g = item?.gems?.[idx];
+    if (!g) return null;
+    reverseApplied(item, g);
+    item.gems.splice(idx, 1);
+    const tier = g.tier - 1;
+    return { gem: tier >= 1 ? createGem(g.type, tier) : null, was: g };
+}
+
+// Holy water on a worn/bagged item: cleanses every cursed gem in it (its penalty is lifted, the gem stays)
+export function purifySocketed(item) {
+    let n = 0;
+    for (const g of item.gems || []) {
+        if (!g.cursed) continue;
+        for (const [k, v] of Object.entries(g.applied?.curse || {})) if (item.mods) { item.mods[k] = (item.mods[k] || 0) - v; if (!item.mods[k]) delete item.mods[k]; }
+        if (g.applied) g.applied.curse = null;
+        g.cursed = false; g.curseKnown = false; g.checked = true;
+        g.name = g.name.replace(/^Shadowed /, '');
+        n++;
+    }
+    return n;
+}
+
+// Reveals the hidden/cursed state of every gem in an item. Returns the list of gems that turned out cursed.
+export function identifySocketed(item) {
+    const cursed = [];
+    for (const g of item.gems || []) {
+        g.known = true;
+        if (g.cursed && !g.curseKnown) {
+            g.curseKnown = true;
+            g.name = `Shadowed ${g.name.replace(/^Shadowed /, '')}`;
+            cursed.push(g);
+        }
+    }
+    return cursed;
+}
+
+// ---- Fusion. Gems stack, so recipes count units across stacks. Cursed gems cannot be fused. ----
+const clean = (i) => i && i.isGem && !i.cursed;
+const units = (bag, pred) => bag.reduce((n, i) => (i && pred(i) ? n + (i.count || 1) : n), 0);
+
+function takeOne(bag, pred) {
+    for (let i = 0; i < bag.length; i++) {
+        const it = bag[i];
+        if (it && pred(it)) {
+            if ((it.count || 1) > 1) it.count--; else bag[i] = null;
+            return true;
+        }
+    }
+    return false;
+}
+
+// 3 matching gems (same colour, same tier) fuse into one gem of the next tier
 export function canFuse(bag, gem) {
-    if (!gem || !gem.isGem || gem.tier >= MAX_GEM_TIER) return false;
-    return bag.filter(i => i && i.isGem && i.gemType === gem.gemType && i.tier === gem.tier).length >= 3;
+    if (!clean(gem) || gem.tier >= MAX_GEM_TIER) return false;
+    return units(bag, i => clean(i) && i.gemType === gem.gemType && i.tier === gem.tier) >= 3;
 }
 
 export function fuseGems(bag, gem) {
     if (!canFuse(bag, gem)) return null;
-    let removed = 0;
-    for (let i = 0; i < bag.length && removed < 3; i++) {
-        const it = bag[i];
-        if (it && it.isGem && it.gemType === gem.gemType && it.tier === gem.tier) {
-            bag[i] = null;
-            removed++;
-        }
-    }
+    for (let n = 0; n < 3; n++) takeOne(bag, i => clean(i) && i.gemType === gem.gemType && i.tier === gem.tier);
     return createGem(gem.gemType, gem.tier + 1);
+}
+
+// Rainbow: three different colours of the same tier fuse into one gem of the next tier, in one of those colours
+export function rainbowTypes(bag, gem) {
+    if (!clean(gem) || gem.tier >= MAX_GEM_TIER) return [];
+    const types = [];
+    for (const i of bag) if (i && clean(i) && i.tier === gem.tier && !types.includes(i.gemType)) types.push(i.gemType);
+    return types;
+}
+
+export function canRainbow(bag, gem) {
+    return rainbowTypes(bag, gem).length >= 3;
+}
+
+export function rainbowFuse(bag, gem, pick = (arr) => arr[Math.floor(Math.random() * arr.length)]) {
+    if (!canRainbow(bag, gem)) return null;
+    const all = rainbowTypes(bag, gem);
+    const chosen = [gem.gemType, ...all.filter(t => t !== gem.gemType)].slice(0, 3);
+    for (const t of chosen) takeOne(bag, i => clean(i) && i.gemType === t && i.tier === gem.tier);
+    return createGem(pick(chosen), gem.tier + 1);
 }
 
 // Socket count for freshly generated gear

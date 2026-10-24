@@ -20,6 +20,17 @@ Modules are plain JSON files in [`modules/`](modules/README.md): a minimal one i
 
 ---
 
+## 🔮 Hidden magic, curses & gems
+
+* **Unidentified gear:** about a third of magical drops show only their base item and a **?** badge. Their hidden bonuses, power and pre-set gems all work, but you can't see them (and may not compare them). Some are **cursed**: negative stats, `Binding` (cannot be removed), `Famine` (hunger twice as fast) or `Leeching` (saps HP). Cursed gear always has a strong hidden power as bait. A curse reveals itself the moment you put the item on.
+* **How to identify:** wear it (a Perception roll every 15 turns, a sure thing after 240; **bards learn twice as fast, get +5, and study their whole bag including loose gems**), a **Scroll of Identify**, the Wizard's **Arcane Sight** spell (no slot needed), a merchant (Services tab), or a fountain's vision.
+* **How to lift curses:** **Holy Water Vial** (one item or gem), **Scroll of Remove Curse** or the Cleric's **Remove Curse** spell (everything worn), an **altar** (everything worn and carried), a merchant, or a lucky **fountain** (bump one to drink; most are good, some are foul).
+* **Gems stack** by colour and tier. Fuse **3 of one colour** into the next tier, or a **🌈 rainbow fuse** of 3 different colours at the same tier (you get one of those colours). Cursed gems cannot be fused.
+* **Cursed gems:** the curse hides until identified (or until you set the stone, when it shows at once). A known cursed gem is drawn with a dark purple ombre. It still gives its bonus but costs the item Max HP (and Attack on weapons).
+* **Shatter (💥):** pull a gem out of a socket; it comes back one tier lower (a Chipped gem is destroyed), and a curse on it is broken.
+
+---
+
 ## 🗺️ Dungeon Mechanics & 25-Floor Progression
 
 1. **Configurable Procedural Grid per Level:**

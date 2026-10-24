@@ -49,7 +49,9 @@ export const TILES = {
     LOCKED_DOOR: 17,      // Needs the matching key (floor.lockedDoors[].keyId) to open
     SHRINE: 18,           // Choice shrine: pick a boon, pay its price (floor.shrineOffers)
     WATER: 19,            // Deep water: impassable, does not block sight
-    SHALLOWS: 20          // Wading water: passable
+    SHALLOWS: 20,         // Wading water: passable
+    FOUNTAIN: 21,         // Bump to drink: a random boon (or a curse). Runs dry after one use
+    FOUNTAIN_DRY: 22
 };
 
 export const VISIBILITY = {

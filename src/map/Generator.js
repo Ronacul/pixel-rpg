@@ -490,6 +490,15 @@ export function generateFloor(baseSeed, moduleFloor) {
         }
     }
 
+    // A fountain somewhere quiet (more often where the layout has water): drink for a random boon, or a curse
+    if (!bossDef && candidateRooms.length > 1 && prng.chance(lay.lakes > 0 || lay.rivers > 0 ? 0.5 : 0.28)) {
+        const spot = freeTileInRoom(prng.choice(candidateRooms));
+        if (spot && !(merchant && merchant.x === spot.x && merchant.y === spot.y) && terrain[spot.y * MAP_WIDTH + spot.x] === TILES.FLOOR) {
+            terrain[spot.y * MAP_WIDTH + spot.x] = TILES.FOUNTAIN;
+        }
+    }
+
+
     // Clear stray monsters / loot out of the arena, then place the boss
     if (bossArena) {
         const inArena = (x, y) => Math.abs(x - bossArena.cx) <= bossArena.half && Math.abs(y - bossArena.cy) <= bossArena.half;

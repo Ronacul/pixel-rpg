@@ -147,6 +147,18 @@ export const CLASSES = {
         },
         abilities: [
             {
+                id: 'arcane_sight',
+                name: 'Arcane Sight',
+                level: 1,
+                icon: '🔮',
+                delivery: 'SELF',
+                type: 'identify',
+                utility: true,
+                isPositive: true,
+                cooldown: 25,
+                desc: 'Read the weave in an item: identifies the selected item, else the first unknown thing you wear or carry (hidden magic, gems and curses).'
+            },
+            {
                 id: 'magic_missile',
                 name: 'Magic Missile',
                 level: 1,
@@ -299,6 +311,18 @@ export const CLASSES = {
                 damageType: 'HOLY',
                 cooldown: 20,
                 desc: 'Positive burst: heals hero for 2d8 HP while searing surrounding foes for 2d6 holy damage.'
+            },
+            {
+                id: 'remove_curse',
+                name: 'Remove Curse',
+                level: 3,
+                icon: '🕊️',
+                delivery: 'SELF',
+                type: 'uncurse',
+                utility: true,
+                isPositive: true,
+                cooldown: 45,
+                desc: 'Lift every curse from the gear you wear, gems included.'
             },
             {
                 id: 'consecrate',
@@ -553,7 +577,7 @@ export class ClassManager {
 
     // Abilities slotted by default: everything already unlocked at `level`, up to the 4-slot cap.
     static getDefaultFeatsForClass(id, level = 1) {
-        return this.getFeatsForClass(id).filter(f => f.level <= level).slice(0, 4).map(f => f.id);
+        return this.getFeatsForClass(id).filter(f => f.level <= level && !f.utility).slice(0, 4).map(f => f.id);
     }
 }
 

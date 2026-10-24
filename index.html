@@ -282,6 +282,7 @@
         .sheet-tabs { display: flex; gap: 4px; margin: 4px 0 8px 0; }
         .sheet-tabs .modal-tab { flex: 1; padding: 9px 2px; font-size: 12px; white-space: nowrap; }
         .sock-pips { margin-top: 1px; }
+        .shat-btn { padding: 0 5px; margin-left: 4px; border-radius: 4px; border: 1px solid #6a4a2a; background: #2a1d10; color: #ffcc99; font-size: 10px; cursor: pointer; line-height: 14px; }
 
         /* Start screen */
         .start-card { max-width: 340px; gap: 8px; }
@@ -584,6 +585,8 @@
         .adv-up { background: #55ff77; color: #062; }
         .adv-new { background: #64d8cb; color: #033; }
         .adv-down { background: #ff9966; color: #420; }
+        .adv-unk { background: #6a5acd; color: #fff; }
+        .adv-curse { background: #2a0a40; color: #d9a8ff; border: 1px solid #9a4cf0; left: auto; right: 2px; top: auto; bottom: 2px; }
 
         #item-action-card {
             position: sticky;
@@ -1006,6 +1009,7 @@
             <div class="tab-row">
                 <button id="shop-tab-buy" class="modal-tab big-tab active" onclick="setShopTab('buy')">🛒 Buy</button>
                 <button id="shop-tab-sell" class="modal-tab big-tab" onclick="setShopTab('sell')">💰 Sell</button>
+                <button id="shop-tab-svc" class="modal-tab big-tab" onclick="setShopTab('svc')">🔮 Services</button>
             </div>
             <div id="shop-list" style="display: flex; flex-direction: column; gap: 4px; max-height: 52vh; overflow-y: auto; font-size: 11px;"></div>
             <button class="modal-btn" style="margin-top: 8px;" onclick="closeShop()">Leave</button>
@@ -1268,6 +1272,11 @@
             beginCreate,
             startNewSeed,
             startRetry,
+            identifySelected,
+            holyWaterSelected,
+            shatterSocketed,
+            rainbowFuseSelected,
+            shopService,
             importModuleFile,
             continueStory,
             saveHeroNow,
@@ -1301,8 +1310,8 @@
             sortBag,
             shopSellJunk,
             pixelDebug
-        } from './src/main.js?v=19.0';
-        import { PRNG } from './src/core/RNG.js?v=19.0';
+        } from './src/main.js?v=20.0';
+        import { PRNG } from './src/core/RNG.js?v=20.0';
 
         window.openSheetModal = function() {
             window.switchSheetTab(null);
@@ -1358,7 +1367,7 @@
         window.saveSettingsOnly = saveSettingsOnly;
         window.updateSettingsPreview = updateSettingsPreview;
         window.refreshCreation = refreshCreation;
-        for (const [k, f] of Object.entries({ openStart, closeStart, startShow, pickStoryHero, pickStoryModule, retireHero, beginStory, pickCreateModule, createNext, createBack, beginCreate, startNewSeed, startRetry })) window[k] = f;
+        for (const [k, f] of Object.entries({ identifySelected, holyWaterSelected, shatterSocketed, rainbowFuseSelected, shopService, openStart, closeStart, startShow, pickStoryHero, pickStoryModule, retireHero, beginStory, pickCreateModule, createNext, createBack, beginCreate, startNewSeed, startRetry })) window[k] = f;
         window.importModuleFile = importModuleFile;
         window.continueStory = continueStory;
         window.saveHeroNow = saveHeroNow;

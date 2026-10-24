@@ -1,5 +1,6 @@
 import { POWER_DEFS, describePower, rollPower } from './Powers.js';
-import { randomGem, rollSockets } from './Gems.js';
+import { randomGem, rollSockets, socketGem } from './Gems.js';
+import { rollCurse, attachCurse, CURSES, curseLine } from './Curses.js';
 
 // Item & Equipment Catalog with Affix Generators and Diverse Delivery Types
 // Supports Melee, Ranged Projectiles, AoE Flasks, and Status-Inflicting Armaments
@@ -187,7 +188,13 @@ export const BASE_ITEMS = [
     { name: 'Minor Healing Potion', isConsumable: true, healPotency: 15, icon: '🍷', desc: 'Restores 15 HP.' },
     { name: 'Healing Potion', isConsumable: true, healPotency: 30, icon: '🧴', desc: 'Restores 30 HP.' },
     { name: 'Healing Potion', isConsumable: true, healPotency: 30, icon: '🧴', desc: 'Restores 30 HP.' },
-    { name: 'Wild Briar Herbs', isConsumable: true, rations: 1, healPotency: 10, cleansesBleed: true, icon: '🌿', desc: 'Foraged medicinal herbs. Restores 10 HP, cleanses Bleeding, +1 Ration.' }
+    { name: 'Wild Briar Herbs', isConsumable: true, rations: 1, healPotency: 10, cleansesBleed: true, icon: '🌿', desc: 'Foraged medicinal herbs. Restores 10 HP, cleanses Bleeding, +1 Ration.' },
+
+    // Magic utility: identifying hidden magic and lifting curses (see systems/Identify.js)
+    { name: 'Scroll of Identify', isConsumable: true, effect: 'identify', icon: '📜', desc: 'Reveals the hidden magic and curses of one item (the one selected, else the first unknown).' },
+    { name: 'Scroll of Identify', isConsumable: true, effect: 'identify', icon: '📜', desc: 'Reveals the hidden magic and curses of one item (the one selected, else the first unknown).' },
+    { name: 'Scroll of Remove Curse', isConsumable: true, effect: 'uncurse', icon: '📃', desc: 'Lifts every curse on the gear you are wearing, gems included.' },
+    { name: 'Holy Water Vial', isConsumable: true, effect: 'holy_water', icon: '💧', desc: 'Pour on one cursed item or gem (select it, then tap Holy Water) to purify it.' }
 ];
 
 export const MUSHROOM_TYPES = {
@@ -451,6 +458,8 @@ export function findBaseItem(name) {
 // Human-readable stat line for an item. Rebuilt after gems are socketed.
 export function buildItemDesc(item) {
     const stats = [];
+    const sg = (v) => (v > 0 ? `+${v}` : `${v}`);
+    if (item.effect) stats.push(item.effectDesc || '');
     if (item.setId && EQUIPMENT_SETS[item.setId]) stats.push(`[${EQUIPMENT_SETS[item.setId].name}]`);
     if (item.isReach) stats.push(`Reach (2t)`);
     else if (item.delivery === 'RANGED') stats.push(`Ranged (${item.range}t)`);
@@ -461,25 +470,45 @@ export function buildItemDesc(item) {
     if (item.healPotency) stats.push(`Heals +${item.healPotency} HP`);
     if (item.rations) stats.push(`+${item.rations} Ration(s)`);
     if (item.cleansesBleed) stats.push('Cures Bleed');
-    if (item.ac) stats.push(`+${item.ac} AC`);
-    if (item.str) stats.push(`+${item.str} STR`);
-    if (item.dex) stats.push(`+${item.dex} DEX`);
-    if (item.con) stats.push(`+${item.con} CON`);
-    if (item.int) stats.push(`+${item.int} INT`);
-    if (item.wis) stats.push(`+${item.wis} WIS`);
-    if (item.cha) stats.push(`+${item.cha} CHA`);
+    if (item.ac) stats.push(`${sg(item.ac)} AC`);
+    if (item.str) stats.push(`${sg(item.str)} STR`);
+    if (item.dex) stats.push(`${sg(item.dex)} DEX`);
+    if (item.con) stats.push(`${sg(item.con)} CON`);
+    if (item.int) stats.push(`${sg(item.int)} INT`);
+    if (item.wis) stats.push(`${sg(item.wis)} WIS`);
+    if (item.cha) stats.push(`${sg(item.cha)} CHA`);
     const mods = item.mods || {};
-    if (mods.maxHp) stats.push(`+${mods.maxHp} Max HP`);
-    if (mods.attack) stats.push(`+${mods.attack} Attack`);
-    if (mods.dmg) stats.push(`+${mods.dmg} Damage`);
-    if (mods.per) stats.push(`+${mods.per} Perception`);
+    if (mods.maxHp) stats.push(`${sg(mods.maxHp)} Max HP`);
+    if (mods.attack) stats.push(`${sg(mods.attack)} Attack`);
+    if (mods.dmg) stats.push(`${sg(mods.dmg)} Damage`);
+    if (mods.per) stats.push(`${sg(mods.per)} Perception`);
     if (mods.regen) stats.push('Faster regen');
     for (const p of item.powers || []) stats.push(describePower(p));
     if (item.sockets) {
         const used = item.gems ? item.gems.length : 0;
-        stats.push(`Sockets ${(item.gems || []).map(g => g.icon).join('')}${'◇'.repeat(Math.max(0, item.sockets - used))}`);
+        stats.push(`Sockets ${(item.gems || []).map(g => (g.known === false ? '❓' : g.icon)).join('')}${'◇'.repeat(Math.max(0, item.sockets - used))}`);
     }
+    const curse = curseLine(item);
+    if (curse) stats.push(`☠️ ${curse}`);
     return stats.join(', ') || 'Standard equipment';
+}
+
+// What an unidentified item shows: only its plain base properties. `pristine` is captured at generation.
+export function buildUnknownDesc(item) {
+    const p = item.pristine || {};
+    const view = {
+        ...item, ...p, powers: p.powers || [], mods: {}, gems: [], curse: null,
+        setId: item.setId, effect: null
+    };
+    const known = curseLine(item); // a curse that has already announced itself stays visible
+    return `${buildItemDesc(view)} • ❓ unidentified${known ? ` • ☠️ ${known}` : ''}`;
+}
+
+// Gear stats with the hidden magic stripped: what the player can reasonably judge (used for advice and sale value)
+export function visibleView(item) {
+    if (!item || !item.unid) return item;
+    const p = item.pristine || {};
+    return { ...item, ...p, powers: p.powers || [], mods: {}, gems: [], curse: null, unid: false };
 }
 
 export function generateLootItem(prng, floorLevel = 1) {
@@ -505,6 +534,8 @@ export function generateLootItem(prng, floorLevel = 1) {
         isConsumable: !!base.isConsumable,
         isMushroom: !!base.isMushroom,
         mushroomType: base.mushroomType || null,
+        effect: base.effect || null,
+        effectDesc: base.effect ? base.desc : null,
         rations: base.rations || 0,
         cleansesBleed: !!base.cleansesBleed,
         zoneType: base.zoneType || null,
@@ -535,6 +566,38 @@ export function generateLootItem(prng, floorLevel = 1) {
             item.name = `${item.name} of ${POWER_DEFS[p.id].suffix}`;
         }
         item.sockets = base.sockets ?? rollSockets(prng, floorLevel);
+
+        // Hidden magic: an affix, a rolled power, a pre-set gem or a curse can be hidden until the item is identified
+        const rolled = !base.powers && !base.setId;
+        if (rolled && item.sockets > 0 && prng.chance(0.10 + Math.min(0.15, floorLevel * 0.008))) {
+            const gem = randomGem(prng, floorLevel);
+            socketGem(item, gem, describePower, { hidden: true });
+        }
+        if (rolled && prng.chance(0.05 + Math.min(0.12, floorLevel * 0.006))) {
+            attachCurse(item, rollCurse(prng, item.slot === ITEM_SLOTS.MAIN_HAND), false);
+            // The lure: a cursed item always has a real power
+            if (!item.powers.length) {
+                const p = rollPower(prng, base.slot, floorLevel + 3);
+                item.powers.push(p);
+                item.name = `${item.name} of ${POWER_DEFS[p.id].suffix}`;
+            }
+        }
+        const magical = rolled && (!!affix || item.powers.length > 0 || item.gems.length > 0 || !!item.curse);
+        if (magical && (item.curse || prng.chance(0.7))) {
+            item.pristine = {
+                ac: base.ac || 0, str: base.str || 0, dex: base.dex || 0, con: base.con || 0, int: base.int || 0, wis: base.wis || 0, cha: base.cha || 0,
+                dice: base.dice || 0, statusOnHit: base.statusOnHit || null, statusDuration: base.statusDuration || 0,
+                sockets: item.sockets, powers: (base.powers || []).map(p => ({ ...p }))
+            };
+            item.unid = true;
+            item.trueName = item.name;
+            item.name = `${base.name} (?)`;
+            item.idDC = 11 + Math.floor(floorLevel / 4) + (item.curse ? 2 : 0);
+            item.idTurns = 0;
+            item.desc = buildUnknownDesc(item);
+            return item;
+        }
+        for (const g of item.gems) g.known = true;
     }
 
     item.desc = buildItemDesc(item);
@@ -543,7 +606,7 @@ export function generateLootItem(prng, floorLevel = 1) {
 
 // Recompute an item's description after it was modified (e.g. a gem was socketed)
 export function refreshItemDesc(item) {
-    item.desc = buildItemDesc(item);
+    item.desc = item.unid ? buildUnknownDesc(item) : buildItemDesc(item);
     return item;
 }
 

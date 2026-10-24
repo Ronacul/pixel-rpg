@@ -12,7 +12,9 @@ import { SpriteStore, weaponSpriteFor } from './render/Sprites.js';
 import { adviceFor, compareHtml, findUpgrades, isJunk, bagSortKey, itemScore } from './systems/GearAdvice.js';
 import { triggerPowers, senseRadius } from './systems/Powers.js';
 import { describePower } from './data/Powers.js';
-import { GEM_TYPES, createGem, randomGem, previewGem, describePreview, freeSockets, socketGem, canFuse, fuseGems, GEM_TIER_NAMES } from './data/Gems.js';
+import { GEM_TYPES, createGem, randomGem, previewGem, describePreview, freeSockets, socketGem, canFuse, fuseGems, canRainbow, rainbowFuse, shatterGem, describeGemCurse, gemCategory, identifySocketed, GEM_TIER_NAMES } from './data/Gems.js';
+import { hasUnknownParts, isCursedKnown, identifyItem, revealOnEquip, purifyItem, cleanseCurses, nextUnknown, tickIdentify, tickCurses } from './systems/Identify.js';
+import { curseLine, attachCurse } from './data/Curses.js';
 import { generateTestFloor, isTestSeed, TEST_MIN_MAP_SIZE } from './map/TestLevel.js';
 import { PlayerCharacter } from './entities/Character.js';
 import { PerceptionSystem } from './systems/Perception.js';
@@ -25,12 +27,12 @@ import { FeatManager, FEATS } from './data/Feats.js';
 import { COMPARTMENTS, compartmentRange, compartmentOfIndex, compartmentOf } from './data/Inventory.js';
 import { Modules, CORE_MODULE_ID, setActiveModule, activeModule, depthOffset, depthForLevel, levelBand, validateModule, PALETTES } from './data/Modules.js';
 import { Heroes } from './data/Heroes.js';
-import { gemIconSvg, gemColor, socketPipsHtml, itemIconHtml } from './render/GemIcon.js';
+import { gemIconSvg, gemColor, socketPipsHtml, itemIconHtml, unknownGemSvg } from './render/GemIcon.js';
 import { ABILITY_KEYS, STANDARD_ARRAY, SCORE_MODES, creationFor, rollAbilityScores, finalScores, classEligibility } from './data/Creation.js';
 import { KEY_ACTIONS, KEY_PRESETS, DEFAULT_PRESET, RESERVED_KEYS, normalizeKey, keyLabel, resolveBinds, buildKeyMap } from './data/Keybinds.js';
 import { PROGRESSION, XP_TABLE, XP_REWARDS, MASTERIES, monsterXp } from './data/Progression.js';
 import { DIFFICULTY, killXpFor, floorForLevel, expectedPlayerLevel, floorXpBudget, rollMonsterLevel, rollAffixes, MONSTER_AFFIXES } from './data/Difficulty.js';
-import { itemValue, buyPrice, sellPrice, goldForKill, goldForChest } from './data/Economy.js';
+import { itemValue, buyPrice, sellPrice, goldForKill, goldForChest, identifyPrice, uncursePrice } from './data/Economy.js';
 import { SHRINE_OFFERS } from './data/Shrines.js';
 import { FLOOR_MODIFIERS } from './data/FloorModifiers.js';
 import { Legacy, LEGACY_PERKS, Daily, todayString } from './data/Legacy.js';
@@ -306,6 +308,7 @@ function resetPan() {
 // 3. HUD & MESSAGING
 // ==========================================
 function updateHUD() {
+    if (player && player.hp > player.maxHp) player.hp = player.maxHp; // e.g. a curse lowered max HP
     document.getElementById('seed-display').innerText = dungeonManager.baseSeedString;
     document.getElementById('hud-floor').innerText = `F${dungeonManager.currentFloor}/${activeModule.floors}`;
     const hl = document.getElementById('hud-level');
@@ -492,6 +495,12 @@ function draw() {
                 ctx.strokeStyle = '#1b3820';
                 ctx.strokeRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
                 drawGlyph('🌿', screenX, screenY, isDim ? 0.45 : 0.9);
+            } else if (tile === TILES.FOUNTAIN || tile === TILES.FOUNTAIN_DRY) {
+                ctx.fillStyle = isDim ? '#0f1a22' : '#142a38';
+                ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+                ctx.strokeStyle = tile === TILES.FOUNTAIN ? '#64d8cb' : '#3a4a52';
+                ctx.strokeRect(screenX + 1, screenY + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+                drawGlyph(tile === TILES.FOUNTAIN ? '⛲' : '🪨', screenX, screenY, isDim ? 0.55 : 1.0);
             } else if (tile === TILES.SHRINE) {
                 ctx.fillStyle = isDim ? '#1a1912' : '#2a2410';
                 ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
@@ -925,6 +934,9 @@ function endTurn() {
 
     // 1. Natural turn advance (passive regen, hunger consumption, cooldowns, buffs)
     const { healed, hungerMsg } = player.advanceTurn();
+    // Hidden magic reveals itself with use; curses on worn gear take their toll
+    tickIdentify(player, () => prng.nextInt(1, 20), (m) => postMessage(m, 'msg-loot')) && refreshSheetIfOpen();
+    tickCurses(player, (m) => postMessage(m, 'msg-miss'));
     if (hungerMsg === 'ration_consumed') {
         postMessage('🍖 Sustenance: Hearty ration consumed to stave off hunger.', 'msg-info');
     } else if (hungerMsg === 'starving') {
@@ -1304,6 +1316,13 @@ function stepPath(path) {
         draw();
         return;
     }
+    if (tile === TILES.FOUNTAIN) {
+        cancelWalking();
+        drinkFountain(targetIdx);
+        endTurn();
+        draw();
+        return;
+    }
     if (tile === TILES.SHRINE) {
         cancelWalking();
         openShrine(targetIdx);
@@ -1359,7 +1378,8 @@ function stepPath(path) {
         const prevHp = player.hp;
         player.hp = Math.min(player.maxHp, player.hp + 20);
         EffectSystem.applyStatus(player, 'BLESSED', 20, 1, 'Sacred Altar');
-        postMessage(`✨ Ancient Altar cleansed all curses, restored ${player.hp - prevHp} HP, and granted Blessed divine favor!`, 'msg-loot');
+        const lifted = cleanseCurses(player, 'all');
+        postMessage(`✨ Ancient Altar cleansed all curses${lifted ? ` (${lifted} on your gear and gems, worn or carried)` : ''}, restored ${player.hp - prevHp} HP, and granted Blessed divine favor!`, 'msg-loot');
         endTurn();
         draw();
         return;
@@ -2163,7 +2183,7 @@ export function openSpellsModal() {
     const abilities = player.characterClass.abilities || [];
     const abilitiesHtml = abilities.map(a => {
         const isUnlocked = a.level <= player.level;
-        const isEquipped = player.isFeatActive(a.id);
+        const isEquipped = !!a.utility || player.isFeatActive(a.id);
         const cd = player.cooldowns[a.id] || 0;
         const onCd = cd > 0;
         const deliveryTag = a.delivery === 'SELF' ? 'SELF' : (a.delivery === 'AOE' ? `AOE (${a.radius}r, ${a.range || 0}t)` : (a.delivery === 'ZONE' ? `ZONE (${a.range}t)` : (a.delivery === 'RANGED' ? `RANGED (${a.range}t)` : 'ADJACENT')));
@@ -2184,14 +2204,14 @@ export function openSpellsModal() {
             ? `<span style="color:#777; font-size:9px;">[Not Slotted]</span>`
             : (onCd ? `<span style="color:#ff6666; font-size:9px;">[CD: ${cd}t]</span>` : `<span style="color:#55ff77; font-size:9px;">[Ready]</span>`);
 
-        const toggleBtn = `
+        const toggleBtn = a.utility ? `<span style="font-size:9px; color:#8a92b0;">utility: no slot needed</span>` : `
             <button class="btn-action-small" style="padding: 2px 7px; font-size: 9px; ${isEquipped ? 'background: #193822; border-color: #55ff77; color: #aaffaa;' : 'background: #252838; border-color: #556688; color: #ccc;'}" onclick="window.toggleFeat('${a.id}')">
                 ${isEquipped ? '⭐ Slotted (Active)' : '+ Slot Feat'}
             </button>
         `;
 
         const isMain = getMainPower()?.id === a.id;
-        const mainBtn = `<button class="btn-action-small" style="flex:none; padding: 2px 7px; font-size: 9px; ${isMain ? 'background: #3a2e10; border-color: #ffcc00; color: #ffcc00;' : 'background: #252838; border-color: #556688; color: #ccc;'}" onclick="window.setMainPower('${a.id}')">${isMain ? '⭐ Main Power' : '☆ Make Main'}</button>`;
+        const mainBtn = a.utility ? '' : `<button class="btn-action-small" style="flex:none; padding: 2px 7px; font-size: 9px; ${isMain ? 'background: #3a2e10; border-color: #ffcc00; color: #ffcc00;' : 'background: #252838; border-color: #556688; color: #ccc;'}" onclick="window.setMainPower('${a.id}')">${isMain ? '⭐ Main Power' : '☆ Make Main'}</button>`;
 
         let actionBtn = '';
         if (isEquipped) {
@@ -2290,7 +2310,13 @@ export function useAbilityById(abilityId) {
 }
 
 function executeSelfAction(action) {
-    if (action.type === 'heal') {
+    if (action.type === 'identify') {
+        if (!castIdentify(action)) return; // nothing to read: no cooldown, no turn
+    } else if (action.type === 'uncurse') {
+        const n = cleanseCurses(player, 'worn');
+        postMessage(n ? `${action.icon} ${action.name}: ${n} curse${n === 1 ? '' : 's'} lifted from your gear!` : `${action.icon} ${action.name}: your gear is free of curses.`, 'msg-victory');
+        if (!n) return;
+    } else if (action.type === 'heal') {
         let healAmt = 0;
         if (action.healPercent) {
             healAmt = Math.max(6, Math.floor(player.maxHp * action.healPercent));
@@ -2411,6 +2437,10 @@ export function inspectTileAt(worldX, worldY) {
             data = { icon: '🔒', name: 'Locked Door', desc: 'Reinforced and bolted.', details: `Opens with the ${lock ? lock.keyName : 'matching key'}. Keys lie somewhere else on this floor: use Search (E) in rooms to find hidden things.${zoneInfo}` };
         } else if (tile === TILES.PILLAR) {
             data = { icon: '🏛️', name: 'Marble Stone Pillar', desc: 'Solid architectural column.', details: `Impassable structure. Blocks projectiles and provides +2 Tactical Cover AC to adjacent combatants against ranged attacks.${zoneInfo}` };
+        } else if (tile === TILES.FOUNTAIN) {
+            data = { icon: '⛲', name: 'Fountain', desc: 'Clear water bubbles in a stone basin.', details: `Bump it to drink: usually a boon (healing, a vision that identifies an item, lifted curses, holy water, coins), sometimes foul. It runs dry after one drink.${zoneInfo}` };
+        } else if (tile === TILES.FOUNTAIN_DRY) {
+            data = { icon: '🪨', name: 'Dry Fountain', desc: 'The basin is empty.', details: `Nothing left.${zoneInfo}` };
         } else if (tile === TILES.WATER) {
             data = { icon: '🌊', name: 'Deep Water', desc: 'Too deep and fast to wade.', details: `Impassable, but you can see and shoot across it. Look for a ford (shallows) to cross.${zoneInfo}` };
         } else if (tile === TILES.SHALLOWS) {
@@ -3006,23 +3036,19 @@ export function equipSelectedBackpackItem(targetSlot = null) {
     const res = player.equipFromBackpack(selectedSlot.id, targetSlot);
     if (res) {
         postMessage(`⚔️ Equipped ${res.equipped.name} into ${SLOT_LABELS[res.slot] || res.slot}!`, 'msg-loot');
+        postEquip(res);
         selectedSlot = { type: 'body', id: res.slot };
         updateHUD();
         populateSheet();
         draw();
+    } else if (player.blockReason) {
+        postMessage(`⛓️ ${player.blockReason}`, 'msg-miss');
     }
 }
 
 // ---- Equip management helpers ----
 // Equips every bag item that beats what is worn (one per slot, best gain first)
 // Lists the gems set into an item and what each one does
-function gemListHtml(item) {
-    if (!item || !item.sockets) return '';
-    const free = freeSockets(item);
-    const rows = (item.gems || []).map(g => `<div style="color:${gemColor(g.type)};">${gemIconSvg(g.type, g.tier, 14)} ${g.name}: <b>${g.summary}</b></div>`).join('');
-    const empty = free > 0 ? `<div style="color:#8a92b0;">◇ ${free} empty socket${free > 1 ? 's' : ''}: a gem here adds a bonus by colour (see the gem for details)</div>` : '';
-    return `<div style="margin-top:3px; font-size:10px;"><b style="color:#d9c2ff;">💎 Sockets:</b>${rows}${empty}</div>`;
-}
 
 export function equipUpgrades() {
     const picks = findUpgrades(player);
@@ -3033,7 +3059,7 @@ export function equipUpgrades() {
     const names = [];
     for (const p of picks) {
         const res = player.equipFromBackpack(p.idx, p.slot);
-        if (res) names.push(res.equipped.name);
+        if (res) { names.push(res.equipped.name); postEquip(res); }
     }
     selectedSlot = null;
     postMessage(`⚡ Equipped ${names.length} upgrade(s): ${names.join(', ')}.`, 'msg-victory');
@@ -3104,19 +3130,181 @@ function renderGemPicker() {
     body.innerHTML = `<div style="font-size:11px; color:#b9a8ff;">Sockets: ${sockets} (gems are permanent)</div>${set}${rows}`;
 }
 
+
+
+// ==========================================
+// Hidden magic, curses and gem handling (identify / purify / shatter / fuse)
+// ==========================================
+function refreshSheetIfOpen() {
+    if (document.getElementById('sheet-modal')?.classList.contains('active')) populateSheet();
+}
+
+// Called after any successful equip: a curse shows itself the moment the item is worn
+function postEquip(res) {
+    const msg = revealOnEquip(res.equipped);
+    if (msg) postMessage(msg, 'msg-miss');
+}
+
+function bagIndexOfEffect(effect) {
+    return player.backpack.findIndex(i => i && i.effect === effect);
+}
+
+function bagCountOfEffect(effect) {
+    return player.backpack.reduce((n, i) => (i && i.effect === effect ? n + (i.count || 1) : n), 0);
+}
+
+// Lists the curse (if known) and the gems set into an item, with a shatter button per stone
+function gemListHtml(item) {
+    if (!item) return '';
+    if (item.isGem) return item.cursed && item.curseKnown ? `<div style="margin-top:3px; font-size:10px; color:#c77dff;"><b>☠️ Cursed gem:</b> costs an item ${describeGemCurse(item)} once set. Holy water purifies it; shattering it from a socket also breaks the curse.</div>` : (item.checked ? `<div style="margin-top:3px; font-size:10px; color:#8ee0a8;">✓ Checked: no curse.</div>` : '');
+    let html = '';
+    const curse = curseLine(item);
+    if (curse) html += `<div style="margin-top:3px; font-size:10px; color:#c77dff;"><b>☠️ Cursed:</b> ${curse}${item.curse?.sticky ? ' (cannot be removed)' : ''}</div>`;
+    if (item.unid) html += `<div style="margin-top:3px; font-size:10px; color:#b9a8ff;">❓ Hidden magic: wearing it will reveal it in time (a keen eye or a bard's lore speeds this up). It may be cursed.</div>`;
+    if (!item.sockets) return html;
+    const free = freeSockets(item);
+    const rows = (item.gems || []).map((g, i) => {
+        const shatter = `<button class="shat-btn" title="Shatter: pull this gem out. It comes back one tier lower (a Chipped gem is destroyed) and any curse on it is broken." onclick="window.shatterSocketed(${i})">💥</button>`;
+        if (g.known === false) return `<div style="color:#9aa0bd;">${unknownGemSvg(14)} Unknown gem (identify to see what it does) ${shatter}</div>`;
+        const cursed = g.cursed && g.curseKnown;
+        const col = cursed ? '#c9a0ff' : gemColor(g.type);
+        const tail = cursed ? ` <span style="color:#d28bff;">☠️ ${describeGemCurse(g, gemCategory(item))}</span>` : '';
+        return `<div style="color:${col};">${gemIconSvg(g.type, g.tier, 14, { cursed })} ${g.name}: <b>${g.summary}</b>${tail} ${shatter}</div>`;
+    }).join('');
+    const empty = free > 0 ? `<div style="color:#8a92b0;">◇ ${free} empty socket${free > 1 ? 's' : ''}: a gem here adds a bonus by colour (see the gem for details)</div>` : '';
+    return `${html}<div style="margin-top:3px; font-size:10px;"><b style="color:#d9c2ff;">💎 Sockets:</b>${rows}${empty}</div>`;
+}
+
+// Extra action buttons for the selected item: identify, holy water
+function magicButtonsHtml(item) {
+    if (!item || item.isConsumable) return '';
+    let h = '';
+    if (hasUnknownParts(item)) {
+        const how = bagIndexOfEffect('identify') >= 0 ? ' (scroll)' : (player.canUseAbility('arcane_sight') ? ' (spell)' : '');
+        h += `<button class="btn-action-small" style="background:#1d1a33; border-color:#b070ff; color:#d9c2ff;" onclick="window.identifySelected()">🔍 Identify${how}</button>`;
+    }
+    const hw = bagCountOfEffect('holy_water');
+    if (hw && isCursedKnown(item)) h += `<button class="btn-action-small" style="background:#14282a; border-color:#64d8cb; color:#bff;" onclick="window.holyWaterSelected()">💧 Holy Water (${hw})</button>`;
+    return h;
+}
+
+function describeFindings(found) {
+    return found.join('; ');
+}
+
+// Identify the selected item: a scroll first, else a prepared Identify spell
+export function identifySelected() {
+    const item = getSelectedGear();
+    if (!item || !hasUnknownParts(item)) { postMessage('Nothing hidden about that.', 'msg-info'); return; }
+    const idx = bagIndexOfEffect('identify');
+    if (idx >= 0) {
+        player.removeOneFromBackpack(idx);
+        const name = item.name;
+        const found = identifyItem(item);
+        postMessage(`📜 The scroll flares: ${name}, ${describeFindings(found || ['nothing hidden'])}.`, 'msg-victory');
+        selectedSlot = selectedSlot && selectedSlot.type === 'backpack' && !player.backpack[selectedSlot.id] ? null : selectedSlot;
+        updateHUD(); populateSheet();
+        return;
+    }
+    if (player.canUseAbility('arcane_sight')) {
+        const ability = player.characterClass.abilities.find(a => a.id === 'arcane_sight');
+        if (castIdentify(ability, item)) { player.triggerAbilityCooldown(ability.id); endTurn(); updateHUD(); populateSheet(); }
+        return;
+    }
+    postMessage('🔍 You need a Scroll of Identify, a merchant, a wizard\'s spell, or simply wear it a while (a bard learns fastest).', 'msg-info');
+}
+
+function castIdentify(action, preferred = null) {
+    const target = nextUnknown(player, preferred || (selectedSlot ? getSelectedGear() : null));
+    if (!target) { postMessage(`${action.icon} ${action.name}: nothing here hides any magic.`, 'msg-info'); return false; }
+    const name = target.name;
+    const found = identifyItem(target);
+    postMessage(`${action.icon} ${action.name}: ${name}, ${describeFindings(found || [])}.`, 'msg-victory');
+    return true;
+}
+
+// Holy water on the selected item or gem (must be known to be cursed)
+export function holyWaterSelected() {
+    const item = getSelectedGear();
+    const idx = bagIndexOfEffect('holy_water');
+    if (!item || idx < 0) return;
+    if (!isCursedKnown(item)) { postMessage('💧 Holy water is only worth spending on something you know is cursed.', 'msg-info'); return; }
+    player.removeOneFromBackpack(idx);
+    const name = item.name;
+    const n = purifyItem(item);
+    postMessage(`💧 The holy water hisses over ${name}: ${n} curse${n === 1 ? '' : 's'} lifted!`, 'msg-victory');
+    selectedSlot = selectedSlot && selectedSlot.type === 'backpack' && !player.backpack[selectedSlot.id] ? null : selectedSlot;
+    updateHUD(); populateSheet();
+}
+
+// Consumables with an effect (scrolls, holy water). Returns true when handled.
+function useEffectItem(idx) {
+    const item = player.backpack[idx];
+    if (!item || !item.effect) return false;
+    if (item.effect === 'identify') {
+        const target = nextUnknown(player, selectedSlot ? getSelectedGear() : null);
+        if (!target) { postMessage('📜 Nothing you carry hides any magic.', 'msg-info'); return true; }
+        player.removeOneFromBackpack(idx);
+        const name = target.name;
+        postMessage(`📜 The scroll flares: ${name}, ${describeFindings(identifyItem(target) || [])}.`, 'msg-victory');
+    } else if (item.effect === 'uncurse') {
+        const n = cleanseCurses(player, 'worn');
+        if (!n) { postMessage('📃 You feel no curse on the gear you wear. The scroll is kept.', 'msg-info'); return true; }
+        player.removeOneFromBackpack(idx);
+        postMessage(`📃 The scroll burns away ${n} curse${n === 1 ? '' : 's'} on your worn gear!`, 'msg-victory');
+    } else if (item.effect === 'holy_water') {
+        postMessage('💧 Select the cursed item or gem first, then tap its 💧 Holy Water button.', 'msg-info');
+        return true;
+    }
+    if (!player.backpack[idx]) selectedSlot = null;
+    updateHUD(); populateSheet(); draw();
+    return true;
+}
+
+// ---- Shatter a socketed gem ----
+export function shatterSocketed(i) {
+    const item = getSelectedGear();
+    if (!item || !item.gems || !item.gems[i]) return;
+    const res = shatterGem(item, i);
+    if (!res) return;
+    refreshItemDesc(item);
+    const was = res.was;
+    if (res.gem) {
+        if (!player.addToBackpack(res.gem)) {
+            if (!currentFloorData.groundItems) currentFloorData.groundItems = [];
+            currentFloorData.groundItems.push({ x: player.x, y: player.y, item: res.gem, fresh: true });
+            postMessage(`💥 You shatter the ${was.name} out of ${item.name}. The ${res.gem.name} falls to the floor (gem bag full).`, 'msg-loot');
+        } else {
+            postMessage(`💥 You shatter the ${was.name} out of ${item.name}: it comes away as a ${res.gem.name}${was.cursed ? ' and the curse breaks' : ''}.`, 'msg-loot');
+        }
+    } else {
+        postMessage(`💥 The ${was.name} crumbles to dust as you pry it from ${item.name}${was.cursed ? ' and the curse dies with it' : ''}.`, 'msg-loot');
+    }
+    updateHUD(); populateSheet(); draw();
+}
+
+// ---- Gem sockets: set a gem from the bag into the selected item ----
 export function pickerSocket(bagIdx) {
     const item = getSelectedGear();
     const gem = player.backpack[bagIdx];
     if (!item || !gem) return;
-    const res = socketGem(item, gem, describePower);
+    const res = socketGem(item, gem, describePower, { hidden: false });
     if (!res.success) {
         postMessage(`⚠️ ${res.reason}`, 'msg-miss');
         return;
     }
-    player.backpack[bagIdx] = null;
+    const name = gem.name;
+    player.removeOneFromBackpack(bagIdx);
+    if (res.cursed) {
+        // The curse shows as soon as the stone is set
+        const entry = item.gems[item.gems.length - 1];
+        entry.curseKnown = true;
+        entry.name = `Shadowed ${entry.name.replace('Shadowed ', '')}`;
+        postMessage(`☠️ The ${name} darkens as it settles into ${item.name}: it was CURSED! (${describeGemCurse(entry, gemCategory(item))}). Holy water can purify it, or shatter it out.`, 'msg-miss');
+    } else {
+        postMessage(`💎 Set ${name} into ${item.name}: ${res.summary}.`, 'msg-loot');
+    }
     refreshItemDesc(item);
-    postMessage(`💎 Set ${gem.name} into ${item.name}: ${res.summary}.`, 'msg-loot');
-    // If the item sits in the bag the selection index is unchanged; refresh everything
     updateHUD();
     populateSheet();
     renderGemPicker();
@@ -3124,19 +3312,84 @@ export function pickerSocket(bagIdx) {
     draw();
 }
 
+// Same-colour fusion: 3 gems of one colour and tier become one gem a tier higher
 export function fuseSelectedGem() {
     if (!selectedSlot || selectedSlot.type !== 'backpack') return;
     const gem = player.backpack[selectedSlot.id];
     const fused = fuseGems(player.backpack, gem);
     if (!fused) {
-        postMessage('⚠️ You need 3 matching gems of the same tier to fuse.', 'msg-miss');
+        postMessage('⚠️ You need 3 (uncursed) gems of the same colour and tier to fuse.', 'msg-miss');
         return;
     }
     player.addToBackpack(fused);
-    const idx = player.backpack.indexOf(fused);
-    selectedSlot = { type: 'backpack', id: idx };
+    selectedSlot = { type: 'backpack', id: player.backpack.findIndex(i => i && PlayerCharacter.stackKey(i) === PlayerCharacter.stackKey(fused)) };
     postMessage(`🔀 Fused 3 gems into a ${fused.name}!`, 'msg-victory');
     populateSheet();
+}
+
+// Rainbow fusion: 3 different colours of the same tier become one gem a tier higher in one of those colours
+export function rainbowFuseSelected() {
+    if (!selectedSlot || selectedSlot.type !== 'backpack') return;
+    const gem = player.backpack[selectedSlot.id];
+    const fused = rainbowFuse(player.backpack, gem, (arr) => prng.choice(arr));
+    if (!fused) {
+        postMessage('⚠️ Rainbow fusion needs 3 different colours of the same tier (uncursed).', 'msg-miss');
+        return;
+    }
+    player.addToBackpack(fused);
+    selectedSlot = { type: 'backpack', id: player.backpack.findIndex(i => i && PlayerCharacter.stackKey(i) === PlayerCharacter.stackKey(fused)) };
+    postMessage(`🌈 Three colours melt together into a ${fused.name}!`, 'msg-victory');
+    populateSheet();
+}
+
+// ---- Fountains: bump to drink. One use, then dry. Outcomes are weighted toward the good. ----
+function drinkFountain(idx) {
+    const terrain = currentFloorData.terrain;
+    const roll = prng.nextInt(1, 100);
+    let text;
+    if (roll <= 28) {
+        const prev = player.hp;
+        player.hp = player.maxHp;
+        player.statuses = (player.statuses || []).filter(s => !STATUS_TYPES[s.id]?.isHarmful);
+        text = `💦 Cool, clear water: restored ${Math.max(0, player.hp - prev)} HP and washed away your ailments.`;
+    } else if (roll <= 48) {
+        const target = nextUnknown(player, null);
+        if (target) {
+            const name = target.name;
+            const found = identifyItem(target);
+            text = `🔮 Visions swim in the water... ${name}: ${describeFindings(found || [])}.`;
+        } else {
+            player.hp = Math.min(player.maxHp, player.hp + 10);
+            text = '🔮 The water shows you nothing new, but it is refreshing (+10 HP).';
+        }
+    } else if (roll <= 60) {
+        const n = cleanseCurses(player, 'worn');
+        if (n) text = `✨ The water glows softly: ${n} curse${n === 1 ? '' : 's'} on your gear dissolve.`;
+        else { EffectSystem.applyStatus(player, 'BLESSED', 20, 1, 'Sacred Spring'); text = '✨ A sacred spring! You feel Blessed for 20 turns.'; }
+    } else if (roll <= 72) {
+        const vial = createItemFromBase(BASE_ITEMS.find(b => b.name === 'Holy Water Vial'));
+        text = player.addToBackpack(vial) ? '💧 The spring is holy: you fill a vial of Holy Water.' : '💧 The spring is holy, but your alchemy bag is full.';
+    } else if (roll <= 84) {
+        const g = addGold(8 + (currentFloorData.floorLevel || 1) * 3);
+        text = `🪙 Coins glint at the bottom of the basin: +${g} gold.`;
+    } else if (roll <= 95) {
+        EffectSystem.applyStatus(player, 'POISONED', 6, 1, 'Stagnant Water');
+        text = '🤢 The water is stagnant and foul. You are poisoned.';
+    } else {
+        const worn = Object.values(player.equipment).filter(i => i && !i.curse && !i.isConsumable);
+        if (worn.length) {
+            const it = prng.choice(worn);
+            attachCurse(it, prng.choice(['weakness', 'clumsiness', 'frailty']), true);
+            refreshItemDesc(it);
+            text = `☠️ Black water! ${it.name} grows cold and heavy: it is now cursed (${curseLine(it)}).`;
+        } else {
+            text = '☠️ The water is black and bitter, but you have nothing worn to curse. Lucky.';
+        }
+    }
+    terrain[idx] = TILES.FOUNTAIN_DRY;
+    postMessage(text, 'msg-loot');
+    updateHUD();
+    refreshSheetIfOpen();
 }
 
 // ---- Equipment slot picker: click a paperdoll slot -> choose from every owned item that fits ----
@@ -3195,10 +3448,13 @@ export function pickerEquip(backpackIdx) {
     const res = player.equipFromBackpack(backpackIdx, pickerSlot);
     if (res) {
         postMessage(`⚔️ Equipped ${res.equipped.name} into ${SLOT_LABELS[res.slot] || res.slot}!`, 'msg-loot');
+        postEquip(res);
         selectedSlot = { type: 'body', id: res.slot };
         updateHUD();
         populateSheet();
         draw();
+    } else if (player.blockReason) {
+        postMessage(`⛓️ ${player.blockReason}`, 'msg-miss');
     }
     closeSlotPicker();
 }
@@ -3634,12 +3890,13 @@ export function populateSheet() {
         const isSel = isBagSelected(idx);
         const look = setLook(item);
         const adv = adviceFor(player, item);
-        const advChip = adv === 'upgrade' ? '<div class="adv-chip adv-up" title="Better than what you wear">▲</div>' : (adv === 'new' ? '<div class="adv-chip adv-new" title="Fills an empty slot">NEW</div>' : (adv === 'downgrade' ? '<div class="adv-chip adv-down" title="Worse than what you wear">▼</div>' : ''));
+        const curseChip = isCursedKnown(item) ? '<div class="adv-chip adv-curse" title="Cursed">☠</div>' : '';
+        const advChip = adv === 'unknown' ? '<div class="adv-chip adv-unk" title="Unidentified: could be better or worse">?</div>' : adv === 'upgrade' ? '<div class="adv-chip adv-up" title="Better than what you wear">▲</div>' : (adv === 'new' ? '<div class="adv-chip adv-new" title="Fills an empty slot">NEW</div>' : (adv === 'downgrade' ? '<div class="adv-chip adv-down" title="Worse than what you wear">▼</div>' : ''));
         return `
             <div class="backpack-slot ${item ? 'equipped' : ''} ${isSel ? 'selected' : ''}" style="${look.style}"
                  onclick="window.selectSlot('backpack', ${idx})"
                  title="Slot ${idx + 1}: ${item ? item.name : 'Empty'}">
-                ${item ? `${advChip}${look.badge}${(item.count || 1) > 1 ? `<div class="count-chip">x${item.count}</div>` : ''}<div class="bag-icon">${itemIconHtml(item, 30)}</div>${socketPipsHtml(item, 7)}<div class="bag-name">${item.name}</div>` : `<span style="color:#444">Slot ${idx+1}</span>`}
+                ${item ? `${advChip}${curseChip}${look.badge}${(item.count || 1) > 1 ? `<div class="count-chip">x${item.count}</div>` : ''}<div class="bag-icon">${itemIconHtml(item, 30)}</div>${socketPipsHtml(item, 7)}<div class="bag-name">${item.name}</div>` : `<span style="color:#444">Slot ${idx+1}</span>`}
             </div>
         `;
     }).join('');
@@ -3692,7 +3949,7 @@ export function populateSheet() {
                     ? `<button class="btn-action-small" style="background:#1d1a33; border-color:#b070ff; color:#d9c2ff;" onclick="window.openGemPicker()">💎 Socket Gem (${freeSockets(item)} free)</button>` : '';
                 cardActions.innerHTML = `
                     <button class="btn-action-small" onclick="window.unequipSelectedBodyItem()">🎒 Unequip</button>
-                    ${socketBtn}
+                    ${socketBtn}${magicButtonsHtml(item)}
                     ${extraAimBtn}
                 `;
             } else {
@@ -3726,15 +3983,17 @@ export function populateSheet() {
                     ? `<button class="btn-action-small" style="background:#1d1a33; border-color:#b070ff; color:#d9c2ff;" onclick="window.openGemPicker()">💎 Socket Gem (${freeSockets(item)} free)</button>` : '';
                 const fuseBtn = (item.isGem && canFuse(player.backpack, item))
                     ? `<button class="btn-action-small" style="background:#1d1a33; border-color:#b070ff; color:#d9c2ff;" onclick="window.fuseSelectedGem()">🔀 Fuse 3 → ${GEM_TIER_NAMES[item.tier]}</button>` : '';
+                const rainbowBtn = (item.isGem && canRainbow(player.backpack, item))
+                    ? `<button class="btn-action-small" style="background:#241a33; border-color:#ff9ad5; color:#ffd0ec;" onclick="window.rainbowFuseSelected()">🌈 Rainbow fuse → ${GEM_TIER_NAMES[item.tier]}</button>` : '';
                 let consumeBtn = '';
                 if (item.isConsumable) {
-                    consumeBtn = `<button class="btn-action-small" style="background: #2a3a19; border-color: #77cc33; color: #ccff77;" onclick="window.consumeBackpackItem(${selectedSlot.id})">🍴 Eat / Consume</button>`;
+                    consumeBtn = `<button class="btn-action-small" style="background: #2a3a19; border-color: #77cc33; color: #ccff77;" onclick="window.consumeBackpackItem(${selectedSlot.id})">${item.effect ? '✨ Use' : '🍴 Eat / Consume'}</button>`;
                 }
 
                 cardActions.innerHTML = `
                     ${equipButtonsHtml}
                     ${socketBtn}
-                    ${fuseBtn}
+                    ${fuseBtn}${rainbowBtn}${magicButtonsHtml(item)}
                     ${consumeBtn}
                     ${throwAimBtn}
                     <button class="btn-action-small" style="background: #381919; border-color: #ff6666; color: #ffaaaa;" onclick="window.dropSelectedBackpackItem()">🗑️ Drop</button>
@@ -3817,6 +4076,7 @@ export function populateSheet() {
 
 export function consumeBackpackItem(idx) {
     if (!player || !player.alive) return;
+    if (player.backpack[idx]?.effect) { useEffectItem(idx); return; }
     const res = player.consumeItem(idx);
     if (res) {
         let msg = `🍴 Consumed ${res.item.name}!`;
@@ -4016,8 +4276,11 @@ function renderShop() {
     document.getElementById('shop-gold').innerText = player.gold;
     document.getElementById('shop-tab-buy').classList.toggle('active', shopTab === 'buy');
     document.getElementById('shop-tab-sell').classList.toggle('active', shopTab === 'sell');
+    document.getElementById('shop-tab-svc')?.classList.toggle('active', shopTab === 'svc');
 
-    if (shopTab === 'buy') {
+    if (shopTab === 'svc') {
+        body.innerHTML = servicesHtml();
+    } else if (shopTab === 'buy') {
         body.innerHTML = m.stock.length ? m.stock.map((item, i) => {
             const price = buyPrice(item);
             const can = player.gold >= price;
@@ -4064,6 +4327,46 @@ function renderShop() {
                 <button class="btn-action-small" style="flex:none; background:#1a2a1a; border-color:#55ff77; color:#aaffaa;" onclick="window.shopSell(${idx})">Sell 💰 ${sellPrice(item)}</button>
             </div>`).join('') : `<div class="picker-row" style="color:#888;">Your bag has nothing to sell.</div>`);
     }
+}
+
+// ---- Merchant services: identify and uncurse for gold ----
+function serviceTargets() {
+    const out = [];
+    for (const [slot, it] of Object.entries(player.equipment)) if (it) out.push({ it, where: 'worn', key: slot, label: `${SLOT_LABELS[slot] || slot} (worn)` });
+    player.backpack.forEach((it, idx) => { if (it && !it.isConsumable && !it.isKey) out.push({ it, where: 'bag', key: idx, label: it.isGem ? 'gem' : 'bag' }); });
+    return out;
+}
+
+function servicesHtml() {
+    const depth = currentFloorData.floorLevel || 1;
+    const rows = [];
+    for (const t of serviceTargets()) {
+        if (hasUnknownParts(t.it)) {
+            const price = identifyPrice(t.it, depth);
+            rows.push(`<div class="picker-row"><div style="flex:1; min-width:0;"><div style="color:#d9c2ff; font-weight:bold;">🔍 Identify ${itemIconHtml(t.it, 16)} ${t.it.name} <span style="color:#888; font-weight:normal;">(${t.label})</span></div></div>
+                <button class="btn-action-small" style="flex:none; ${player.gold >= price ? 'background:#1d1a33; border-color:#b070ff; color:#d9c2ff;' : 'opacity:0.45;'}" ${player.gold >= price ? '' : 'disabled'} onclick="window.shopService('id','${t.where}','${t.key}')">💰 ${price}</button></div>`);
+        }
+        if (isCursedKnown(t.it)) {
+            const price = uncursePrice(t.it, depth);
+            rows.push(`<div class="picker-row"><div style="flex:1; min-width:0;"><div style="color:#c9a0ff; font-weight:bold;">✝️ Lift curse ${itemIconHtml(t.it, 16)} ${t.it.name} <span style="color:#888; font-weight:normal;">(${t.label})</span></div><div style="color:#aaa; font-size:10px;">${curseLine(t.it) || 'a cursed gem'}</div></div>
+                <button class="btn-action-small" style="flex:none; ${player.gold >= price ? 'background:#14282a; border-color:#64d8cb; color:#bff;' : 'opacity:0.45;'}" ${player.gold >= price ? '' : 'disabled'} onclick="window.shopService('uncurse','${t.where}','${t.key}')">💰 ${price}</button></div>`);
+        }
+    }
+    return rows.length ? rows.join('') : `<div class="picker-row" style="color:#888;">Nothing you carry needs identifying, and no curse you know of needs lifting.</div>`;
+}
+
+export function shopService(kind, where, key) {
+    const item = where === 'worn' ? player.equipment[key] : player.backpack[parseInt(key, 10)];
+    if (!item) return;
+    const depth = currentFloorData.floorLevel || 1;
+    const price = kind === 'id' ? identifyPrice(item, depth) : uncursePrice(item, depth);
+    if (player.gold < price) { postMessage('💰 Not enough gold.', 'msg-miss'); return; }
+    player.gold -= price;
+    const name = item.name;
+    if (kind === 'id') postMessage(`🔍 The merchant studies ${name}: ${describeFindings(identifyItem(item) || [])}.`, 'msg-victory');
+    else postMessage(`✝️ The merchant mutters a rite over ${name}: ${purifyItem(item)} curse(s) lifted.`, 'msg-victory');
+    renderShop();
+    updateHUD();
 }
 
 export function shopSellJunk() {
@@ -4435,6 +4738,9 @@ function afterDebugChange(msg) {
 
 export const pixelDebug = {
     // Spawn a boss two tiles from the hero (any floor) for quick fight testing: id = bugbear|troll|chimaera|giant|dragon
+    player() { return player; },
+    placeTile(dx, dy, name) { const t = TILES[name]; if (t === undefined) return false; currentFloorData.terrain[(player.y + dy) * MAP_WIDTH + player.x + dx] = t; draw(); return true; },
+    give(item) { const ok = player.addToBackpack(item); afterDebugChange(`Gave ${item.name}.`); return ok; },
     spawnBoss(id = 'bugbear') {
         const def = BOSSES[id];
         const f = currentFloorData;

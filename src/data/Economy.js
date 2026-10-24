@@ -1,13 +1,17 @@
 // Gold, item values and merchant stock.
 
-import { generateLootItem, createItemFromBase, BASE_ITEMS } from './Items.js';
-import { randomGem, createGem } from './Gems.js';
+import { generateLootItem, createItemFromBase, BASE_ITEMS, visibleView } from './Items.js';
+import { randomGem, createGem, identifyGem } from './Gems.js';
 
 // Base value of an item in gold
 export function itemValue(item) {
     if (!item) return 0;
     if (item.isKey) return 0;
-    if (item.isGem) return 20 * item.tier * item.tier + (item.gemType === 'diamond' ? 30 : 0);
+    if (item.unid) return itemValue(visibleView(item)) + 25; // unknown magic: merchants guess an average premium
+    if (item.effect === 'identify') return 40;
+    if (item.effect === 'uncurse') return 70;
+    if (item.effect === 'holy_water') return 45;
+    if (item.isGem) return Math.round((20 * item.tier * item.tier + (item.gemType === 'diamond' ? 30 : 0)) * (item.cursed && item.curseKnown ? 0.3 : 1));
     if (item.isConsumable) {
         return 6 + (item.healPotency || 0) * 0.8 + (item.rations || 0) * 6 + (item.statusOnHit ? 8 : 0);
     }
@@ -48,7 +52,11 @@ export function buildMerchantStock(prng, floorLevel) {
     stock.push(createItemFromBase(potions[0]));
     stock.push(createItemFromBase(floorLevel >= 6 ? potions[1] : potions[0]));
     stock.push({ name: 'Hearty Ration', icon: '🍖', isConsumable: true, rations: 1, healPotency: 4, desc: 'Restores 1 Ration and 4 HP.' });
-    stock.push(randomGem(prng, floorLevel + 2));
+    { const g = randomGem(prng, floorLevel + 2); identifyGem(g); stock.push(g); } // merchants know what they sell
+    const byName = (n) => BASE_ITEMS.find(b => b.name === n);
+    stock.push(createItemFromBase(byName('Scroll of Identify')));
+    if (prng.chance(0.6)) stock.push(createItemFromBase(byName('Holy Water Vial')));
+    if (prng.chance(0.35)) stock.push(createItemFromBase(byName('Scroll of Remove Curse')));
     if (prng.chance(0.5)) stock.push(createGem(prng.choice(['ruby', 'sapphire', 'emerald', 'topaz', 'amethyst']), 1));
     for (let i = 0; i < 3; i++) {
         let item = generateLootItem(prng, floorLevel + 2);
@@ -57,4 +65,13 @@ export function buildMerchantStock(prng, floorLevel) {
         stock.push(item);
     }
     return stock;
+}
+
+// Merchant services: price grows with the item's worth. `depth` is the floor's difficulty depth.
+export function identifyPrice(item, depth = 1) {
+    return 25 + depth * 4 + Math.round(itemValue(item) * 0.25);
+}
+
+export function uncursePrice(item, depth = 1) {
+    return 60 + depth * 6 + Math.round(itemValue(item) * 0.4);
 }
