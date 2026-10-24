@@ -27,7 +27,8 @@ Modules are plain JSON files in [`modules/`](modules/README.md): a minimal one i
 * **How to lift curses:** **Holy Water Vial** (one item or gem), **Scroll of Remove Curse** or the Cleric's **Remove Curse** spell (everything worn), an **altar** (everything worn and carried), a merchant, or a lucky **fountain** (bump one to drink; most are good, some are foul).
 * **Gems stack** by colour and tier. Fuse **3 of one colour** into the next tier, or a **🌈 rainbow fuse** of 3 different colours at the same tier (you get one of those colours). Cursed gems cannot be fused.
 * **Cursed gems:** the curse hides until identified (or until you set the stone, when it shows at once). A known cursed gem is drawn with a dark purple ombre. It still gives its bonus but costs the item Max HP (and Attack on weapons).
-* **Shatter (💥):** pull a gem out of a socket; it comes back one tier lower (a Chipped gem is destroyed), and a curse on it is broken.
+* **Shatter (💥):** pull a gem out of a socket; it comes back one tier lower (a Chipped gem is destroyed). A **cursed gem cannot be shattered** until it is purified.
+* **Cursed means locked:** a cursed item cannot be taken off, and gear holding a cursed gem cannot either, until the curse is lifted (holy water, remove curse, an altar, a merchant).
 
 ---
 

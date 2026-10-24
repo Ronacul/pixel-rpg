@@ -3156,7 +3156,7 @@ function bagCountOfEffect(effect) {
 // Lists the curse (if known) and the gems set into an item, with a shatter button per stone
 function gemListHtml(item) {
     if (!item) return '';
-    if (item.isGem) return item.cursed && item.curseKnown ? `<div style="margin-top:3px; font-size:10px; color:#c77dff;"><b>☠️ Cursed gem:</b> costs an item ${describeGemCurse(item)} once set. Holy water purifies it; shattering it from a socket also breaks the curse.</div>` : (item.checked ? `<div style="margin-top:3px; font-size:10px; color:#8ee0a8;">✓ Checked: no curse.</div>` : '');
+    if (item.isGem) return item.cursed && item.curseKnown ? `<div style="margin-top:3px; font-size:10px; color:#c77dff;"><b>☠️ Cursed gem:</b> costs an item ${describeGemCurse(item)} once set. Holy water purifies it. Set in gear it locks the gear, and it cannot be shattered out until purified.</div>` : (item.checked ? `<div style="margin-top:3px; font-size:10px; color:#8ee0a8;">✓ Checked: no curse.</div>` : '');
     let html = '';
     const curse = curseLine(item);
     if (curse) html += `<div style="margin-top:3px; font-size:10px; color:#c77dff;"><b>☠️ Cursed:</b> ${curse}${item.curse?.sticky ? ' (cannot be removed)' : ''}</div>`;
@@ -3164,12 +3164,12 @@ function gemListHtml(item) {
     if (!item.sockets) return html;
     const free = freeSockets(item);
     const rows = (item.gems || []).map((g, i) => {
-        const shatter = `<button class="shat-btn" title="Shatter: pull this gem out. It comes back one tier lower (a Chipped gem is destroyed) and any curse on it is broken." onclick="window.shatterSocketed(${i})">💥</button>`;
-        if (g.known === false) return `<div style="color:#9aa0bd;">${unknownGemSvg(14)} Unknown gem (identify to see what it does) ${shatter}</div>`;
+        const shatter = (gem) => gem.cursed ? `<button class="shat-btn" style="opacity:0.35;" title="A cursed gem cannot be shattered. Purify it first (holy water, remove curse, altar, merchant)." onclick="window.shatterSocketed(${i})">💥🔒</button>` : `<button class="shat-btn" title="Shatter: pull this gem out. It comes back one tier lower (a Chipped gem is destroyed)." onclick="window.shatterSocketed(${i})">💥</button>`;
+        if (g.known === false) return `<div style="color:#9aa0bd;">${unknownGemSvg(14)} Unknown gem${g.cursed && g.curseKnown ? ' <span style="color:#d28bff;">☠️ cursed</span>' : ''} (identify to see what it does) ${shatter(g)}</div>`;
         const cursed = g.cursed && g.curseKnown;
         const col = cursed ? '#c9a0ff' : gemColor(g.type);
         const tail = cursed ? ` <span style="color:#d28bff;">☠️ ${describeGemCurse(g, gemCategory(item))}</span>` : '';
-        return `<div style="color:${col};">${gemIconSvg(g.type, g.tier, 14, { cursed })} ${g.name}: <b>${g.summary}</b>${tail} ${shatter}</div>`;
+        return `<div style="color:${col};">${gemIconSvg(g.type, g.tier, 14, { cursed })} ${g.name}: <b>${g.summary}</b>${tail} ${shatter(g)}</div>`;
     }).join('');
     const empty = free > 0 ? `<div style="color:#8a92b0;">◇ ${free} empty socket${free > 1 ? 's' : ''}: a gem here adds a bonus by colour (see the gem for details)</div>` : '';
     return `${html}<div style="margin-top:3px; font-size:10px;"><b style="color:#d9c2ff;">💎 Sockets:</b>${rows}${empty}</div>`;
@@ -3267,6 +3267,7 @@ export function shatterSocketed(i) {
     if (!item || !item.gems || !item.gems[i]) return;
     const res = shatterGem(item, i);
     if (!res) return;
+    if (res.blocked) { postMessage(`🔒 The cursed ${res.was.name.replace('Shadowed ', '')} will not come out. Purify it first (holy water, remove curse, an altar or a merchant).`, 'msg-miss'); return; }
     refreshItemDesc(item);
     const was = res.was;
     if (res.gem) {

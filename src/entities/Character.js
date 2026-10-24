@@ -1,3 +1,4 @@
+import { lockReason } from '../data/Curses.js';
 import { ITEM_SLOTS, calculateEquippedSetBonuses, MUSHROOM_TYPES, getCompatibleSlots, createItemFromBase, findBaseItem } from '../data/Items.js';
 import { ClassManager } from '../data/Classes.js';
 import { PROGRESSION, XP_TABLE, getGrantsForLevel, MASTERIES } from '../data/Progression.js';
@@ -363,8 +364,8 @@ export class PlayerCharacter {
 
         const previousItem = this.equipment[slot];
         this.blockReason = null;
-        if (previousItem && previousItem.curse && previousItem.curse.sticky) {
-            this.blockReason = `${previousItem.name} is cursed and will not come off. Lift the curse first (holy water, remove curse, an altar or a merchant).`;
+        if (previousItem && lockReason(previousItem)) {
+            this.blockReason = lockReason(previousItem);
             return null;
         }
 
@@ -397,7 +398,7 @@ export class PlayerCharacter {
     unequipToBackpack(slot) {
         const item = this.equipment[slot];
         if (!item) return { success: false, reason: 'Slot is empty' };
-        if (item.curse && item.curse.sticky) return { success: false, reason: `${item.name} is cursed and will not come off. Lift the curse first (holy water, remove curse, an altar or a merchant).` };
+        if (lockReason(item)) return { success: false, reason: lockReason(item) };
         if (!this.canStore(item)) return { success: false, reason: `Your ${COMPARTMENTS.find(c => c.id === compartmentOf(item)).label} bag is full` };
         this.addToBackpack(item);
         this.equipment[slot] = null;

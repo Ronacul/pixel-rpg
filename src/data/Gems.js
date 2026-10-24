@@ -53,7 +53,7 @@ const GEM_TABLE = {
 
 // opts: { cursed } - a cursed gem still gives its bonus, but costs the item something once it is set (see gemCursePenalty).
 // The curse is hidden until the gem is identified (scroll, Identify spell, a bard's lore, a merchant) and then shows as a
-// shadowed icon; holy water or shattering removes it.
+// shadowed icon; holy water (or any other purification) removes it.
 export function createGem(type, tier = 1, opts = {}) {
     const t = GEM_TYPES[type];
     const name = `${GEM_TIER_NAMES[tier - 1]} ${t.name}`;
@@ -73,7 +73,7 @@ export function createGem(type, tier = 1, opts = {}) {
 }
 
 export function refreshGemDesc(gem) {
-    const tail = gem.cursed && gem.curseKnown ? ` ☠️ CURSED: socketing costs the item ${describeGemCurse(gem)}. Holy water purifies it; shattering it from a socket also breaks the curse.` : '';
+    const tail = gem.cursed && gem.curseKnown ? ` ☠️ CURSED: socketing costs the item ${describeGemCurse(gem)}. Holy water purifies it. A cursed gem set in gear locks the gear and cannot be shattered out until purified.` : '';
     gem.desc = `${gem.name} (set it into a socket via Gear → item → Socket Gem). Gives: ${describeGemEffects(gem.gemType, gem.tier)}${tail}`;
 }
 
@@ -214,11 +214,13 @@ function legacyApplied(item, g) {
     return { stats: pv.stats, mods: pv.mods, power: pv.power ? { id: pv.power.id, merged: false } : null, curse: null };
 }
 
-// Shatter a gem out of its socket: the stone is lost one tier lower (a tier-1 stone is destroyed) and any curse is broken.
+// Shatter a gem out of its socket: the stone comes back one tier lower (a tier-1 stone is destroyed).
+// A CURSED gem cannot be shattered: purify it first (holy water, remove curse, altar, merchant).
 // Returns { gem } with the downgraded stone (or null).
 export function shatterGem(item, idx) {
     const g = item?.gems?.[idx];
     if (!g) return null;
+    if (g.cursed) return { blocked: true, was: g, gem: null };
     reverseApplied(item, g);
     item.gems.splice(idx, 1);
     const tier = g.tier - 1;

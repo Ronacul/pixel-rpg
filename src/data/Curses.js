@@ -1,7 +1,7 @@
 // Curses on gear. A curse is attached when the item is generated and stays HIDDEN until the item is identified or worn.
 // Cursed items are tempting on purpose: they always carry an extra power.
 //   stats / mods  - flat penalties applied to the item itself (so every existing system just works)
-//   sticky        - cannot be taken off until the curse is lifted
+//   (every curse locks the item: it cannot be taken off, and a cursed gem inside cannot be shattered, until it is lifted)
 //   hunger        - the wearer burns rations twice as fast
 //   drain         - saps 1 HP every `every` turns (never kills)
 //   weapon        - only rolled on weapons; nonWeapon - never on weapons
@@ -38,7 +38,7 @@ export function attachCurse(item, id, known = false) {
         if (!item.mods) item.mods = {};
         for (const [k, v] of Object.entries(def.mods)) { item.mods[k] = (item.mods[k] || 0) + v; applied.mods[k] = v; }
     }
-    item.curse = { id, known, sticky: !!def.sticky, applied };
+    item.curse = { id, known, sticky: true, applied }; // every curse locks the item until it is lifted
     return true;
 }
 
@@ -62,4 +62,12 @@ export function curseLine(item) {
     if (!c || !c.known) return '';
     const d = CURSES[c.id];
     return `${d.icon} ${d.name}: ${d.desc}`;
+}
+
+// Why an item cannot come off, or null. Its own curse or any cursed gem set in it locks it.
+export function lockReason(item) {
+    if (!item) return null;
+    if (item.curse) return `${item.name} is cursed and will not come off. Lift the curse first (holy water, remove curse, an altar or a merchant).`;
+    if ((item.gems || []).some(g => g.cursed)) return `${item.name} holds a cursed gem and will not come off. Purify the gem first (holy water, remove curse, an altar or a merchant).`;
+    return null;
 }

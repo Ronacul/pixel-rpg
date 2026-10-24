@@ -61,7 +61,12 @@ export function identifyItem(item) {
 
 // A curse announces itself the moment the item is worn. Returns a message or null.
 export function revealOnEquip(item) {
-    if (!item || !item.curse || item.curse.known) return null;
+    if (!item) return null;
+    const hiddenGems = (item.gems || []).filter(g => g.cursed && !g.curseKnown);
+    for (const g of hiddenGems) { g.curseKnown = true; g.name = `Shadowed ${g.name.replace('Shadowed ', '')}`; } // the curse is felt; what the gem IS stays hidden
+    if (!item.curse || item.curse.known) {
+        return hiddenGems.length ? `☠️ ${item.name} holds a CURSED gem (${hiddenGems.map(g => g.name.replace('Shadowed ', '')).join(', ')}): it will not come off until the gem is purified.` : null;
+    }
     item.curse.known = true;
     const d = CURSES[item.curse.id];
     if (item.unid) item.name = item.name.replace('(?)', '(☠️)');
