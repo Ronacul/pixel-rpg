@@ -11,19 +11,19 @@ export const DIFFICULTY = {
     playerLevelPerFloor: 0.75,
 
     // Monster stat scaling per monster level (see scaleMonsterStats)
-    hpBaseShare: 0.5,        // share of the biome's listed HP that is kept
-    hpFlat: 4,               // flat HP at any level
-    hpPerLevel: 2.2,         // HP gained per monster level
-    attackPerLevel: 0.6,     // attack bonus per level
-    damagePerLevel: 0.28,    // flat damage bonus per level
+    hpBaseShare: 0.7,        // share of the biome's listed HP that is kept
+    hpFlat: 5,               // flat HP at any level
+    hpPerLevel: 3.3,         // HP gained per monster level
+    attackPerLevel: 0.85,    // attack bonus per level
+    damagePerLevel: 0.45,    // flat damage bonus per level
     acEveryLevels: 4,        // +1 AC every N levels
 
     // Level spread of a freshly spawned monster relative to the floor number
-    levelSpread: [[-1, 0.20], [0, 0.45], [1, 0.25], [2, 0.08], [4, 0.02]],  // [offset, probability]; +3 or more = "Dread"
+    levelSpread: [[-1, 0.15], [0, 0.40], [1, 0.27], [2, 0.12], [4, 0.06]],  // [offset, probability]; +3 or more = "Dread"
 
     // Elites
-    eliteChanceBase: 0.08,
-    eliteChancePerFloor: 0.006,
+    eliteChanceBase: 0.11,
+    eliteChancePerFloor: 0.007,
     eliteChanceCap: 0.28,
     championChance: 0.05,    // of elites: gets two affixes
 
@@ -40,7 +40,7 @@ export const DIFFICULTY = {
     // Wandering monsters
     wanderIntervalBase: 28,  // turns between spawn checks at floor 1 (shrinks with depth)
     wanderIntervalMin: 14,
-    wanderChanceBase: 0.35,
+    wanderChanceBase: 0.4,
     wanderChancePerFloor: 0.01,
     wanderChanceCap: 0.7,
     wanderCapBase: 2,        // max live wanderers = base + floor / 5

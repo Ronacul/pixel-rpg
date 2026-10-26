@@ -14,7 +14,7 @@ import { triggerPowers, senseRadius } from './systems/Powers.js';
 import { describePower } from './data/Powers.js';
 import { GEM_TYPES, createGem, randomGem, previewGem, describePreview, freeSockets, socketGem, canFuse, fuseGems, canRainbow, rainbowFuse, shatterGem, describeGemCurse, gemCategory, identifySocketed, GEM_TIER_NAMES } from './data/Gems.js';
 import { hasUnknownParts, isCursedKnown, identifyItem, revealOnEquip, purifyItem, cleanseCurses, nextUnknown, tickIdentify, tickCurses } from './systems/Identify.js';
-import { curseLine, attachCurse } from './data/Curses.js';
+import { curseLine, attachCurse, CURSES } from './data/Curses.js';
 import { generateTestFloor, isTestSeed, TEST_MIN_MAP_SIZE } from './map/TestLevel.js';
 import { PlayerCharacter } from './entities/Character.js';
 import { PerceptionSystem } from './systems/Perception.js';
@@ -340,6 +340,8 @@ function updateHUD() {
         }
     }
 
+    renderStatusStrip();
+
     // Aim button label
     const targetLabel = document.getElementById('action-target-label');
     if (targetLabel) {
@@ -427,6 +429,91 @@ export function openLog() {
 
 export function closeLog() {
     document.getElementById('log-modal')?.classList.remove('active');
+}
+
+// ==========================================
+// STATUS STRIP & PANEL: everything currently influencing the hero, hunger included
+// ==========================================
+const HUNGER_PERIOD = 60; // turns per ration (see PlayerCharacter.advanceTurn)
+
+function hungerRate() {
+    // Each worn Famine curse burns an extra turn of hunger per turn
+    return 1 + Object.values(player.equipment).filter(i => i && i.curse && i.curse.id === 'famine').length;
+}
+
+// { level: 'ok'|'low'|'danger'|'starving', short, long }
+export function hungerInfo() {
+    const starving = EffectSystem.hasStatus(player, 'STARVING');
+    const untilNext = Math.max(1, Math.ceil((HUNGER_PERIOD - player.hungerTurns) / hungerRate()));
+    if (starving) return { level: 'starving', short: '🥀 Starving', long: 'You are STARVING: -2 Attack and no natural healing. Eat anything with rations, or camp (needs a ration) to recover.' };
+    if (player.rations <= 0) return { level: 'danger', short: `🍖 0 · ${untilNext}t`, long: `No rations left. In ${untilNext} turns you will start to starve (-2 Attack, no healing). Find food: forage mushrooms, harvest fresh kills, loot chests, or buy rations from a merchant.` };
+    const low = player.rations <= 1;
+    return {
+        level: low ? 'low' : 'ok',
+        short: `🍖 ${player.rations} · ${untilNext}t`,
+        long: `${player.rations} ration${player.rations === 1 ? '' : 's'} in your pack. One is eaten automatically every ${HUNGER_PERIOD} turns (next in ${untilNext}).${hungerRate() > 1 ? ' A cursed item is doubling your hunger!' : ''}${low ? ' You are nearly out of food.' : ''} Camping eats a ration but restores health and cooldowns.`
+    };
+}
+
+function statusEntries() {
+    const out = [];
+    const h = hungerInfo();
+    out.push({ kind: 'hunger', icon: h.short.split(' ')[0], label: h.short.replace(/^\S+\s/, ''), tone: h.level, title: 'Hunger', desc: h.long });
+    for (const s of player.statuses || []) {
+        const def = STATUS_TYPES[s.id] || {};
+        if (s.id === 'STARVING') continue; // already shown as hunger
+        out.push({ kind: 'status', icon: s.icon || def.icon || '✨', label: `${s.name || def.name}${s.duration < 900 ? ` ${s.duration}t` : ''}`, tone: def.isHarmful ? 'danger' : 'good', title: s.name || def.name, desc: def.desc || '' });
+    }
+    for (const b of player.activeBuffs || []) {
+        out.push({ kind: 'buff', icon: '✨', label: `${b.name} ${b.turnsLeft}t`, tone: 'good', title: b.name, desc: `+${b.value} ${String(b.stat).replace('bonus_dmg', 'damage')} for ${b.turnsLeft} more turns.` });
+    }
+    const mod = FLOOR_MODIFIERS[currentFloorData?.modifier];
+    if (mod) out.push({ kind: 'floor', icon: mod.icon, label: mod.name, tone: 'info', title: `Floor: ${mod.name}`, desc: mod.desc });
+    for (const it of Object.values(player.equipment)) {
+        if (!it || !it.curse) continue;
+        const c = CURSES[it.curse.id];
+        out.push({ kind: 'curse', icon: '☠️', label: c.name, tone: 'danger', title: `Cursed: ${it.name.replace(/ \(.*\)$/, '')}`, desc: `${c.desc}. Lift it with holy water, a remove curse, an altar or a merchant.` });
+    }
+    const unknown = Object.values(player.equipment).filter(i => i && hasUnknownParts(i)).length;
+    if (unknown) out.push({ kind: 'unknown', icon: '❓', label: `${unknown} unknown`, tone: 'info', title: 'Unidentified gear', desc: `${unknown} worn item${unknown > 1 ? 's' : ''} hide magic that will reveal itself with use.` });
+    if (player.luck >= 2) out.push({ kind: 'luck', icon: '🍀', label: `Luck +${player.luck}`, tone: 'good', title: 'Luck', desc: 'Chests are likelier to hold a second find.' });
+    return out;
+}
+
+export function renderStatusStrip() {
+    const el = document.getElementById('status-strip');
+    if (!el || !player) return;
+    const colors = { ok: '#7fd68a', low: '#ffb347', danger: '#ff6b6b', starving: '#ff4d4d', good: '#7fd68a', info: '#7ec8ff' };
+    el.innerHTML = statusEntries().map(e => `<span class="st-chip" style="border-color:${colors[e.tone] || '#444'}; color:${colors[e.tone] || '#ccc'};">${e.icon} ${e.label}</span>`).join('');
+}
+
+export function openStatus() {
+    const body = document.getElementById('status-list');
+    if (!body) return;
+    const rows = statusEntries().map(e => `<div class="picker-row" style="align-items:flex-start;"><div style="font-size:18px; width:26px; text-align:center;">${e.icon}</div><div style="flex:1; min-width:0;"><div style="font-weight:bold; color:#f0f0ff;">${e.title}</div><div style="font-size:11px; color:#aab; line-height:1.35;">${e.desc}</div></div></div>`);
+    rows.push(`<div style="font-size:10px; color:#6a7290; margin-top:6px;">Hunger, poison, bleeding, buffs, floor effects and curses all appear here. Chips glow red when something needs attention.</div>`);
+    body.innerHTML = rows.join('');
+    document.getElementById('status-modal')?.classList.add('active');
+}
+
+export function closeStatus() {
+    document.getElementById('status-modal')?.classList.remove('active');
+}
+
+// A little dread: hunger, wounds and what waits ahead occasionally put the hero on edge
+let lastDreadTurn = 0;
+function maybeDread() {
+    if (!player || player.turnCount - lastDreadTurn < 45 || !prng.chance(0.35)) return;
+    lastDreadTurn = player.turnCount;
+    const f = currentFloorData;
+    const lines = [];
+    if (player.hp < player.maxHp * 0.35) lines.push('Your hands shake. One more bad fight could finish you.', 'Blood pounds in your ears.');
+    if (player.rations <= 1) lines.push('Your stomach clenches. You should find food soon.');
+    if (f?.monsters.some(m => m.isBoss && m.alive)) lines.push('Something enormous waits on this floor. The stairs feel very far away.');
+    if (f?.modifier === 'dark') lines.push('The dark presses in close. Something shuffles just out of sight.');
+    if (f?.modifier === 'quiet') lines.push('It is too quiet. Even your footsteps seem to hold their breath.');
+    lines.push('A distant scrape of metal on stone... then silence.', 'Cold air drifts past, carrying a faint, sour smell.', 'You have the uneasy feeling of being watched.');
+    postMessage(`😰 ${prng.choice(lines)}`, 'msg-info');
 }
 
 // ==========================================
@@ -993,12 +1080,15 @@ function endTurn() {
     tickIdentify(player, () => prng.nextInt(1, 20), (m) => postMessage(m, 'msg-loot')) && refreshSheetIfOpen();
     tickCurses(player, (m) => postMessage(m, 'msg-miss'));
     if (hungerMsg === 'ration_consumed') {
-        postMessage('🍖 Sustenance: Hearty ration consumed to stave off hunger.', 'msg-info');
+        postMessage(player.rations <= 0 ? '🍖 That was your LAST ration. Find food before hunger bites!' : (player.rations === 1 ? '🍖 You eat a ration. Only one left: start looking for food.' : '🍖 Sustenance: Hearty ration consumed to stave off hunger.'), player.rations <= 1 ? 'msg-miss' : 'msg-info');
     } else if (hungerMsg === 'starving') {
         postMessage('🥀 Extreme Hunger! You are STARVING (-2 Attack, HP regen halted)! Camp or eat now!', 'msg-miss');
     } else if (healed) {
         postMessage(`💖 Resting: Natural regeneration healed 1 HP! (${player.hp}/${player.maxHp})`, 'msg-loot');
     }
+
+    if (player.rations <= 0 && player.hungerTurns === 45 && !EffectSystem.hasStatus(player, 'STARVING')) postMessage('🥀 Hunger knots your stomach. In 15 turns you will start to starve!', 'msg-miss');
+    maybeDread();
 
     // 2. Tick Player Lingering Statuses (Bleed, Poison, Burn, Regen)
     EffectSystem.tickEntityStatuses(player, true, prng, {
@@ -4889,7 +4979,7 @@ export const pixelDebug = {
     },
     // A hero as strong as a player on pace for floor F: expected level plus gear from ~4 loot rolls per floor passed
     buildHero(F, classId = 'warrior', lootPerFloor = 2) {
-        this.startRun('SIM-' + F, { classId, mapSize: 100 });
+        this.startRun('SIM-' + F, { classId, mapSize: 100, moduleId: CORE_MODULE_ID, heroId: null });
         const lvl = Math.round(expectedPlayerLevel(F));
         this.setLevel(lvl);
         this.autoLevelChoices();

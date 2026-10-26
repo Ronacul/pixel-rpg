@@ -117,6 +117,8 @@
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
         }
 
+        #status-strip { display: flex; flex-wrap: wrap; gap: 4px; width: 100%; max-width: 360px; margin-top: 6px; cursor: pointer; }
+        .st-chip { font-size: 10px; font-weight: bold; padding: 2px 7px; border: 1px solid; border-radius: 10px; background: #0e101a; white-space: nowrap; }
         #msg-wrap { display: flex; gap: 4px; width: 100%; max-width: 360px; margin-top: 6px; align-items: stretch; }
         #msg-wrap #message-bar { flex: 1; min-width: 0; max-width: none; margin-top: 0; cursor: pointer; }
         #message-bar.expanded { white-space: normal; max-height: 118px; overflow-y: auto; line-height: 1.35; padding: 6px 10px; }
@@ -767,6 +769,7 @@
     </div>
 
     <!-- Single-Line Message Ticker -->
+    <div id="status-strip" onclick="openStatus()" title="Tap for details"></div>
     <div id="msg-wrap">
         <div id="message-bar" onclick="toggleMsgExpand()" title="Tap to expand / collapse">> Exploring dungeon depths... Tap floor to move | Long-press to inspect.</div>
         <div class="msg-btns">
@@ -1096,6 +1099,18 @@
     </div>
 
     <!-- Menu: Actions / New Run (map size, class, race) / Debug -->
+    <!-- Status details -->
+    <div id="status-modal" class="modal-overlay" style="z-index: 125;" onclick="closeStatus()">
+        <div class="modal-card" onclick="event.stopPropagation()" style="max-height: 80vh;">
+            <div class="modal-header">
+                <span class="modal-title">🧭 STATUS</span>
+                <button class="close-btn" onclick="closeStatus()">✕</button>
+            </div>
+            <div id="status-list" style="overflow-y: auto; max-height: 60vh; display: flex; flex-direction: column; gap: 4px;"></div>
+            <button class="modal-btn" style="margin-top: 8px;" onclick="closeStatus()">Close</button>
+        </div>
+    </div>
+
     <!-- Message history -->
     <div id="log-modal" class="modal-overlay" style="z-index: 125;" onclick="closeLog()">
         <div class="modal-card" onclick="event.stopPropagation()" style="max-height: 80vh;">
@@ -1281,6 +1296,8 @@
             boostStat,
             moveRelative,
             toggleRemoteControl,
+            openStatus,
+            closeStatus,
             toggleMsgExpand,
             openLog,
             closeLog,
@@ -1347,8 +1364,8 @@
             sortBag,
             shopSellJunk,
             pixelDebug
-        } from './src/main.js?v=22.0';
-        import { PRNG } from './src/core/RNG.js?v=22.0';
+        } from './src/main.js?v=23.0';
+        import { PRNG } from './src/core/RNG.js?v=23.0';
 
         window.openSheetModal = function() {
             window.switchSheetTab(null);
@@ -1382,6 +1399,8 @@
         window.cancelTargeting = cancelTargeting;
         window.moveRelative = moveRelative;
         window.toggleRemoteControl = toggleRemoteControl;
+        window.openStatus = openStatus;
+        window.closeStatus = closeStatus;
         window.toggleMsgExpand = toggleMsgExpand;
         window.openLog = openLog;
         window.closeLog = closeLog;
