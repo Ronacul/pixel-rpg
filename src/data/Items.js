@@ -522,6 +522,7 @@ export function generateLootItem(prng, floorLevel = 1) {
 
     const item = {
         name: affix ? `${affix.name} ${base.name}` : base.name,
+        baseName: base.name,
         slot: base.slot,
         icon: base.icon,
         setId: base.setId || null,

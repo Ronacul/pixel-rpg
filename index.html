@@ -600,6 +600,9 @@
         .adv-new { background: #64d8cb; color: #033; }
         .adv-down { background: #ff9966; color: #420; }
         .adv-unk { background: #6a5acd; color: #fff; }
+        .adv-bad { background: #3a1a1a; color: #ff8a8a; border: 1px solid #7a2a2a; }
+        .grade-chip { position: absolute; bottom: 2px; left: 2px; min-width: 14px; text-align: center; font-size: 10px; font-weight: bold; border-radius: 4px; line-height: 14px; padding: 0 3px; z-index: 1; }
+        .grade-A { background: #1f4a2a; color: #aaffaa; } .grade-B { background: #1f4048; color: #9ee; } .grade-C { background: #4a3f1a; color: #ffd27a; } .grade-D { background: #4a1f1f; color: #ff9a9a; } .grade-X { background: #2a2a2a; color: #999; }
         .adv-curse { background: #2a0a40; color: #d9a8ff; border: 1px solid #9a4cf0; left: auto; right: 2px; top: auto; bottom: 2px; }
 
         #item-action-card {
@@ -833,9 +836,10 @@
                 <!-- Equip management helpers -->
                 <div style="display: flex; gap: 6px; margin-top: 8px;">
                     <button id="btn-equip-upgrades" class="btn-action-small" style="padding: 9px 6px; background: #193826; border-color: #55ff77; color: #aaffaa;" onclick="equipUpgrades()">⚡ Equip upgrades (0)</button>
-                    <button class="btn-action-small" style="flex: none; padding: 9px 12px;" onclick="sortBag()">↕ Sort bag</button>
+                    <button class="btn-action-small" style="flex: none; padding: 9px 10px;" onclick="sortBag()">↕ Sort</button>
+                    <button class="btn-action-small" style="flex: none; padding: 9px 10px;" onclick="selectLowestValue()" title="Select the least valuable gear in this bag">🧹 Lowest</button>
                 </div>
-                <div style="font-size: 9px; color: #888ea6; margin-top: 3px;">Bag badges: <b style="color:#55ff77">▲</b> better than worn, <b style="color:#64d8cb">NEW</b> fills an empty slot, <b style="color:#ff9966">▼</b> worse than worn.</div>
+                <div style="font-size: 9px; color: #888ea6; margin-top: 3px;">Bag badges: <b style="color:#55ff77">▲</b> better, <b style="color:#64d8cb">NEW</b> empty slot, <b style="color:#ff9966">▼</b> worse, <b style="color:#ff8a8a">🚫</b> your class cannot use it, <b style="color:#b9a8ff">?</b> unknown. Corner letter = keep value (A best for its slot ... D low, ✖ unusable).</div>
 
                 <!-- 15 Backpack Slots -->
                 <div style="font-size: 11px; color: #888; margin-top: 6px; display: flex; justify-content: space-between;">
@@ -1296,6 +1300,7 @@
             boostStat,
             moveRelative,
             toggleRemoteControl,
+            selectLowestValue,
             openStatus,
             closeStatus,
             toggleMsgExpand,
@@ -1364,8 +1369,8 @@
             sortBag,
             shopSellJunk,
             pixelDebug
-        } from './src/main.js?v=23.0';
-        import { PRNG } from './src/core/RNG.js?v=23.0';
+        } from './src/main.js?v=24.0';
+        import { PRNG } from './src/core/RNG.js?v=24.0';
 
         window.openSheetModal = function() {
             window.switchSheetTab(null);
@@ -1399,6 +1404,7 @@
         window.cancelTargeting = cancelTargeting;
         window.moveRelative = moveRelative;
         window.toggleRemoteControl = toggleRemoteControl;
+        window.selectLowestValue = selectLowestValue;
         window.openStatus = openStatus;
         window.closeStatus = closeStatus;
         window.toggleMsgExpand = toggleMsgExpand;

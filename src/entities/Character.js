@@ -1,4 +1,5 @@
 import { lockReason } from '../data/Curses.js';
+import { usability } from '../data/Proficiency.js';
 import { ITEM_SLOTS, calculateEquippedSetBonuses, MUSHROOM_TYPES, getCompatibleSlots, createItemFromBase, findBaseItem } from '../data/Items.js';
 import { ClassManager } from '../data/Classes.js';
 import { PROGRESSION, XP_TABLE, getGrantsForLevel, MASTERIES } from '../data/Progression.js';
@@ -366,6 +367,9 @@ export class PlayerCharacter {
 
         const slot = targetSlot || this.pickAutoSlot(item);
         if (!slot || !getCompatibleSlots(item).includes(slot)) return null;
+
+        const can = usability(this.characterClass, item);
+        if (!can.ok) { this.blockReason = can.reason; return null; }
 
         const previousItem = this.equipment[slot];
         this.blockReason = null;

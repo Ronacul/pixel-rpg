@@ -20,6 +20,16 @@ Modules are plain JSON files in [`modules/`](modules/README.md): a minimal one i
 
 ---
 
+## 🏛️ Level design, special rooms & status
+
+* **Denser, looping maps:** floors pack in more rooms (about 25% walkable on the Tiny map) and link them in **loops**: after a spanning tree guarantees everything is reachable, extra corridors join nearby rooms and most dead ends get a second exit, so you rarely retrace your steps.
+* **Special rooms:** every floor has at least one, shown by a coloured floor tint once seen and announced when you step in with a **star rating (1-5)** rolled from the seed (deeper floors skew richer). Types: **⛩️ Temple** (a shrine room; 4+ stars offers an extra boon, 5 adds an altar), **🔒 Treasure Vault** (a sealed room behind a locked door; the key lies elsewhere), **💎 Hidden Cache** (behind a secret door; search), **🐺 Monster Lair** (elite guardians over a hoard), **☠️ Cursed Crypt** (unidentified, often cursed loot under guard), **⛲ Spring Sanctum** (fountains), plus the **👑 boss arena**. Shrines no longer appear in ordinary rooms.
+* **Luck:** Charisma, a blessing and a bard's optimism raise luck, which (with a special room's rating) gives chests a chance to hold a second find.
+* **Status strip:** under the map, chips show hunger (rations and turns to the next meal), poison/bleeding/buffs with turns left, the floor's modifier, worn curses, unknown gear and luck. Tap it for a plain-language explanation of each. Hunger warns you as rations run low and when starvation is 15 turns away.
+* **Class proficiencies:** each class can only equip what it is trained for (armor weight, shields, weapon families). Unusable gear is marked 🚫, skipped by "Equip upgrades" and rated ✖. Every gear item shows a **keep value** corner letter (A = best you have for its slot, B/C/D lower, ✖ unusable); **🧹 Lowest** selects the least valuable item in the bag so you know what to drop.
+
+---
+
 ## 🔮 Hidden magic, curses & gems
 
 * **Unidentified gear:** about a third of magical drops show only their base item and a **?** badge. Their hidden bonuses, power and pre-set gems all work, but you can't see them (and may not compare them). Some are **cursed**: negative stats, `Binding` (cannot be removed), `Famine` (hunger twice as fast) or `Leeching` (saps HP). Cursed gear always has a strong hidden power as bait. A curse reveals itself the moment you put the item on.

@@ -9,7 +9,8 @@ import { generateFloor, makeMonster, makeBoss } from './map/Generator.js';
 import { BOSSES, getBossForFloor } from './data/Bosses.js';
 import { bossTurn } from './systems/BossAI.js';
 import { SpriteStore, weaponSpriteFor } from './render/Sprites.js';
-import { adviceFor, compareHtml, findUpgrades, isJunk, bagSortKey, itemScore } from './systems/GearAdvice.js';
+import { adviceFor, compareHtml, findUpgrades, isJunk, bagSortKey, itemScore, itemRating, lowestValueIndex } from './systems/GearAdvice.js';
+import { usability } from './data/Proficiency.js';
 import { triggerPowers, senseRadius } from './systems/Powers.js';
 import { describePower } from './data/Powers.js';
 import { GEM_TYPES, createGem, randomGem, previewGem, describePreview, freeSockets, socketGem, canFuse, fuseGems, canRainbow, rainbowFuse, shatterGem, describeGemCurse, gemCategory, identifySocketed, GEM_TIER_NAMES } from './data/Gems.js';
@@ -3220,8 +3221,20 @@ export function equipSelectedBackpackItem(targetSlot = null) {
         populateSheet();
         draw();
     } else if (player.blockReason) {
-        postMessage(`⛓️ ${player.blockReason}`, 'msg-miss');
+        postMessage(`🚫 ${player.blockReason}`, 'msg-miss');
     }
+}
+
+// Selects the least valuable gear item in the current bag tab so it is the obvious thing to drop or sell
+export function selectLowestValue() {
+    const [a, b] = compartmentRange(bagTab);
+    const idx = lowestValueIndex(player, a, b);
+    if (idx < 0) { postMessage('🧹 Nothing in this bag has a value rating yet (only gear is rated).', 'msg-info'); return; }
+    selectedSlot = { type: 'backpack', id: idx };
+    const it = player.backpack[idx];
+    const r = itemRating(player, it);
+    postMessage(`🧹 Lowest value: ${it.name} (${r.grade === 'X' ? 'unusable for your class' : `grade ${r.grade}, ${r.note}`}). Drop or sell it first.`, 'msg-info');
+    populateSheet();
 }
 
 // ---- Equip management helpers ----
@@ -3616,7 +3629,7 @@ function renderSlotPicker() {
                 <div style="color:#e0e0f0; font-weight:bold;">${item.icon} ${item.name} <span style="color:#666; font-weight:normal;">(bag slot ${idx + 1})</span></div>
                 <div style="color:#ffcc00; font-size:10px;">${item.desc || ''}</div>
             </div>
-            <button class="btn-action-small" style="flex:none; background:#193826; border-color:#55ff77; color:#aaffaa;" onclick="window.pickerEquip(${idx})">⚔️ Equip</button>
+            ${usability(player.characterClass, item).ok ? `<button class="btn-action-small" style="flex:none; background:#193826; border-color:#55ff77; color:#aaffaa;" onclick="window.pickerEquip(${idx})">⚔️ Equip</button>` : `<span style="flex:none; color:#ff8a8a; font-size:10px; max-width:96px; text-align:right;">🚫 ${usability(player.characterClass, item).reason}</span>`}
         </div>`).join('') : `<div class="picker-row" style="color:#888;">No other owned items fit this slot.</div>`;
 
     body.innerHTML = equippedHtml + `<div style="font-size:10px; color:#888ea6; margin:6px 0 2px 0;">OWNED ITEMS THAT FIT (${candidates.length}):</div>` + listHtml;
@@ -3633,7 +3646,7 @@ export function pickerEquip(backpackIdx) {
         populateSheet();
         draw();
     } else if (player.blockReason) {
-        postMessage(`⛓️ ${player.blockReason}`, 'msg-miss');
+        postMessage(`🚫 ${player.blockReason}`, 'msg-miss');
     }
     closeSlotPicker();
 }
@@ -4088,12 +4101,14 @@ export function populateSheet() {
         const look = setLook(item);
         const adv = adviceFor(player, item);
         const curseChip = isCursedKnown(item) ? '<div class="adv-chip adv-curse" title="Cursed">☠</div>' : '';
-        const advChip = adv === 'unknown' ? '<div class="adv-chip adv-unk" title="Unidentified: could be better or worse">?</div>' : adv === 'upgrade' ? '<div class="adv-chip adv-up" title="Better than what you wear">▲</div>' : (adv === 'new' ? '<div class="adv-chip adv-new" title="Fills an empty slot">NEW</div>' : (adv === 'downgrade' ? '<div class="adv-chip adv-down" title="Worse than what you wear">▼</div>' : ''));
+        const rating = itemRating(player, item);
+        const gradeChip = rating && rating.grade !== '?' ? `<div class="grade-chip grade-${rating.grade}" title="${rating.note}">${rating.grade === 'X' ? '✖' : rating.grade}</div>` : '';
+        const advChip = adv === 'unusable' ? '<div class="adv-chip adv-bad" title="Your class cannot use this">🚫</div>' : adv === 'unknown' ? '<div class="adv-chip adv-unk" title="Unidentified: could be better or worse">?</div>' : adv === 'upgrade' ? '<div class="adv-chip adv-up" title="Better than what you wear">▲</div>' : (adv === 'new' ? '<div class="adv-chip adv-new" title="Fills an empty slot">NEW</div>' : (adv === 'downgrade' ? '<div class="adv-chip adv-down" title="Worse than what you wear">▼</div>' : ''));
         return `
             <div class="backpack-slot ${item ? 'equipped' : ''} ${isSel ? 'selected' : ''}" style="${look.style}"
                  onclick="window.selectSlot('backpack', ${idx})"
                  title="Slot ${idx + 1}: ${item ? item.name : 'Empty'}">
-                ${item ? `${advChip}${curseChip}${look.badge}${(item.count || 1) > 1 ? `<div class="count-chip">x${item.count}</div>` : ''}<div class="bag-icon">${itemIconHtml(item, 30)}</div>${socketPipsHtml(item, 7)}<div class="bag-name">${item.name}</div>` : `<span style="color:#444">Slot ${idx+1}</span>`}
+                ${item ? `${advChip}${curseChip}${gradeChip}${look.badge}${(item.count || 1) > 1 ? `<div class="count-chip">x${item.count}</div>` : ''}<div class="bag-icon">${itemIconHtml(item, 30)}</div>${socketPipsHtml(item, 7)}<div class="bag-name">${item.name}</div>` : `<span style="color:#444">Slot ${idx+1}</span>`}
             </div>
         `;
     }).join('');

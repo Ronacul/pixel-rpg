@@ -1,6 +1,7 @@
 // Gear management helpers: score items, compare against what is equipped, flag upgrades and junk.
 
 import { getCompatibleSlots, visibleView } from '../data/Items.js';
+import { usability } from '../data/Proficiency.js';
 import { describePower } from '../data/Powers.js';
 
 const STAT_KEYS = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
@@ -62,6 +63,7 @@ export function diffItems(newItem, current) {
 // 'upgrade' | 'downgrade' | 'sidegrade' | 'new' | null (not gear)
 export function adviceFor(player, item) {
     if (!item || !item.slot || item.isConsumable || item.isGem || item.isKey) return null;
+    if (!usability(player.characterClass, item).ok) return 'unusable';
     if (item.unid) return 'unknown';
     const target = comparisonTarget(player, item);
     if (!target) return null;
@@ -74,6 +76,8 @@ export function adviceFor(player, item) {
 
 // HTML snippet comparing a bag item with whatever it would replace
 export function compareHtml(player, item) {
+    const u = usability(player.characterClass, item);
+    if (item && item.slot && !item.isConsumable && !u.ok) return `<div style="margin-top:3px;"><b style="color:#ff8a8a;">🚫 Cannot use:</b> ${u.reason}. Value 0: sell it or drop it first.</div>`;
     if (item?.unid) return `<div style="margin-top:3px;"><b style="color:#b9a8ff;">❓ Unidentified</b> Wearing it identifies it over time, but any magic on it is a gamble (it may be cursed). Identify it first to compare.</div>`;
     const target = comparisonTarget(player, item);
     if (!target) return '';
@@ -86,7 +90,9 @@ export function compareHtml(player, item) {
     gained.forEach(g => parts.push(`<span style="color:#55ff77">▲ ${g}</span>`));
     lost.forEach(l => parts.push(`<span style="color:#ff6677">▼ loses ${l}</span>`));
     const tag = { unknown: '❓ Unknown', upgrade: '⬆️ Upgrade', downgrade: '⬇️ Worse than what you wear', sidegrade: '↔️ About equal', new: '🆕 Fills an empty slot' }[verdict] || '';
-    return `<div style="margin-top:3px;"><b style="color:#ffcc00;">${tag}</b> ${head} ${parts.join(' ') || 'no change'}</div>`;
+    const rt = itemRating(player, item);
+    const rtHtml = rt && rt.grade !== '?' ? ` <span style="color:#9aa0bd;">Keep value <b>${rt.grade}</b>: ${rt.note}.</span>` : '';
+    return `<div style="margin-top:3px;"><b style="color:#ffcc00;">${tag}</b> ${head} ${parts.join(' ') || 'no change'}${rtHtml}</div>`;
 }
 
 // Bag items better than what is equipped, best first, one per target slot
@@ -110,7 +116,9 @@ export function findUpgrades(player) {
 
 // Bag gear that is strictly worse than everything you wear in its slots, with nothing special about it
 export function isJunk(player, item) {
-    if (adviceFor(player, item) !== 'downgrade') return false;
+    const v = adviceFor(player, item);
+    if (v === 'unusable') return !item.unid && !item.setId && !(item.powers && item.powers.length) && !(item.gems && item.gems.length);
+    if (v !== 'downgrade') return false;
     if (item.unid || item.setId || (item.powers && item.powers.length) || (item.gems && item.gems.length)) return false;
     return true;
 }
@@ -122,4 +130,46 @@ export function bagSortKey(item) {
     if (item.slot && !item.isConsumable) return [1, -itemScore(item), item.slot + item.name];
     if (item.isGem) return [2, -(item.tier || 1), item.name];
     return [3, 0, item.name];
+}
+
+// ---- Value rating: how much an item is worth KEEPING for this hero, to decide what to drop ----
+// Compared with the best item the hero owns for the same slot (usable ones only). 0 = cannot be used at all.
+// Returns { grade: 'A'..'D' | 'X' | '?', score, pct, note }
+export function itemRating(player, item) {
+    if (!item || !item.slot || item.isConsumable || item.isGem || item.isKey) return null;
+    const u = usability(player.characterClass, item);
+    if (!u.ok) return { grade: 'X', score: 0, pct: 0, note: u.reason };
+    if (item.unid) return { grade: '?', score: 0, pct: null, note: 'unidentified: value unknown' };
+    const slots = getCompatibleSlots(item);
+    const others = [];
+    const consider = (it) => {
+        if (!it || it === item || !it.slot || it.unid) return;
+        if (!slots.some(s => getCompatibleSlots(it).includes(s))) return;
+        if (!usability(player.characterClass, it).ok) return;
+        others.push(itemScore(it));
+    };
+    Object.values(player.equipment).forEach(consider);
+    player.backpack.forEach(consider);
+    const score = itemScore(item);
+    // With two slots to fill (rings) the bar is the weaker of your two best; with one slot it is your best
+    others.sort((a, b) => b - a);
+    const bar = others.length >= slots.length ? others[slots.length - 1] : 0;
+    const ref = Math.max(bar, score, 1);
+    const pct = Math.round((100 * score) / ref);
+    const grade = pct >= 100 ? 'A' : pct >= 80 ? 'B' : pct >= 55 ? 'C' : 'D';
+    const note = pct >= 100 ? 'best you have for this slot' : `${pct}% of your best for this slot`;
+    return { grade, score: Math.round(score * 10) / 10, pct, note };
+}
+
+// Index of the least valuable gear item in the bag range [a, b): unusable first, then lowest percentage
+export function lowestValueIndex(player, a, b) {
+    let worst = -1, worstKey = Infinity;
+    for (let i = a; i < b; i++) {
+        const it = player.backpack[i];
+        const r = itemRating(player, it);
+        if (!r || r.grade === '?') continue;
+        const key = r.grade === 'X' ? -1 : r.pct;
+        if (key < worstKey) { worstKey = key; worst = i; }
+    }
+    return worst;
 }
