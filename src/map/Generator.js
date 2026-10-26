@@ -4,6 +4,7 @@ import { MAP_WIDTH, MAP_HEIGHT, TILES, VISIBILITY } from './Dungeon.js';
 import { stageForFloor, bossForFloor, layoutForFloor, activeModule, depthOffset, CORE_MODULE_ID } from '../data/Modules.js';
 import { PRNG } from '../core/RNG.js';
 import { roughenWalls, addWater } from './Terrain.js';
+import { planSpecials, furnishSpecials, buildSpecialMap, SPECIAL_ORDER } from './SpecialRooms.js';
 import { generateLootItem, MUSHROOM_TYPES } from '../data/Items.js';
 import { rollFloorModifier, FLOOR_MODIFIERS } from '../data/FloorModifiers.js';
 import { buildMerchantStock } from '../data/Economy.js';
@@ -69,6 +70,9 @@ export function makeBoss(def, x, y, floorLevel) {
     };
 }
 
+// How hard the generator tries to pack rooms in (more rooms = more usable floor, shorter corridors)
+const ROOM_DENSITY = 3.2;
+
 export function generateFloor(baseSeed, moduleFloor) {
     // moduleFloor = level within the module (display, stairs, bosses); floorLevel = difficulty depth (a stronger hero starts deeper)
     const floorLevel = moduleFloor + depthOffset;
@@ -92,7 +96,7 @@ export function generateFloor(baseSeed, moduleFloor) {
     const areaScale = (MAP_WIDTH * MAP_HEIGHT) / 10000;
     const roomHi = Math.max(5, Math.min(lay.roomSize[1], Math.floor(MAP_WIDTH / 4)));
     const roomLo = Math.min(lay.roomSize[0], roomHi);
-    const roomAttempts = Math.max(8, Math.round(prng.nextInt(65, 85) * areaScale * lay.rooms));
+    const roomAttempts = Math.max(8, Math.round(prng.nextInt(65, 85) * areaScale * lay.rooms * ROOM_DENSITY));
 
     for (let i = 0; i < roomAttempts; i++) {
         const w = prng.nextInt(roomLo, roomHi);
@@ -232,50 +236,60 @@ export function generateFloor(baseSeed, moduleFloor) {
         carveFloor(x2, y2);
     }
 
-    // Connect all rooms via minimum distance spanning tree
+    // Connect the rooms. First a minimum spanning tree (everything reachable), then LOOPS so a route back is rarely the
+    // same as the route in: extra links between rooms that are not yet linked, and a second exit for most dead ends.
+    const links = []; // [roomIndexA, roomIndexB]
+    const linked = new Set();
+    const linkKey = (a, b) => (a < b ? `${a}:${b}` : `${b}:${a}`);
+    const addLink = (a, b) => {
+        if (a === b || linked.has(linkKey(a, b))) return false;
+        linked.add(linkKey(a, b));
+        links.push([a, b]);
+        carveCorridor(rooms[a].cx, rooms[a].cy, rooms[b].cx, rooms[b].cy);
+        return true;
+    };
+    const roomDist = (a, b) => Math.hypot(rooms[a].cx - rooms[b].cx, rooms[a].cy - rooms[b].cy);
+
     if (rooms.length > 1) {
-        const connected = [rooms[0]];
-        const unconnected = rooms.slice(1);
-
+        const connected = [0];
+        const unconnected = rooms.map((_, i) => i).slice(1);
         while (unconnected.length > 0) {
-            let bestDist = Infinity;
-            let bestA = null;
-            let bestBIdx = -1;
-
-            for (const rA of connected) {
+            let bestDist = Infinity, bestA = -1, bestBIdx = -1;
+            for (const a of connected) {
                 for (let b = 0; b < unconnected.length; b++) {
-                    const rB = unconnected[b];
-                    const dist = Math.hypot(rA.cx - rB.cx, rA.cy - rB.cy);
-                    if (dist < bestDist) {
-                        bestDist = dist;
-                        bestA = rA;
-                        bestBIdx = b;
-                    }
+                    const dist = roomDist(a, unconnected[b]);
+                    if (dist < bestDist) { bestDist = dist; bestA = a; bestBIdx = b; }
                 }
             }
-
-            const bestB = unconnected.splice(bestBIdx, 1)[0];
-            carveCorridor(bestA.cx, bestA.cy, bestB.cx, bestB.cy);
-            connected.push(bestB);
+            const b = unconnected.splice(bestBIdx, 1)[0];
+            addLink(bestA, b);
+            connected.push(b);
         }
 
-        // Add 4-6 extra loop connections between close neighbors for non-linear exploration
-        const extraConnections = Math.min(Math.max(2, Math.round(6 * areaScale)), Math.floor(rooms.length / 4));
-        for (let e = 0; e < extraConnections; e++) {
-            const r1 = prng.choice(rooms);
-            // find another close room
-            let closest = null;
-            let closestDist = Infinity;
-            for (const r2 of rooms) {
-                if (r1 === r2) continue;
-                const d = Math.hypot(r1.cx - r2.cx, r1.cy - r2.cy);
-                if (d < 22 && d < closestDist) {
-                    closestDist = d;
-                    closest = r2;
-                }
-            }
-            if (closest) {
-                carveCorridor(r1.cx, r1.cy, closest.cx, closest.cy);
+        // Loops: nearest unlinked pairs first, within a sensible walking distance
+        const maxLoop = Math.max(14, MAP_WIDTH * 0.45);
+        const pairs = [];
+        for (let a = 0; a < rooms.length; a++) for (let b = a + 1; b < rooms.length; b++) {
+            const d = roomDist(a, b);
+            if (d <= maxLoop) pairs.push({ a, b, d: d + prng.next() * 6 }); // a little noise so loops vary by seed
+        }
+        pairs.sort((p, q) => p.d - q.d);
+        const wantedLoops = Math.max(2, Math.round(rooms.length * 0.45));
+        let made = 0;
+        for (const p of pairs) {
+            if (made >= wantedLoops) break;
+            if (addLink(p.a, p.b)) made++;
+        }
+
+        // Most dead-end rooms get a second exit (a few stay dead ends: good places to hide things)
+        const degree = new Array(rooms.length).fill(0);
+        for (const [a, b] of links) { degree[a]++; degree[b]++; }
+        for (let a = 1; a < rooms.length; a++) {
+            if (degree[a] > 1 || !prng.chance(0.7)) continue;
+            const options = pairs.filter(p => (p.a === a || p.b === a) && !linked.has(linkKey(p.a, p.b))).slice(0, 3);
+            if (options.length) {
+                const p = prng.choice(options);
+                if (addLink(p.a, p.b)) { degree[p.a]++; degree[p.b]++; }
             }
         }
     }
@@ -374,13 +388,17 @@ export function generateFloor(baseSeed, moduleFloor) {
         addWater(terrain, prng, { lakes: lay.lakes, rivers: lay.rivers }, dry, stairsUpPos, wetTargets);
     }
 
+    // Special rooms: every floor has at least one (temple, vault, cache, lair, crypt, sanctum; the boss arena on boss floors)
+    if (bossDef) exitRoom.isArena = true;
+    const specials = planSpecials({ prng, terrain, rooms, floorLevel, exitRoom, bossDef });
+
     // Monsters & Chests
     const monsters = [];
     const chests = [];
 
     rooms.forEach((room, idx) => {
         // Skip the spawn room (and, on boss floors, the arena) for ordinary monsters
-        if (idx === 0 || (bossDef && room === exitRoom)) return;
+        if (idx === 0 || (bossDef && room === exitRoom) || room.special) return;
 
         // Populate monsters based on biome & difficulty scaling
         const monsterDef = prng.choice(biome.monsters);
@@ -421,7 +439,7 @@ export function generateFloor(baseSeed, moduleFloor) {
     const mushrooms = [];
     const mushroomKeys = Object.keys(MUSHROOM_TYPES);
     rooms.forEach((room, idx) => {
-        if (idx !== 0 && prng.chance(0.35)) {
+        if (idx !== 0 && !room.special && prng.chance(0.35)) {
             const mx = prng.nextInt(room.x + 1, room.x + room.w - 2);
             const my = prng.nextInt(room.y + 1, room.y + room.h - 2);
             const posIdx = my * MAP_WIDTH + mx;
@@ -454,7 +472,7 @@ export function generateFloor(baseSeed, moduleFloor) {
     // ------------------------------------------------------------------
     // Floor extras: modifier bonus chests, a wandering merchant, a choice shrine
     // ------------------------------------------------------------------
-    const candidateRooms = rooms.filter((r, i) => i !== 0 && !r.isSecret && !(bossDef && r === exitRoom) && r !== exitRoom);
+    const candidateRooms = rooms.filter((r, i) => i !== 0 && !r.isSecret && !r.special && !(bossDef && r === exitRoom) && r !== exitRoom);
     const freeTileInRoom = (room) => {
         for (let attempt = 0; attempt < 25; attempt++) {
             const x = prng.nextInt(room.x + 1, room.x + room.w - 2);
@@ -477,18 +495,9 @@ export function generateFloor(baseSeed, moduleFloor) {
         if (spot) merchant = { x: spot.x, y: spot.y, name: 'Wandering Merchant', icon: '🧙', stock: buildMerchantStock(prng, floorLevel) };
     }
 
+    // Shrines now live in temples (special rooms), never in an ordinary room
     const shrineOffers = {};
-    if (!bossDef && candidateRooms.length > 1 && prng.chance(0.4)) {
-        const room = prng.choice(candidateRooms);
-        const spot = freeTileInRoom(room);
-        if (spot && !(merchant && merchant.x === spot.x && merchant.y === spot.y)) {
-            terrain[spot.y * MAP_WIDTH + spot.x] = TILES.SHRINE;
-            const pool = SHRINE_OFFERS.map(o => o.id);
-            const picks = [];
-            while (picks.length < 3) picks.push(...pool.splice(prng.nextInt(0, pool.length - 1), 1));
-            shrineOffers[spot.y * MAP_WIDTH + spot.x] = picks;
-        }
-    }
+    furnishSpecials({ prng, terrain, monsters, chests, shrineOffers, floorLevel, biome, makeMonster, mod }, specials);
 
     // A fountain somewhere quiet (more often where the layout has water): drink for a random boon, or a curse
     if (!bossDef && candidateRooms.length > 1 && prng.chance(lay.lakes > 0 || lay.rivers > 0 ? 0.5 : 0.28)) {
@@ -518,6 +527,10 @@ export function generateFloor(baseSeed, moduleFloor) {
     const lockedDoors = [];
     const keys = [];
     const KEY_NAMES = ['Iron Key', 'Brass Key', 'Silver Key'];
+    // Vault specials are sealed by a locked door of their own
+    for (const sp of specials) {
+        if (sp.type === 'vault' && sp.room.door) lockedDoors.push({ x: sp.room.door.x, y: sp.room.door.y, keyId: `key_${floorLevel}_${lockedDoors.length}`, keyName: KEY_NAMES[lockedDoors.length % KEY_NAMES.length], isVaultSpecial: true });
+    }
     const SOLID = new Set([TILES.WALL, TILES.PILLAR, TILES.PIT, TILES.RUBBLE, TILES.LOCKED_DOOR, TILES.WATER]);
     const flood = (start) => {
         const seen = new Uint8Array(MAP_WIDTH * MAP_HEIGHT);
@@ -600,6 +613,10 @@ export function generateFloor(baseSeed, moduleFloor) {
         terrain,
         visibility,
         rooms,
+        links,
+        specials: [...specials.map(s => ({ type: s.type, rating: s.rating, x: s.room.x, y: s.room.y, w: s.room.w, h: s.room.h })), ...(bossDef && bossArena ? [{ type: 'boss', rating: 5, x: bossArena.cx - bossArena.half, y: bossArena.cy - bossArena.half, w: bossArena.half * 2 + 1, h: bossArena.half * 2 + 1 }] : [])],
+        specialMap: buildSpecialMap(rooms, bossArena),
+        specialSeen: new Set(),
         doors,
         keys,
         lockedDoors,

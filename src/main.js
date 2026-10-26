@@ -27,6 +27,7 @@ import { FeatManager, FEATS } from './data/Feats.js';
 import { COMPARTMENTS, compartmentRange, compartmentOfIndex, compartmentOf } from './data/Inventory.js';
 import { Modules, CORE_MODULE_ID, setActiveModule, activeModule, depthOffset, depthForLevel, levelBand, validateModule, PALETTES } from './data/Modules.js';
 import { Heroes } from './data/Heroes.js';
+import { SPECIAL_TYPES, SPECIAL_ORDER, stars } from './map/SpecialRooms.js';
 import { gemIconSvg, gemColor, socketPipsHtml, itemIconHtml, unknownGemSvg } from './render/GemIcon.js';
 import { ABILITY_KEYS, STANDARD_ARRAY, SCORE_MODES, creationFor, rollAbilityScores, finalScores, classEligibility } from './data/Creation.js';
 import { KEY_ACTIONS, KEY_PRESETS, DEFAULT_PRESET, RESERVED_KEYS, normalizeKey, keyLabel, resolveBinds, buildKeyMap } from './data/Keybinds.js';
@@ -197,7 +198,7 @@ function loadFloor(floorNum, enterFromAbove = true) {
     const hiddenKeyCount = currentFloorData.keys?.filter(k => k.hidden).length || 0;
     const modDef = FLOOR_MODIFIERS[currentFloorData.modifier];
     const bossDef = currentFloorData.monsters.find(m => m.isBoss && m.alive);
-    postMessage(`Floor ${floorNum}/${activeModule.floors}: ${currentFloorData.biome.name}${modDef ? ` | ${modDef.icon} ${modDef.name}: ${modDef.desc}` : ''}${bossDef ? ' | 👑 A boss guards the stairs!' : ''}${lockInfo ? ` | 🔒 ${lockInfo} locked${hiddenKeyCount ? ', a key is hidden: Search (E)' : ''}` : ''}${currentFloorData.merchant ? ' | 🧙 A merchant is on this floor' : ''}`, 'msg-info');
+    postMessage(`Floor ${floorNum}/${activeModule.floors}: ${currentFloorData.biome.name}${modDef ? ` | ${modDef.icon} ${modDef.name}: ${modDef.desc}` : ''}${bossDef ? ' | 👑 A boss guards the stairs!' : ''}${lockInfo ? ` | 🔒 ${lockInfo} locked${hiddenKeyCount ? ', a key is hidden: Search (E)' : ''}` : ''}${currentFloorData.merchant ? ' | 🧙 A merchant is on this floor' : ''}${(currentFloorData.specials || []).filter(s => s.type !== 'boss').length ? ` | ✨ ${(currentFloorData.specials || []).filter(s => s.type !== 'boss').length} special room(s) to find` : ''}`, 'msg-info');
     updateHUD();
 }
 
@@ -623,6 +624,13 @@ function draw() {
                     ctx.strokeRect(screenX + 1, screenY + 1, TILE_SIZE - 2, TILE_SIZE - 2);
                     drawGlyph(zDef.icon, screenX, screenY, isDim ? 0.4 : 0.75);
                 }
+            }
+
+            // Special rooms (temple, vault, lair...) carry a faint tint of their own colour
+            const spCode = currentFloorData.specialMap ? currentFloorData.specialMap[idx] : 0;
+            if (spCode && vis !== VISIBILITY.UNEXPLORED && tile !== TILES.WALL && tile !== TILES.SECRET_DOOR) {
+                ctx.fillStyle = `rgba(${SPECIAL_TYPES[SPECIAL_ORDER[spCode - 1]].tint}, ${isDim ? 0.05 : 0.12})`;
+                ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
             }
 
             // Searched ground keeps a faint cyan tint so you can see what you already covered
@@ -1460,6 +1468,8 @@ function stepPath(path) {
         postMessage('🌿 Pushing through dense briars...', 'msg-info');
     }
 
+    checkSpecialEntry();
+
     // Update visibility & fog
     runPerceptionRadar();
 
@@ -1619,6 +1629,13 @@ function lootCurrentTile() {
             player.stats.chests++;
             player.addToBackpack(chest.item);
             postMessage(`🎁 Looted: ${chest.item.name}! Added to Backpack (+${xpReward} XP, +${chestGold} gold)`, 'msg-loot');
+            // Luck (and a richer special room) can turn up a second find
+            const luckChance = Math.max(0, player.luck) * 0.04 + (chest.rating || 0) * 0.03;
+            if (luckChance > 0 && prng.chance(luckChance)) {
+                const bonus = generateLootItem(prng, f.floorLevel + 2 + (chest.rating || 0));
+                if (player.addToBackpack(bonus)) postMessage(`🍀 Lucky! You also find ${bonus.name}.`, 'msg-victory');
+                else { if (!f.groundItems) f.groundItems = []; f.groundItems.push({ x, y, item: bonus, fresh: false }); postMessage(`🍀 Lucky! ${bonus.name} lies beside the chest (bag full).`, 'msg-victory'); }
+            }
             if (levelUps.length > 0) handleLevelUps(levelUps);
         }
     }
@@ -1635,6 +1652,30 @@ function lootCurrentTile() {
         }
     }
     updateHUD();
+}
+
+// Walking into a special room announces what it is and how rich it is
+const RATING_WORDS = ['humble', 'modest', 'notable', 'grand', 'legendary'];
+const SPECIAL_HINTS = {
+    temple: 'A shrine stands at its heart. Nothing hunts here.',
+    vault: 'Chests glitter behind the broken lock.',
+    cache: 'You found a hidden stash.',
+    lair: 'Something lives here, and it guards a hoard.',
+    crypt: 'Old treasure, old guardians. Some of it may be cursed.',
+    sanctum: 'Fresh water murmurs in the stone.'
+};
+function checkSpecialEntry() {
+    const f = currentFloorData;
+    if (!f || !f.specialMap) return;
+    const code = f.specialMap[player.y * MAP_WIDTH + player.x];
+    if (!code) return;
+    const type = SPECIAL_ORDER[code - 1];
+    if (type === 'boss') return;
+    const sp = f.specials.find(s => s.type === type && player.x >= s.x && player.x < s.x + s.w && player.y >= s.y && player.y < s.y + s.h);
+    if (!sp || f.specialSeen.has(sp)) return;
+    f.specialSeen.add(sp);
+    const t = SPECIAL_TYPES[type];
+    postMessage(`✨ ${t.icon} A ${RATING_WORDS[sp.rating - 1]} ${t.name} ${stars(sp.rating)}. ${SPECIAL_HINTS[type] || ''}`, 'msg-victory');
 }
 
 // ==========================================

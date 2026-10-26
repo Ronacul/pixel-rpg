@@ -193,6 +193,11 @@ export class PlayerCharacter {
     get wisMod() { return Math.floor((this.wis - 10) / 2); }
     get chaMod() { return Math.floor((this.cha - 10) / 2); }
 
+    // Luck nudges chest rewards (see main.js). Charisma, a blessing and a hopeful heart (Bard) all help.
+    get luck() {
+        return this.chaMod + (EffectSystem.hasStatus(this, 'BLESSED') ? 2 : 0) + (this.characterClass?.id === 'bard' ? 1 : 0);
+    }
+
     // Perception Metric: (DEX + INT + WIS) / 3 + Skill bonus + Set bonus + Feats/Race
     get per() {
         const setPer = this.setBonuses.perRadar || 0;

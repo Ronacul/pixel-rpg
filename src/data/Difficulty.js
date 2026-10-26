@@ -176,3 +176,14 @@ export function killXpFor(monster, heroLevel, killsOfType, isWanderer = false) {
     const wander = isWanderer ? D.wandererXpFactor : 1;
     return { xp: Math.max(1, Math.round(base * rel * fam * wander)), rel, fam, wander };
 }
+
+// `count` distinct elite affixes for guaranteed elites (special-room guardians)
+export function forceAffixes(prng, count = 1) {
+    const ids = Object.keys(MONSTER_AFFIXES);
+    const picks = [];
+    while (picks.length < Math.min(count, ids.length)) {
+        const id = prng.choice(ids);
+        if (!picks.includes(id)) picks.push(id);
+    }
+    return picks;
+}
