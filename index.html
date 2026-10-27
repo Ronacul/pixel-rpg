@@ -1222,6 +1222,7 @@
                     <button class="menu-btn" onclick="toggleGraphics()"><span>🎨</span>Graphics: <b id="graphics-label">Pixel art</b><small>pixel art or classic emoji</small></button>
                 </div>
                 <button class="menu-btn" style="width: 100%; margin-top: 6px; flex-direction: row; justify-content: center; gap: 8px;" onclick="saveHeroNow()"><span>💾</span>Save this hero to the roster (carry into other adventures)</button>
+                <div id="perk-card" style="background: #0e101a; border: 1px solid #2d334d; border-radius: 6px; padding: 8px; margin-top: 8px; font-size: 10px; line-height: 1.4;"></div>
                 <button class="menu-btn" style="width: 100%; margin-top: 6px; flex-direction: row; justify-content: center; gap: 8px;" onclick="menuDo(() => openStart('home'))"><span>🏠</span>Start screen: new game, continue story, daily run</button>
                 <div id="key-help" style="font-size: 10px; color: #888ea6; margin-top: 8px; line-height: 1.4;">
                 </div>
@@ -1369,8 +1370,8 @@
             sortBag,
             shopSellJunk,
             pixelDebug
-        } from './src/main.js?v=25.0';
-        import { PRNG } from './src/core/RNG.js?v=25.0';
+        } from './src/main.js?v=26.0';
+        import { PRNG } from './src/core/RNG.js?v=26.0';
 
         window.openSheetModal = function() {
             window.switchSheetTab(null);

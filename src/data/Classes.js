@@ -23,6 +23,13 @@ export const CLASSES = {
         },
         abilities: [
             {
+                id: 'shield_bash', name: 'Shield Bash', level: 1, icon: '🛡️',
+                delivery: 'ADJACENT', type: 'stun_adjacent', utility: true, requiresShield: true,
+                dice: 4, diceCount: 1, bonusFlat: 1, cooldown: 10,
+                statusEffect: { type: 'STUNNED', duration: 2 },
+                desc: 'Needs a shield. Slam an adjacent foe for 1d4+1 and stun it for a turn. No feat slot needed.'
+            },
+            {
                 id: 'second_wind',
                 name: 'Second Wind',
                 level: 1,

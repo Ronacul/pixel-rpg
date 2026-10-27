@@ -4,6 +4,7 @@ import { MAP_WIDTH, MAP_HEIGHT, TILES, VISIBILITY } from './Dungeon.js';
 import { stageForFloor, bossForFloor, layoutForFloor, activeModule, depthOffset, CORE_MODULE_ID } from '../data/Modules.js';
 import { PRNG } from '../core/RNG.js';
 import { roughenWalls, addWater } from './Terrain.js';
+import { UNDEAD_SPRITES } from '../data/ClassPerks.js';
 import { planSpecials, furnishSpecials, buildSpecialMap, SPECIAL_ORDER } from './SpecialRooms.js';
 import { generateLootItem, MUSHROOM_TYPES } from '../data/Items.js';
 import { rollFloorModifier, FLOOR_MODIFIERS } from '../data/FloorModifiers.js';
@@ -29,6 +30,7 @@ export function makeMonster(def, id, x, y, floorLevel, opts = {}) {
         dice: def.dice,
         desc: def.desc,
         alive: true,
+        undead: UNDEAD_SPRITES.includes(def.sprite),
         unaware: true // Surprise mechanic: unaware until player steps into line of sight
     };
     applyDifficulty(m, def, level, opts.affixes || []);

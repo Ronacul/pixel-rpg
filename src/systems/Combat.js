@@ -1,5 +1,6 @@
 // d20 Combat Engine with Surprise Advantage, Distance Ranged Attacks, Cover Bonuses, AoE, and Status Effects
 
+import { PERK } from '../data/ClassPerks.js';
 import { EffectSystem } from './Effects.js';
 import { triggerPowers } from './Powers.js';
 
@@ -38,7 +39,7 @@ export class CombatSystem {
         let coverBonus = 0;
         if (isRanged && terrain) {
             const cover = EffectSystem.calculateTacticalCover(monster.x, monster.y, player.x, player.y, terrain);
-            if (cover.hasCover) {
+            if (cover.hasCover && !(isSurpriseAttack && player.characterClass?.id === 'ranger')) {
                 coverBonus = cover.bonusAc;
             }
         }
@@ -46,7 +47,9 @@ export class CombatSystem {
         // Status penalty on monster (e.g. Clumsy reduces monster AC)
         const monsterStatusMods = EffectSystem.getStatusModifiers(monster);
         const effectiveMonsterAC = (isSurpriseAttack ? 10 : monster.ac) + coverBonus + monsterStatusMods.acMod;
-        const isHit = attackTotal >= effectiveMonsterAC;
+        // Ranger Focus: an unaware foe, 4+ tiles away, is never missed
+        const focus = isSurpriseAttack && isRanged && player.characterClass?.id === 'ranger' && Math.hypot(player.x - monster.x, player.y - monster.y) >= PERK.rangerFocusMinDist;
+        const isHit = focus || attackTotal >= effectiveMonsterAC;
 
         let damage = 0;
         let backstab = false;
@@ -80,6 +83,7 @@ export class CombatSystem {
                 }
             }
             damage = Math.max(1, rollDmg + statMod + featBonusDmg + holyBonus + (player.passiveMods?.dmg || 0) + (weapon.bonusFlat || 0) + skillBonusDmg);
+            if (player.characterClass?.id === 'cleric' && monster.undead) damage += PERK.clericUndeadBonus; // Sanctify
             // A thief striking an unaware foe from the shadows deals double damage
             if (isSurpriseAttack && player.characterClass?.id === 'thief') { damage = Math.round(damage * 2); backstab = true; }
             monster.hp = Math.max(0, monster.hp - damage);
@@ -121,6 +125,7 @@ export class CombatSystem {
             roll2,
             isSurprise: isSurpriseAttack,
             backstab,
+            focus,
             hasCover: coverBonus > 0,
             attackTotal,
             targetAC: effectiveMonsterAC,

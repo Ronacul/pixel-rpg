@@ -23,6 +23,11 @@ export const EXTENDED_CLASSES = {
         },
         abilities: [
             {
+                id: 'slip_shadow', name: 'Slip into Shadow', level: 1, icon: '🌑',
+                delivery: 'SELF', type: 'shadow', utility: true, isPositive: true, cooldown: 25,
+                desc: 'Hunters at range lose track of you and you stay Hidden for 8 turns (attacking ends it). No feat slot needed.'
+            },
+            {
                 id: 'backstab', name: 'Backstab', level: 1, icon: '🗡️',
                 delivery: 'ADJACENT', type: 'melee_strike', dice: 6, diceCount: 2, bonusFlat: 2, cooldown: 8,
                 desc: 'Vicious opening strike from the blind side for 2d6+2 damage.'

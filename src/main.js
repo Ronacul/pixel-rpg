@@ -30,6 +30,7 @@ import { Modules, CORE_MODULE_ID, setActiveModule, activeModule, depthOffset, de
 import { Heroes } from './data/Heroes.js';
 import { SPECIAL_TYPES, SPECIAL_ORDER, stars } from './map/SpecialRooms.js';
 import { heroLookFor } from './data/HeroLook.js';
+import { PERK, CLASS_PERKS, perkFor, hasShield, hasLute } from './data/ClassPerks.js';
 import { gemIconSvg, gemColor, socketPipsHtml, itemIconHtml, unknownGemSvg } from './render/GemIcon.js';
 import { ABILITY_KEYS, STANDARD_ARRAY, SCORE_MODES, creationFor, rollAbilityScores, finalScores, classEligibility } from './data/Creation.js';
 import { KEY_ACTIONS, KEY_PRESETS, DEFAULT_PRESET, RESERVED_KEYS, normalizeKey, keyLabel, resolveBinds, buildKeyMap } from './data/Keybinds.js';
@@ -478,6 +479,9 @@ function statusEntries() {
     }
     const unknown = Object.values(player.equipment).filter(i => i && hasUnknownParts(i)).length;
     if (unknown) out.push({ kind: 'unknown', icon: '❓', label: `${unknown} unknown`, tone: 'info', title: 'Unidentified gear', desc: `${unknown} worn item${unknown > 1 ? 's' : ''} hide magic that will reveal itself with use.` });
+    if (player.charged) out.push({ kind: 'perk', icon: '🔮', label: 'Charged', tone: 'good', title: 'Spell Charge', desc: 'Your next ability goes off with no cooldown. Acting any other way breaks the charge.' });
+    if (isSanctified()) out.push({ kind: 'perk', icon: '✝️', label: 'Sanctified', tone: 'good', title: 'Sanctify', desc: `Holy ground: you regain ${PERK.clericSanctifyHeal} HP each turn here.` });
+    if (player.characterClass.id === 'bard' && hasLute(player)) out.push({ kind: 'perk', icon: '🎶', label: 'Song', tone: 'good', title: 'Song', desc: `Your lute gives +${PERK.bardSongAc} AC and +${PERK.bardSongAttack} attack.` });
     if (isHeroHidden()) out.push({ kind: 'hidden', icon: '🌑', label: 'Hidden', tone: 'good', title: 'Hidden', desc: 'No hunter has seen you. Your first strike on an unaware foe is a backstab: double damage. Attacking, or being spotted, ends it.' });
     if (player.luck >= 2) out.push({ kind: 'luck', icon: '🍀', label: `Luck +${player.luck}`, tone: 'good', title: 'Luck', desc: 'Chests are likelier to hold a second find.' });
     return out;
@@ -569,6 +573,7 @@ function drawTileEdges(terrain, tile, wx, wy, sx, sy, isDim) {
 function isHeroHidden() {
     if (!player || !player.alive || !currentFloorData || player.characterClass.id !== 'thief') return false;
     const f = currentFloorData;
+    if (player.shadowTurns > 0) return true;
     return !f.monsters.some(m => m.alive && m.alert && f.visibility[m.y * MAP_WIDTH + m.x] === VISIBILITY.VISIBLE);
 }
 
@@ -1124,6 +1129,35 @@ function getStepAwayFrom(sx, sy, px, py, terrain, monsters) {
 // ==========================================
 // 5. TURN CYCLE & LINGERING HAZARDS / STATUS TICKS
 // ==========================================
+// ---- Class perks that tick every turn (see data/ClassPerks.js) ----
+function isSanctified() {
+    if (!player || player.characterClass.id !== 'cleric' || !currentFloorData) return false;
+    const f = currentFloorData;
+    const code = f.specialMap ? f.specialMap[player.y * MAP_WIDTH + player.x] : 0;
+    const type = code ? SPECIAL_ORDER[code - 1] : null;
+    if (type === 'temple' || type === 'sanctum') return true;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const t = f.terrain[(player.y + dy) * MAP_WIDTH + player.x + dx];
+        if (t === TILES.ALTAR || t === TILES.ALTAR_INERT || t === TILES.SHRINE) return true;
+    }
+    return false;
+}
+
+let wasSanctified = false;
+function runClassPerks() {
+    if (player.perkNote) { postMessage(player.perkNote, 'msg-victory'); player.perkNote = null; }
+    if (player.shadowTurns > 0) {
+        player.shadowTurns--;
+        if (player.shadowTurns === 0) postMessage('🌑 The shadow around you fades.', 'msg-info');
+    }
+    const holy = isSanctified();
+    if (holy) {
+        if (!wasSanctified) postMessage('✝️ Holy ground: you feel the place mending you.', 'msg-victory');
+        if (player.hp < player.maxHp) player.hp = Math.min(player.maxHp, player.hp + PERK.clericSanctifyHeal);
+    }
+    wasSanctified = holy;
+}
+
 function endTurn() {
     resetPan(); // any action recentres the camera on the hero
     if (!player.alive) return;
@@ -1139,6 +1173,7 @@ function endTurn() {
     // Hidden magic reveals itself with use; curses on worn gear take their toll
     tickIdentify(player, () => prng.nextInt(1, 20), (m) => postMessage(m, 'msg-loot')) && refreshSheetIfOpen();
     tickCurses(player, (m) => postMessage(m, 'msg-miss'));
+    runClassPerks();
     if (hungerMsg === 'ration_consumed') {
         postMessage(player.rations <= 0 ? '🍖 That was your LAST ration. Find food before hunger bites!' : (player.rations === 1 ? '🍖 You eat a ration. Only one left: start looking for food.' : '🍖 Sustenance: Hearty ration consumed to stave off hunger.'), player.rations <= 1 ? 'msg-miss' : 'msg-info');
     } else if (hungerMsg === 'starving') {
@@ -1241,7 +1276,10 @@ function endTurn() {
         // Wake up monster if in player's current line-of-sight
         const mIdx = m.y * MAP_WIDTH + m.x;
         if (currentFloorData.visibility[mIdx] === VISIBILITY.VISIBLE) {
-            m.alert = true;
+            // Thieves are only noticed from close up; Slip into Shadow hides you from anything farther than a step
+            const dist = Math.hypot(m.x - player.x, m.y - player.y);
+            const sneaky = player.characterClass.id === 'thief' && !m.alert && dist > PERK.thiefNoticeRadius;
+            if (!sneaky && !(player.shadowTurns > 0 && dist > 1.5)) m.alert = true;
         }
 
         if (m.alert) {
@@ -1917,6 +1955,7 @@ function resolveCombatTurn(monster, attackSource = null) {
     }
     setTarget(monster);
     const isSurprise = monster.unaware === true;
+    player.shadowTurns = 0; // striking breaks Slip into Shadow
     monster.unaware = false;
     monster.alert = true;
 
@@ -1926,7 +1965,7 @@ function resolveCombatTurn(monster, attackSource = null) {
     if (result.isHit) {
         addBlood(monster.x, monster.y);
         let msg = result.isSurprise 
-            ? (result.backstab ? `🗡️ BACKSTAB from the shadows! ${result.damage} dmg (double)!` : `⚡ SURPRISE STRIKE! Dealt ${result.damage} dmg!`)
+            ? (result.focus ? `🎯 FOCUSED SHOT! A clean hit for ${result.damage} dmg!` : result.backstab ? `🗡️ BACKSTAB from the shadows! ${result.damage} dmg (double)!` : `⚡ SURPRISE STRIKE! Dealt ${result.damage} dmg!`)
             : `💥 Hit ${monster.name} for ${result.damage} dmg! (${monster.hp}/${monster.maxHp} HP)`;
         if (result.appliedStatus) msg += ` [Inflicted ${result.appliedStatus}!]`;
         if (result.procs?.length) msg += ` ${result.procs.join(' ')}`;
@@ -2522,6 +2561,10 @@ export function useAbilityById(abilityId) {
 
     if (!player.canUseAbility(ability.id)) {
         const cd = player.cooldowns[ability.id] || 0;
+        if (cd <= 0 && ability.requiresShield && !hasShield(player)) {
+            postMessage(`🛡️ ${ability.name} needs a shield in your off-hand.`, 'msg-miss');
+            return;
+        }
         if (cd <= 0) {
             postMessage(`⚠️ ${ability.name} isn't slotted. Open Spells & Feats (F) and slot it first.`, 'msg-miss');
             return;
@@ -2548,7 +2591,15 @@ export function useAbilityById(abilityId) {
 }
 
 function executeSelfAction(action) {
-    if (action.type === 'identify') {
+    if (action.type === 'shadow') {
+        let lost = 0;
+        for (const m of currentFloorData.monsters) {
+            if (!m.alive || m.isBoss || !m.alert) continue;
+            if (Math.hypot(m.x - player.x, m.y - player.y) > 1.5) { m.alert = false; m.unaware = true; lost++; }
+        }
+        player.shadowTurns = PERK.thiefShadowTurns;
+        postMessage(`${action.icon} You slip into shadow${lost ? `: ${lost} hunter${lost > 1 ? 's' : ''} lose${lost > 1 ? '' : 's'} you` : ''}. Hidden for ${PERK.thiefShadowTurns} turns, or until you strike.`, 'msg-victory');
+    } else if (action.type === 'identify') {
         if (!castIdentify(action)) return; // nothing to read: no cooldown, no turn
     } else if (action.type === 'uncurse') {
         const n = cleanseCurses(player, 'worn');
@@ -3089,8 +3140,11 @@ export function waitTurn() {
     cancelWalking();
     cancelTargeting();
     lootCurrentTile(); // waiting also picks up anything that now fits (e.g. after freeing a bag slot)
+    // Wizard Spell Charge: consecutive waits build a charge (broken by any other action)
+    player.waitStreak = player.waitStreakTurn === player.turnCount ? (player.waitStreak || 0) + 1 : 1;
     endTurn();
-    postMessage('⏳ You wait a turn to recover and observe surroundings.', 'msg-info');
+    player.waitStreakTurn = player.turnCount;
+    postMessage(player.charged ? '🔮 You wait and gather power: charged! Your next ability will have no cooldown.' : '⏳ You wait a turn to recover and observe surroundings.', player.charged ? 'msg-victory' : 'msg-info');
     draw();
 }
 
@@ -5010,6 +5064,7 @@ function afterDebugChange(msg) {
 export const pixelDebug = {
     // Spawn a boss two tiles from the hero (any floor) for quick fight testing: id = bugbear|troll|chimaera|giant|dragon
     player() { return player; },
+    monsters() { return currentFloorData.monsters; },
     placeTile(dx, dy, name) { const t = TILES[name]; if (t === undefined) return false; currentFloorData.terrain[(player.y + dy) * MAP_WIDTH + player.x + dx] = t; draw(); return true; },
     give(item) { const ok = player.addToBackpack(item); afterDebugChange(`Gave ${item.name}.`); return ok; },
     spawnBoss(id = 'bugbear') {
@@ -5359,11 +5414,22 @@ let storyModuleId = null;
 let createStep = 1;
 
 // The in-game menu (actions, keys, debug). `true` is the old "new game" call and now opens the start screen.
+// Menu → Actions: what this class's perk does (so it is discoverable without reading the README)
+function renderPerkCard() {
+    const el = document.getElementById('perk-card');
+    if (!el || !player) return;
+    const p = perkFor(player);
+    el.innerHTML = p
+        ? `<div style="color:#ffcc00; font-weight:bold;">${p.icon} Class perk: ${p.name}</div><div style="color:#cfd3e6; margin-top:2px;">${p.desc}</div>`
+        : `<div style="color:#888ea6;">${player.characterClass.icon} ${player.characterClass.name}: no special perk yet.</div>`;
+}
+
 export function openSettings(newGame = false) {
     if (newGame === true) { openStart('home'); return; }
     const dbg = document.getElementById('set-debug');
     if (dbg) dbg.checked = !!settings.debug;
     refreshDebugPanel();
+    renderPerkCard();
     switchMenuTab('actions');
     document.getElementById('settings-modal')?.classList.add('active');
 }

@@ -1,5 +1,6 @@
 import { lockReason } from '../data/Curses.js';
 import { usability } from '../data/Proficiency.js';
+import { PERK, hasLute, hasShield } from '../data/ClassPerks.js';
 import { ITEM_SLOTS, calculateEquippedSetBonuses, MUSHROOM_TYPES, getCompatibleSlots, createItemFromBase, findBaseItem } from '../data/Items.js';
 import { ClassManager } from '../data/Classes.js';
 import { PROGRESSION, XP_TABLE, getGrantsForLevel, MASTERIES } from '../data/Progression.js';
@@ -123,6 +124,7 @@ export class PlayerCharacter {
         for (const id of this.generalFeats) add(FEATS[id]?.mods);
         for (const id of this.masteries) add(MASTERIES[id]?.mods);
         for (const item of this.getEquippedItems()) add(item.mods); // socketed gems
+        if (this.characterClass?.id === 'bard' && hasLute(this)) add({ ac: PERK.bardSongAc, attack: PERK.bardSongAttack }); // Song
         return totals;
     }
 
@@ -567,15 +569,25 @@ export class PlayerCharacter {
         const ability = this.characterClass.abilities.find(a => a.id === abilityId);
         if (!ability || ability.level > this.level) return false;
         if (!ability.utility && !this.activeFeats.includes(abilityId)) return false; // utility spells need no slot
+        if (ability.requiresShield && !hasShield(this)) return false;
         const cd = this.cooldowns[abilityId] || 0;
         return cd <= 0;
     }
 
+    // Wizard Spell Charge: waited long enough without acting, so the next ability has no cooldown (see ClassPerks.js)
+    get charged() {
+        return this.characterClass?.id === 'wizard' && (this.waitStreak || 0) >= PERK.wizardChargeWaits && this.waitStreakTurn === this.turnCount;
+    }
+
     triggerAbilityCooldown(abilityId) {
         const ability = this.characterClass.abilities.find(a => a.id === abilityId);
-        if (ability) {
-            this.cooldowns[abilityId] = ability.cooldown;
+        if (!ability) return;
+        if (this.charged && !ability.utility) {
+            this.waitStreak = 0;
+            this.perkNote = `🔮 Charged! ${ability.name} leaves no cooldown.`;
+            return;
         }
+        this.cooldowns[abilityId] = ability.cooldown;
     }
 
     // ==========================================
