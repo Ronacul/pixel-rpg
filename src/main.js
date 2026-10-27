@@ -29,6 +29,7 @@ import { COMPARTMENTS, compartmentRange, compartmentOfIndex, compartmentOf } fro
 import { Modules, CORE_MODULE_ID, setActiveModule, activeModule, depthOffset, depthForLevel, levelBand, validateModule, PALETTES } from './data/Modules.js';
 import { Heroes } from './data/Heroes.js';
 import { SPECIAL_TYPES, SPECIAL_ORDER, stars } from './map/SpecialRooms.js';
+import { heroLookFor } from './data/HeroLook.js';
 import { gemIconSvg, gemColor, socketPipsHtml, itemIconHtml, unknownGemSvg } from './render/GemIcon.js';
 import { ABILITY_KEYS, STANDARD_ARRAY, SCORE_MODES, creationFor, rollAbilityScores, finalScores, classEligibility } from './data/Creation.js';
 import { KEY_ACTIONS, KEY_PRESETS, DEFAULT_PRESET, RESERVED_KEYS, normalizeKey, keyLabel, resolveBinds, buildKeyMap } from './data/Keybinds.js';
@@ -477,6 +478,7 @@ function statusEntries() {
     }
     const unknown = Object.values(player.equipment).filter(i => i && hasUnknownParts(i)).length;
     if (unknown) out.push({ kind: 'unknown', icon: '❓', label: `${unknown} unknown`, tone: 'info', title: 'Unidentified gear', desc: `${unknown} worn item${unknown > 1 ? 's' : ''} hide magic that will reveal itself with use.` });
+    if (isHeroHidden()) out.push({ kind: 'hidden', icon: '🌑', label: 'Hidden', tone: 'good', title: 'Hidden', desc: 'No hunter has seen you. Your first strike on an unaware foe is a backstab: double damage. Attacking, or being spotted, ends it.' });
     if (player.luck >= 2) out.push({ kind: 'luck', icon: '🍀', label: `Luck +${player.luck}`, tone: 'good', title: 'Luck', desc: 'Chests are likelier to hold a second find.' });
     return out;
 }
@@ -520,6 +522,56 @@ function maybeDread() {
 // ==========================================
 // 4. RENDERING LOOP (BLOOD, HAZARD ZONES, COVER, TARGETING)
 // ==========================================
+// ---- Tile readability: every kind of tile gets an edge that says what it is ----
+//   wall      bright lip wherever it meets open ground
+//   open floor dark shadow wherever it meets a wall
+//   water     light foam line where it meets land (deep and shallow alike)
+//   barrier   (pillar, pit, rubble) an amber frame: "you cannot walk here, but it is not a wall"
+const BARRIER_TILES = new Set([TILES.PILLAR, TILES.PIT, TILES.RUBBLE]);
+const SOLID_WALLISH = new Set([TILES.WALL, TILES.SECRET_DOOR]);
+
+function drawTileEdges(terrain, tile, wx, wy, sx, sy, isDim) {
+    const sz = TILE_SIZE;
+    const lw = Math.max(1, Math.round(sz / 11));
+    const at = (x, y) => (x < 0 || y < 0 || x >= MAP_WIDTH || y >= MAP_HEIGHT) ? TILES.WALL : terrain[y * MAP_WIDTH + x];
+    const sides = [[0, -1], [1, 0], [0, 1], [-1, 0]]; // N E S W
+    const band = (si, color) => {
+        ctx.fillStyle = color;
+        if (si === 0) ctx.fillRect(sx, sy, sz, lw);
+        else if (si === 1) ctx.fillRect(sx + sz - lw, sy, lw, sz);
+        else if (si === 2) ctx.fillRect(sx, sy + sz - lw, sz, lw);
+        else ctx.fillRect(sx, sy, lw, sz);
+    };
+
+    if (SOLID_WALLISH.has(tile)) {
+        const c = isDim ? 'rgba(175,185,225,0.20)' : 'rgba(200,212,255,0.50)';
+        sides.forEach(([dx, dy], i) => { if (!SOLID_WALLISH.has(at(wx + dx, wy + dy))) band(i, c); });
+    } else if (tile === TILES.WATER || tile === TILES.SHALLOWS) {
+        const foam = isDim ? 'rgba(210,245,255,0.25)' : 'rgba(225,250,255,0.80)';
+        sides.forEach(([dx, dy], i) => {
+            const n = at(wx + dx, wy + dy);
+            const sameBody = n === TILES.WATER || n === TILES.SHALLOWS;
+            if (tile === TILES.WATER && n === TILES.SHALLOWS) return; // soft change from deep to shallow
+            if (!sameBody) band(i, foam);
+        });
+    } else if (BARRIER_TILES.has(tile)) {
+        ctx.strokeStyle = isDim ? 'rgba(255,160,90,0.30)' : 'rgba(255,170,90,0.85)';
+        ctx.lineWidth = lw;
+        ctx.strokeRect(sx + lw / 2, sy + lw / 2, sz - lw, sz - lw);
+        ctx.lineWidth = 1;
+    } else {
+        const shade = isDim ? 'rgba(0,0,0,0.28)' : 'rgba(0,0,0,0.5)';
+        sides.forEach(([dx, dy], i) => { if (SOLID_WALLISH.has(at(wx + dx, wy + dy))) band(i, shade); });
+    }
+}
+
+// A thief is HIDDEN while no awake hunter can see them: drawn faint, and the first blow on an unaware foe is a backstab
+function isHeroHidden() {
+    if (!player || !player.alive || !currentFloorData || player.characterClass.id !== 'thief') return false;
+    const f = currentFloorData;
+    return !f.monsters.some(m => m.alive && m.alert && f.visibility[m.y * MAP_WIDTH + m.x] === VISIBILITY.VISIBLE);
+}
+
 function draw() {
     if (!player || !currentFloorData) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -588,7 +640,7 @@ function draw() {
                 ctx.globalAlpha = isDim ? 0.45 : (deep ? 0.95 : 0.6);
                 ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
                 ctx.globalAlpha = 1;
-                if (!deep) { ctx.fillStyle = isDim ? '#0e1218' : biome.floorColor; ctx.globalAlpha = 0.45; ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE); ctx.globalAlpha = 1; }
+                if (!deep) { ctx.fillStyle = isDim ? 'rgba(170,225,245,0.10)' : 'rgba(170,230,250,0.30)'; ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE); } else { ctx.fillStyle = isDim ? 'rgba(0,10,40,0.18)' : 'rgba(0,10,40,0.38)'; ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE); }
                 // shimmer ripples (stable per tile)
                 ctx.strokeStyle = `rgba(190, 230, 255, ${isDim ? 0.10 : 0.28})`;
                 ctx.lineWidth = Math.max(1, TILE_SIZE / 16);
@@ -713,6 +765,8 @@ function draw() {
                     drawGlyph(zDef.icon, screenX, screenY, isDim ? 0.4 : 0.75);
                 }
             }
+
+            drawTileEdges(terrain, tile, worldX, worldY, screenX, screenY, isDim);
 
             // Special rooms (temple, vault, lair...) carry a faint tint of their own colour
             const spCode = currentFloorData.specialMap ? currentFloorData.specialMap[idx] : 0;
@@ -844,8 +898,13 @@ function draw() {
     if (player.alive) {
         const centerScreenX = (player.x - camX) * TILE_SIZE;
         const centerScreenY = (player.y - camY) * TILE_SIZE;
-        const heroCanvas = SpriteStore.active ? SpriteStore.heroCanvas(player.race.id, player.characterClass.id, weaponSpriteFor(player.equipment[ITEM_SLOTS.MAIN_HAND]), !!(player.equipment[ITEM_SLOTS.OFF_HAND] && player.equipment[ITEM_SLOTS.OFF_HAND].ac && !player.equipment[ITEM_SLOTS.OFF_HAND].isConsumable)) : null;
-        if (!SpriteStore.blit(ctx, heroCanvas, centerScreenX, centerScreenY, TILE_SIZE, 1, 1)) drawGlyph('🛡️', centerScreenX, centerScreenY, 1.0);
+        const heroCanvas = SpriteStore.active ? SpriteStore.heroCanvas(player.race.id, player.characterClass.id, heroLookFor(player.equipment)) : null;
+        const hidden = isHeroHidden();
+        if (hidden) { // a hidden thief fades into shadow: dim, with a dark pool underfoot
+            ctx.fillStyle = 'rgba(10, 6, 24, 0.55)';
+            ctx.beginPath(); ctx.ellipse(centerScreenX + TILE_SIZE / 2, centerScreenY + TILE_SIZE * 0.86, TILE_SIZE * 0.42, TILE_SIZE * 0.14, 0, 0, Math.PI * 2); ctx.fill();
+        }
+        if (!SpriteStore.blit(ctx, heroCanvas, centerScreenX, centerScreenY, TILE_SIZE, 1, hidden ? 0.5 : 1)) drawGlyph('🛡️', centerScreenX, centerScreenY, hidden ? 0.5 : 1.0);
 
         // Player status effect badge icons
         if (player.statuses && player.statuses.length > 0) {
@@ -1867,7 +1926,7 @@ function resolveCombatTurn(monster, attackSource = null) {
     if (result.isHit) {
         addBlood(monster.x, monster.y);
         let msg = result.isSurprise 
-            ? `⚡ SURPRISE STRIKE! Dealt ${result.damage} dmg!`
+            ? (result.backstab ? `🗡️ BACKSTAB from the shadows! ${result.damage} dmg (double)!` : `⚡ SURPRISE STRIKE! Dealt ${result.damage} dmg!`)
             : `💥 Hit ${monster.name} for ${result.damage} dmg! (${monster.hp}/${monster.maxHp} HP)`;
         if (result.appliedStatus) msg += ` [Inflicted ${result.appliedStatus}!]`;
         if (result.procs?.length) msg += ` ${result.procs.join(' ')}`;

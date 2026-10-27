@@ -2,22 +2,22 @@
   "_about": "Terrain and furniture. Roles a b c = floor tones, w x y z = wall tones (recoloured per biome). 16x16.",
 
   "tile.floor_a": { "rows": [
-"caaaaaabcaaaaaab",
-"aaaaaaabaaaaaaab",
-"aaaaaaabaaaaaaab",
-"aaaaaaabaaaaaaab",
-"aaaaaaabaaaaaaab",
-"aaaaaaabaaaaaaab",
-"aaaaaaabaaaaaaab",
-"bbbbbbbbbbbbbbbb",
-"aaabcaaaaaabcaaa",
-"aaabaaaaaaabaaaa",
-"aaabaaaaaaabaaaa",
-"aaabaaaaaaabaaaa",
-"aaabaaaaaaabaaaa",
-"aaabaaaaaaabaaaa",
-"aaabaaaaaaabaaaa",
-"bbbbbbbbbbbbbbbb"
+"aaaaaaaaaaaaaaaa",
+"aaaaabaaaaaaaaaa",
+"aaaaaaaaaaaaaaba",
+"aaaaaaaaaaaaaaaa",
+"abaaaaaaaaaaaaaa",
+"aaaaaaaacaaaaaaa",
+"aaaaaaaaaaaaaaaa",
+"aaaaaaaaaabaaaaa",
+"aaaaaaaaaaaaaaaa",
+"aaacaaaaaaaaaaaa",
+"aaaaaaaaaaaaaaaa",
+"aaaaaaaaabaaaaba",
+"aabaaaaaaaaaaaaa",
+"aaaaaaaaaaaaaaaa",
+"aaaaaaacaaaaaaaa",
+"aaaaaaaaaaaaaaaa"
   ] },
 
   "tile.floor_b": { "rows": [

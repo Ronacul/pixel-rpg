@@ -4,6 +4,7 @@
 
 import { loadArt, expand, toRGBA, mergeRoles, compose } from '../../art/sprite-lib.js';
 import { TILES } from '../map/Dungeon.js';
+import { weaponLookFor } from '../data/HeroLook.js';
 
 const BIOME_KEYS = {
     castle_dungeon: 'castle',
@@ -13,18 +14,8 @@ const BIOME_KEYS = {
     abyssal_sanctum: 'abyss'
 };
 
-// Weapon sprite for an equipped main-hand item (by name keywords; extend as new weapons arrive)
-export function weaponSpriteFor(item) {
-    if (!item) return 'none';
-    const n = (item.name || '').toLowerCase();
-    if (/bow|crossbow|sling|arbalest/.test(n)) return 'bow';
-    if (/dagger|stiletto|knife|knives/.test(n)) return 'dagger';
-    if (/sickle|nature/.test(n)) return 'staff_nature';
-    if (/staff|wand|quarterstaff|scepter/.test(n)) return 'staff';
-    if (/mace|hammer|flail/.test(n)) return 'mace';
-    if (/rapier/.test(n)) return 'rapier';
-    return 'sword';
-}
+// Weapon sprite id for an equipped main-hand item (the rules live in data/HeroLook.js)
+export const weaponSpriteFor = weaponLookFor;
 
 class SpriteStoreClass {
     constructor() {
@@ -77,17 +68,23 @@ class SpriteStoreClass {
         return c;
     }
 
-    heroCanvas(race, cls, weapon, shield) {
+    // look = heroLookFor(equipment): { cloak, armor, helm, gloves, boots, weapon, offhand } sprite names (or null)
+    heroCanvas(race, cls, look = {}) {
         if (!this.ready) return null;
-        const key = `hero|${race}|${cls}|${weapon}|${shield}`;
+        const key = `hero|${race}|${cls}|${JSON.stringify(look)}`;
         let c = this.cache.get(key);
         if (c !== undefined) return c;
         const s = this.art.sprites;
-        const layers = [s['hero.body'], s[`hero.race.${race}`], s[`hero.class.${cls}`]];
-        if (weapon && weapon !== 'none') layers.push(s[`hero.weapon.${weapon}`]);
-        if (shield) layers.push(s['hero.shield.buckler']);
+        const part = (group, name) => (name ? s[`hero.${group}.${name}`] : null);
+        const layers = [
+            look.cloak ? s['hero.cloak'] : null,
+            s['hero.body'], s[`hero.race.${race}`], s[`hero.class.${cls}`],
+            part('boots', look.boots), part('armor', look.armor), part('gloves', look.gloves), part('helm', look.helm),
+            look.weapon && look.weapon !== 'none' ? s[`hero.weapon.${look.weapon}`] : null,
+            part('shield', look.offhand)
+        ];
         const valid = layers.filter(Boolean);
-        c = valid.length >= 2 ? this.render(compose(valid), { race, class: cls }) : null;
+        c = valid.length >= 2 ? this.render(compose(valid), { race, class: cls, cloak: look.cloak || 'grey' }) : null;
         this.cache.set(key, c);
         return c;
     }

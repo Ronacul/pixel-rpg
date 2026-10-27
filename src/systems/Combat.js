@@ -49,6 +49,7 @@ export class CombatSystem {
         const isHit = attackTotal >= effectiveMonsterAC;
 
         let damage = 0;
+        let backstab = false;
         let featBonusDmg = 0;
         let appliedStatus = null;
         let procs = [];
@@ -79,6 +80,8 @@ export class CombatSystem {
                 }
             }
             damage = Math.max(1, rollDmg + statMod + featBonusDmg + holyBonus + (player.passiveMods?.dmg || 0) + (weapon.bonusFlat || 0) + skillBonusDmg);
+            // A thief striking an unaware foe from the shadows deals double damage
+            if (isSurpriseAttack && player.characterClass?.id === 'thief') { damage = Math.round(damage * 2); backstab = true; }
             monster.hp = Math.max(0, monster.hp - damage);
             if (monster.hp <= 0) monster.alive = false;
 
@@ -117,6 +120,7 @@ export class CombatSystem {
             roll1,
             roll2,
             isSurprise: isSurpriseAttack,
+            backstab,
             hasCover: coverBonus > 0,
             attackTotal,
             targetAC: effectiveMonsterAC,
