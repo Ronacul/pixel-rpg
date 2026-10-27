@@ -1,6 +1,7 @@
 // d20 Combat Engine with Surprise Advantage, Distance Ranged Attacks, Cover Bonuses, AoE, and Status Effects
 
 import { PERK } from '../data/ClassPerks.js';
+import { damageTypeOf, affinityMultiplier, isBloodless, RIDERS, DAMAGE_TYPES } from '../data/DamageTypes.js';
 import { EffectSystem } from './Effects.js';
 import { triggerPowers } from './Powers.js';
 
@@ -53,6 +54,9 @@ export class CombatSystem {
 
         let damage = 0;
         let backstab = false;
+        let damageType = damageTypeOf(weapon);
+        let affinityTag = '';
+        let riderStatus = null;
         let featBonusDmg = 0;
         let appliedStatus = null;
         let procs = [];
@@ -86,8 +90,21 @@ export class CombatSystem {
             if (player.characterClass?.id === 'cleric' && monster.undead) damage += PERK.clericUndeadBonus; // Sanctify
             // A thief striking an unaware foe from the shadows deals double damage
             if (isSurpriseAttack && player.characterClass?.id === 'thief') { damage = Math.round(damage * 2); backstab = true; }
+            // Damage type: what the weapon IS decides how the foe takes it (resist / weak / immune), and may add a rider
+            damageType = damageTypeOf(weapon);
+            const aff = affinityMultiplier(monster, damageType);
+            affinityTag = aff.tag;
+            if (aff.mult !== 1) damage = aff.mult === 0 ? 0 : Math.max(1, Math.round(damage * aff.mult));
             monster.hp = Math.max(0, monster.hp - damage);
             if (monster.hp <= 0) monster.alive = false;
+            const rider = RIDERS[damageType];
+            if (rider && monster.alive && aff.mult > 0 && !(rider.needsFlesh && isBloodless(monster))) {
+                const chance = rider.chance + (aff.tag === 'weak' ? (rider.weakBonus || 0.1) : 0) - (aff.tag === 'resisted' ? 0.1 : 0);
+                if (prng.chance(Math.max(0, chance))) {
+                    EffectSystem.applyStatus(monster, rider.status, rider.duration, 1, DAMAGE_TYPES[damageType].name);
+                    riderStatus = rider.status;
+                }
+            }
 
             // Apply weapon or ability status effect on hit
             const statusToApply = weapon.statusOnHit || weapon.statusEffect?.type;
@@ -126,6 +143,9 @@ export class CombatSystem {
             isSurprise: isSurpriseAttack,
             backstab,
             focus,
+            damageType,
+            affinityTag,
+            riderStatus,
             hasCover: coverBonus > 0,
             attackTotal,
             targetAC: effectiveMonsterAC,
@@ -252,6 +272,9 @@ export class CombatSystem {
                 }
                 dmg = Math.max(1, dmg + statMod + (actionDef.bonusFlat || 0) + arcanaBonus);
 
+                const aoeType = damageTypeOf(actionDef);
+                const affA = affinityMultiplier(m, aoeType);
+                if (affA.mult !== 1) dmg = affA.mult === 0 ? 0 : Math.max(1, Math.round(dmg * affA.mult));
                 m.hp = Math.max(0, m.hp - dmg);
                 totalDamage += dmg;
                 const died = (m.hp <= 0);
@@ -265,7 +288,7 @@ export class CombatSystem {
                     status = statusType;
                 }
 
-                hits.push({ monster: m, damage: dmg, died, status });
+                hits.push({ monster: m, damage: dmg, died, status, damageType: aoeType, affinityTag: affA.tag });
 
                 if (callbacks.onBlood) callbacks.onBlood(m.x, m.y);
             }

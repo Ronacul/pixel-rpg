@@ -97,6 +97,7 @@ function resolveTelegraph(boss, ctx) {
     } else if (t.move === 'breath') {
         const zone = boss.def.breath?.zone || 'FIRE';
         for (const p of t.tiles) EffectSystem.addZone(floor, p.x, p.y, zone, 3, 1, 'monster');
+        ctx.fx?.('breath', { x: boss.x, y: boss.y }, t.tiles, { gas: zone !== 'FIRE' });
         ctx.post(`🔥 ${boss.name} breathes ${zone === 'FIRE' ? 'fire' : 'a toxic cloud'}!`, hit ? 'msg-miss' : 'msg-info');
         if (hit) {
             const died = dealDamage(boss, ctx, 1.1, boss.name);
@@ -105,6 +106,7 @@ function resolveTelegraph(boss, ctx) {
         }
     } else if (t.move === 'boulder') {
         const c = t.center;
+        ctx.fx?.('boulder', { x: boss.x, y: boss.y - 2 }, c);
         const idx = c.y * MAP_WIDTH + c.x;
         if (floor.terrain[idx] === TILES.FLOOR && !(player.x === c.x && player.y === c.y)) floor.terrain[idx] = TILES.RUBBLE;
         ctx.post(`🪨 A boulder crashes down!`, hit ? 'msg-miss' : 'msg-info');

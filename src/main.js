@@ -30,6 +30,8 @@ import { Modules, CORE_MODULE_ID, setActiveModule, activeModule, depthOffset, de
 import { Heroes } from './data/Heroes.js';
 import { SPECIAL_TYPES, SPECIAL_ORDER, stars } from './map/SpecialRooms.js';
 import { heroLookFor } from './data/HeroLook.js';
+import { Projectiles } from './render/Projectiles.js';
+import { damageTypeOf, describeHit, DAMAGE_TYPES } from './data/DamageTypes.js';
 import { PERK, CLASS_PERKS, perkFor, hasShield, hasLute } from './data/ClassPerks.js';
 import { gemIconSvg, gemColor, socketPipsHtml, itemIconHtml, unknownGemSvg } from './render/GemIcon.js';
 import { ABILITY_KEYS, STANDARD_ARRAY, SCORE_MODES, creationFor, rollAbilityScores, finalScores, classEligibility } from './data/Creation.js';
@@ -91,6 +93,7 @@ function loadSettings() {
     settings.classId = ClassManager.getClass(settings.classId).id;
     settings.raceId = RaceManager.getRace(settings.raceId).id;
     SpriteStore.enabled = settings.sprites !== false;
+    Projectiles.enabled = settings.fx !== false;
     if (!KEY_PRESETS[settings.keyPreset]) settings.keyPreset = DEFAULT_PRESET;
     if (!settings.keyOverrides || typeof settings.keyOverrides !== 'object') settings.keyOverrides = {};
 }
@@ -100,6 +103,14 @@ function saveSettings() {
 }
 
 // Pixel-art graphics on/off (emoji fallback when off or if the art fails to load)
+export function toggleFx() {
+    settings.fx = settings.fx === false;
+    Projectiles.enabled = settings.fx;
+    saveSettings();
+    const el = document.getElementById('fx-label');
+    if (el) el.innerText = settings.fx ? 'On' : 'Off';
+}
+
 export function toggleGraphics() {
     settings.sprites = !settings.sprites;
     SpriteStore.enabled = settings.sprites;
@@ -927,6 +938,9 @@ function draw() {
     }
 
     // ==========================================
+    // Flying projectiles, spells and impact sparks
+    Projectiles.draw(ctx, camX, camY, TILE_SIZE);
+
     // TARGETING MODE OVERLAYS (RAYCAST & AOE PREVIEW)
     // ==========================================
     if (targetingMode && targetingAction && hoverWorldPos) {
@@ -1371,6 +1385,9 @@ function buildBossContext() {
         terrain,
         post: postMessage,
         addBlood,
+        fx(kind, from, to, opts = {}) {
+            if (kind === 'breath') Projectiles.stream(kind, from, to, opts); else Projectiles.fire(kind, from, to, opts);
+        },
         damagePlayer(dmg, label) {
             player.hp = Math.max(0, player.hp - dmg);
             addBlood(player.x, player.y);
@@ -1953,6 +1970,36 @@ function buildPathAvoid() {
 // ==========================================
 // 8. COMBAT RESOLUTION (ADJACENT MELEE)
 // ==========================================
+// ---- Attack visuals: projectiles, spells, thrown objects and impact sparks (cosmetic; see render/Projectiles.js) ----
+Projectiles.redraw = () => { if (player && currentFloorData) draw(); };
+
+function igniteBrush(x, y) {
+    const t = currentFloorData.terrain[y * MAP_WIDTH + x];
+    if (t === TILES.FOLIAGE) {
+        EffectSystem.addAoEZones(currentFloorData, x, y, 1, 'FIRE', 3, 1);
+        postMessage('🔥 The brush catches fire!', 'msg-info');
+    }
+}
+
+// `res` is the combat result (or null for area effects). Misses still fly; only hits spark and ignite.
+function playAttackFx(src, target, res) {
+    const type = res?.damageType || damageTypeOf(src);
+    const kind = Projectiles.kindFor(src);
+    const color = Projectiles.colorFor(type);
+    const dist = Math.hypot(target.x - player.x, target.y - player.y);
+    const from = { x: player.x, y: player.y };
+    const to = { x: target.x, y: target.y };
+    if (dist > 1.6 || !res) {
+        const lobbed = kind.endsWith('flask');
+        Projectiles.fire(kind, from, to, { color: lobbed ? undefined : color });
+    } else if (res.isHit) {
+        Projectiles.impact(target.x, target.y, color, { big: res.isSurprise });
+    } else {
+        Projectiles.impact(target.x, target.y, '#8a8fa3'); // glancing blow
+    }
+    if (res && res.isHit && type === 'FIRE') igniteBrush(target.x, target.y);
+}
+
 function resolveCombatTurn(monster, attackSource = null) {
     if (monster.airborne && !(attackSource && attackSource.delivery === 'RANGED')) {
         postMessage(`🦅 ${monster.name} is airborne: melee cannot reach it! Use a ranged weapon or power.`, 'msg-miss');
@@ -1969,13 +2016,16 @@ function resolveCombatTurn(monster, attackSource = null) {
 
     if (result.isHit) {
         addBlood(monster.x, monster.y);
+        playAttackFx(attackSource || player.weapon, monster, result);
         let msg = result.isSurprise 
             ? (result.focus ? `🎯 FOCUSED SHOT! A clean hit for ${result.damage} dmg!` : result.backstab ? `🗡️ BACKSTAB from the shadows! ${result.damage} dmg (double)!` : `⚡ SURPRISE STRIKE! Dealt ${result.damage} dmg!`)
-            : `💥 Hit ${monster.name} for ${result.damage} dmg! (${monster.hp}/${monster.maxHp} HP)`;
+            : `💥 Hit ${monster.name} for ${result.damage} dmg${describeHit(result.damageType, result.affinityTag)}! (${monster.hp}/${monster.maxHp} HP)`;
+        if (result.riderStatus) msg += ` ${DAMAGE_TYPES[result.damageType].icon} ${result.riderStatus}!`;
         if (result.appliedStatus) msg += ` [Inflicted ${result.appliedStatus}!]`;
         if (result.procs?.length) msg += ` ${result.procs.join(' ')}`;
         postMessage(msg, result.isSurprise ? 'msg-victory' : 'msg-hit');
     } else {
+        playAttackFx(attackSource || player.weapon, monster, result);
         const coverNote = result.hasCover ? ' (Monster protected by Pillar Cover!)' : '';
         postMessage(`🛡️ Missed ${monster.name}${coverNote} (Rolled ${result.attackTotal} vs AC ${result.targetAC}).`, 'msg-miss');
     }
@@ -2094,10 +2144,12 @@ export function autoTargetAndAttack() {
             const res = CombatSystem.resolvePlayerAttack(prng, player, target, wasUnaware, terrain, weapon);
             target.unaware = false;
             target.alert = true;
+            playAttackFx(weapon, target, res);
             if (res.isHit) {
                 addBlood(target.x, target.y);
                 const coverText = res.hasCover ? ' (Pillar Cover applied)' : '';
-                let hitText = res.focus ? `🎯 FOCUSED SHOT! ${weapon.name} strikes ${target.name} for ${res.damage} dmg!${coverText}` : res.backstab ? `🗡️ BACKSTAB! ${weapon.name} hits ${target.name} for ${res.damage} dmg!` : `🎯 ${weapon.name} hit ${target.name} for ${res.damage} dmg!${coverText}`;
+                let hitText = res.focus ? `🎯 FOCUSED SHOT! ${weapon.name} strikes ${target.name} for ${res.damage} dmg${describeHit(res.damageType, res.affinityTag)}!${coverText}` : res.backstab ? `🗡️ BACKSTAB! ${weapon.name} hits ${target.name} for ${res.damage} dmg!` : `🎯 ${weapon.name} hit ${target.name} for ${res.damage} dmg${describeHit(res.damageType, res.affinityTag)}!${coverText}`;
+                if (res.riderStatus) hitText += ` ${DAMAGE_TYPES[res.damageType].icon} ${res.riderStatus}!`;
                 if (res.appliedStatus) hitText += ` [Inflicted ${res.appliedStatus}!]`;
                 if (res.procs?.length) hitText += ` ${res.procs.join(' ')}`;
                 postMessage(hitText, 'msg-victory');
@@ -2337,10 +2389,12 @@ function fireTargetedAction(targetX, targetY) {
         const monster = monsters.find(m => m.alive && m.x === targetX && m.y === targetY);
         if (monster) {
             const res = CombatSystem.resolvePlayerAttack(prng, player, monster, false, terrain, action);
+            playAttackFx(action, monster, res);
             if (res.isHit) {
                 addBlood(monster.x, monster.y);
                 const coverText = res.hasCover ? ' (Pillar Cover applied)' : '';
-                let hitText = `🎯 ${action.name} struck ${monster.name} for ${res.damage} dmg!${coverText}`;
+                let hitText = `🎯 ${action.name} struck ${monster.name} for ${res.damage} dmg${describeHit(res.damageType, res.affinityTag)}!${coverText}`;
+                if (res.riderStatus) hitText += ` ${DAMAGE_TYPES[res.damageType].icon} ${res.riderStatus}!`;
                 if (res.appliedStatus) hitText += ` [Inflicted ${res.appliedStatus}!]`;
                 if (res.procs?.length) hitText += ` ${res.procs.join(' ')}`;
                 postMessage(hitText, 'msg-victory');
@@ -2376,6 +2430,7 @@ function fireTargetedAction(targetX, targetY) {
     } 
     // AoE Blast or Lingering Hazard Zone Delivery
     else if (action.delivery === 'AOE' || action.delivery === 'ZONE') {
+        playAttackFx(action, { x: targetX, y: targetY }, null);
         const aoeRes = CombatSystem.resolveAoE(prng, player, targetX, targetY, action, currentFloorData, { onBlood: addBlood });
 
         if (action.isPositive && aoeRes.totalHeal > 0) {
@@ -5441,6 +5496,7 @@ export function openSettings(newGame = false) {
     if (dbg) dbg.checked = !!settings.debug;
     refreshDebugPanel();
     renderPerkCard();
+    const fxl = document.getElementById('fx-label'); if (fxl) fxl.innerText = settings.fx === false ? 'Off' : 'On';
     switchMenuTab('actions');
     document.getElementById('settings-modal')?.classList.add('active');
 }

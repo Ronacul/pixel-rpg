@@ -83,11 +83,13 @@ export function rollMonsterLevel(prng, floor) {
 // HP / AC / attack / damage for a monster of `level` built from biome definition `def`
 export function scaleMonsterStats(def, level) {
     const D = DIFFICULTY;
+    // Level 1-2 monsters are eased in so a fresh 16-18 HP hero can survive a duel: softer HP, no damage bonus, +0 to hit
+    const ease = level <= 2 ? 0.75 : level <= 4 ? 0.92 : 1;
     return {
-        hp: Math.round(def.hp * D.hpBaseShare + D.hpFlat + D.hpPerLevel * level),
+        hp: Math.max(4, Math.round((def.hp * D.hpBaseShare + D.hpFlat + D.hpPerLevel * level) * ease)),
         ac: def.ac + Math.floor((level - 1) / D.acEveryLevels),
-        attackBonus: Math.floor(level * D.attackPerLevel),
-        bonusDmg: Math.round(level * D.damagePerLevel)
+        attackBonus: level <= 2 ? 0 : Math.floor(level * D.attackPerLevel),
+        bonusDmg: level <= 2 ? 0 : Math.round(level * D.damagePerLevel)
     };
 }
 
