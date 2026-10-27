@@ -1456,6 +1456,7 @@ function handlePlayerDeath(slainBy) {
         draw();
         return;
     }
+    if (!player.alive) return; // already dead: do not stack death screens
     player.alive = false;
     cancelWalking();
     cancelTargeting();

@@ -192,8 +192,8 @@ export class CombatSystem {
                     appliedStatus = 'POISONED';
                 }
             } else if (mNameLower.includes('wolf') || mNameLower.includes('beast') || mNameLower.includes('bat')) {
-                if (prng.chance(0.4)) {
-                    EffectSystem.applyStatus(player, 'BLEEDING', 3, 1, monster.name);
+                if (prng.chance(monster.level <= 2 ? 0.2 : 0.4)) { // early floors: bites bleed less often and for less time
+                    EffectSystem.applyStatus(player, 'BLEEDING', monster.level <= 2 ? 2 : 3, 1, monster.name);
                     appliedStatus = 'BLEEDING';
                 }
             }

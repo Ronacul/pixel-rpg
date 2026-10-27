@@ -63,6 +63,8 @@ async function stageFoe(minD, maxD, { hp = 400 } = {}) {
         if (!s) continue;
         pd().teleport(s.x, s.y);
         m.hp = hp; m.maxHp = hp; m.unaware = true; m.alert = false; m.statuses = [];
+        const { EffectSystem } = await import('/src/systems/Effects.js');
+        EffectSystem.applyStatus(m, 'STUNNED', 6, 1, 'test'); // hold it still so the distance stays put
         await pressWait(); // a real turn: the map and visibility refresh (the foe may wake, but stays "unaware" until struck)
         m.unaware = true;
         await sleep(30);

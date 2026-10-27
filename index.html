@@ -57,6 +57,19 @@
             cursor: pointer;
         }
 
+        /* Phone widths: the HUD must never push the page sideways */
+        #header-bar { gap: 6px; }
+        #header-bar .header-chip { min-width: 0; }
+        #btn-sheet-open { flex: 1 1 auto; justify-content: space-between; gap: 2px 6px; flex-wrap: wrap; }
+        #btn-sheet-open > span { white-space: nowrap; }
+        @media (max-width: 420px) {
+            #header-bar .header-chip { padding: 4px 6px; font-size: 12px; }
+            #btn-sheet-open { font-size: 12px; }
+            #btn-sheet-open > span:last-child { display: none; } /* the 👤 hint */
+            #btn-sheet-open > span[style*="color: #555"] { display: none; } /* the | separator */
+            #header-bar .header-chip:first-child { flex: 0 1 auto; max-width: 38%; }
+        }
+
         .header-chip:active {
             border-color: #ffcc00;
         }
@@ -1387,8 +1400,8 @@
             sortBag,
             shopSellJunk,
             pixelDebug
-        } from './src/main.js?v=27.0';
-        import { PRNG } from './src/core/RNG.js?v=27.0';
+        } from './src/main.js?v=29.0';
+        import { PRNG } from './src/core/RNG.js?v=29.0';
 
         window.openSheetModal = function() {
             window.switchSheetTab(null);
@@ -1424,6 +1437,7 @@
         window.toggleRemoteControl = toggleRemoteControl;
         window.selectLowestValue = selectLowestValue;
         window.openStatus = openStatus;
+        window.openShop = openShop;
         window.closeStatus = closeStatus;
         window.toggleMsgExpand = toggleMsgExpand;
         window.openLog = openLog;
