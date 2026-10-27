@@ -1115,6 +1115,23 @@
         </div>
     </div>
 
+    <!-- Spells, feats and class abilities (opened from Menu → Actions → Spells & Feats) -->
+    <div id="spells-modal" class="modal-overlay" style="z-index: 128;" onclick="closeSpellsModal(event)">
+        <div class="modal-card" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <div>
+                    <span class="modal-title" id="spells-modal-title">⚡ CLASS SPELLS & FEATS</span>
+                    <div style="font-size: 10px; color: #888;">Slot up to 4 feats; utility spells need no slot. Tap Cast to use one.</div>
+                </div>
+                <button class="close-btn" onclick="closeSpellsModal()">✕</button>
+            </div>
+            <div id="spells-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 60vh; overflow-y: auto;">
+                <!-- Generated dynamically -->
+            </div>
+            <button class="modal-btn" style="margin-top: 8px;" onclick="closeSpellsModal()">Done</button>
+        </div>
+    </div>
+
     <!-- Message history -->
     <div id="log-modal" class="modal-overlay" style="z-index: 125;" onclick="closeLog()">
         <div class="modal-card" onclick="event.stopPropagation()" style="max-height: 80vh;">
@@ -1370,8 +1387,8 @@
             sortBag,
             shopSellJunk,
             pixelDebug
-        } from './src/main.js?v=26.0';
-        import { PRNG } from './src/core/RNG.js?v=26.0';
+        } from './src/main.js?v=27.0';
+        import { PRNG } from './src/core/RNG.js?v=27.0';
 
         window.openSheetModal = function() {
             window.switchSheetTab(null);

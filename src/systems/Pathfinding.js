@@ -86,6 +86,8 @@ export function findPath(startX, startY, endX, endY, terrain, monsters, maxRadiu
         if (x === endX && y === endY) return true;
         // Avoid walking through closed doors, destructible barrels, or live monsters mid-path
         if (tile === TILES.DOOR_CLOSED || tile === TILES.LOCKED_DOOR || tile === TILES.BARREL || tile === TILES.SHRINE || tile === TILES.FOUNTAIN) return false;
+        // Stairs change floors the moment you step on them, so a route never crosses one by accident
+        if (tile === TILES.STAIRS_UP || tile === TILES.STAIRS_DOWN) return false;
         if (avoid && avoid.blocked.has(y * MAP_WIDTH + x)) return false;
         if (occupied.has(y * MAP_WIDTH + x)) return false;
         return true;

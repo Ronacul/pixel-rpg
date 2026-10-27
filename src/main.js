@@ -80,6 +80,7 @@ let hoverWorldPos = null;   // { x, y } currently targeted by cursor
 const SETTINGS_KEY = 'pixel_rpg_settings_v2'; // v2: default map size is now Tiny (50x50)
 let settings = { mapSize: DEFAULT_MAP_SIZE, classId: 'warrior', raceId: DEFAULT_RACE_ID, debug: false, sprites: true, keyPreset: DEFAULT_PRESET, keyOverrides: {}, scoreMode: 'template', rolls: null, moduleId: CORE_MODULE_ID, heroId: null };
 let godMode = false;
+let walkDelayMs = 110; // pixelDebug.setWalkDelay() speeds up scripted playtests
 
 function loadSettings() {
     try {
@@ -1768,7 +1769,7 @@ function stepPath(path) {
     draw();
 
     if (path.length > 0 && player.alive) {
-        walkTimer = setTimeout(() => stepPath(path), 110);
+        walkTimer = setTimeout(() => stepPath(path), walkDelayMs);
     } else {
         cancelWalking();
         draw();
@@ -2084,13 +2085,15 @@ export function autoTargetAndAttack() {
             resolveCombatTurn(target, weapon);
             endTurn();
         } else {
-            const res = CombatSystem.resolvePlayerAttack(prng, player, target, false, terrain, weapon);
+            const wasUnaware = target.unaware === true; // ranged shots at an unaware foe are surprise attacks too (Ranger Focus, Thief backstab)
+            player.shadowTurns = 0;
+            const res = CombatSystem.resolvePlayerAttack(prng, player, target, wasUnaware, terrain, weapon);
             target.unaware = false;
             target.alert = true;
             if (res.isHit) {
                 addBlood(target.x, target.y);
                 const coverText = res.hasCover ? ' (Pillar Cover applied)' : '';
-                let hitText = `🎯 ${weapon.name} hit ${target.name} for ${res.damage} dmg!${coverText}`;
+                let hitText = res.focus ? `🎯 FOCUSED SHOT! ${weapon.name} strikes ${target.name} for ${res.damage} dmg!${coverText}` : res.backstab ? `🗡️ BACKSTAB! ${weapon.name} hits ${target.name} for ${res.damage} dmg!` : `🎯 ${weapon.name} hit ${target.name} for ${res.damage} dmg!${coverText}`;
                 if (res.appliedStatus) hitText += ` [Inflicted ${res.appliedStatus}!]`;
                 if (res.procs?.length) hitText += ` ${res.procs.join(' ')}`;
                 postMessage(hitText, 'msg-victory');
@@ -5208,7 +5211,10 @@ export const pixelDebug = {
         afterDebugChange(`Added ${added} set pieces to the bag.`);
         return added;
     },
-    camera() { return { zoomIndex: currentZoomIndex, cols: VIEW_COLS, panX, panY, player: { x: player.x, y: player.y } }; },
+    camera() { return { zoomIndex: currentZoomIndex, cols: VIEW_COLS, rows: VIEW_ROWS, tileSize: TILE_SIZE, panX, panY, player: { x: player.x, y: player.y } }; },
+    floor() { return currentFloorData; },
+    setWalkDelay(ms) { walkDelayMs = Math.max(0, ms | 0); },
+    isWalking() { return walkTimer !== null; },
     // Gems: 3 chipped rubies (fusable) plus one of each other colour
     grantGems() {
         let n = 0;

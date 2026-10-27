@@ -186,7 +186,9 @@ export function furnishSpecials(ctx, specials) {
         return true;
     };
     const lootAt = (bonus) => generateLootItem(prng, floorLevel + bonus);
+    // The first two floors are gentle: no extra levels, few or no affixes, smaller packs
     const spawn = (room, def, n, levelBonus, affixCount) => {
+        if (floorLevel <= 2) { levelBonus = 0; affixCount = affixCount >= 2 ? 1 : 0; n = Math.min(n, floorLevel + 1); }
         for (let i = 0; i < n; i++) {
             const t = takeTile(room);
             if (!t) break;

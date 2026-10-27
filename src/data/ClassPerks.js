@@ -13,7 +13,7 @@
 import { traitsFor } from './Proficiency.js';
 
 export const PERK = {
-    rangerFocusMinDist: 4,
+    rangerFocusMinDist: 3, // sight is only 3-4 tiles, so 4+ would almost never apply
     wizardChargeWaits: 2,
     clericSanctifyHeal: 1,
     clericUndeadBonus: 2,

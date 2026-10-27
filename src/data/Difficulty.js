@@ -75,7 +75,7 @@ export function rollMonsterLevel(prng, floor) {
     let acc = 0;
     for (const [offset, p] of DIFFICULTY.levelSpread) {
         acc += p;
-        if (r < acc) return Math.max(1, floor + offset);
+        if (r < acc) return Math.max(1, floor + (floor <= 2 ? Math.min(offset, 1) : offset)); // no dread foes on the first two floors
     }
     return floor;
 }
