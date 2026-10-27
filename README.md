@@ -20,6 +20,27 @@ Modules are plain JSON files in [`modules/`](modules/README.md): a minimal one i
 
 ---
 
+## 🏹 Attack effects & damage types
+
+Ranged weapons, spells, thrown flasks and boss breath now **fly across the map** (arrows with fletching, bolts, sling stones, spinning daggers, arcane/fire/frost/venom/holy/sound orbs, lobbed flasks and boulders) and every hit sparks in its type's colour (Menu → Actions → *Attack effects* turns it off). Every attack has a **damage type**, which matters:
+
+| Type | Typical sources | Rider on a hit |
+| --- | --- | --- |
+| Sharp | blades, arrows, bolts | may open a bleeding wound (not on bone, slime, stone, wood) |
+| Blunt | maces, hammers, staves, sling stones | may stun (more likely against bone) |
+| Fire | fire flasks, fire spells | may set the foe alight; ignites brush |
+| Cold | frost spells | may slow |
+| Poison | gas flasks, venom | may poison |
+| Arcane / Holy / Sonic | wands and missiles / radiance / bardic sound | none |
+
+Monsters have **affinities**: skeletons shrug off blades but shatter under maces and holy light, slimes resist blows but burn, golems are weak to blunt, wraiths to holy and arcane, dragons resist fire and fear cold. The combat log says "(fire, weak!)" or "(sharp, resisted)". Teach a new foe in `src/data/DamageTypes.js`.
+
+## 🧪 Playtesting tools
+
+`src/devtools/` holds the in-page test kit used for QA: `PlaytestBot` (plays through real input: canvas taps, Attack/Power buttons, hotkeys, level-up and shop dialogs), `PlaytestHarness` (creates characters through the start screen and runs classes in bulk), `PerkScenarios`, `ItemScenarios` (click-driven gem/curse/identify flows) and `LayoutAudit` (phone-width overflow check of every screen). From the console: `const H = await import('/src/devtools/PlaytestHarness.js'); await H.runClasses(['ranger','wizard'], { maxFloor: 5 })`.
+
+---
+
 ## 🏛️ Level design, special rooms & status
 
 * **Denser, looping maps:** floors pack in more rooms (about 25% walkable on the Tiny map) and link them in **loops**: after a spanning tree guarantees everything is reachable, extra corridors join nearby rooms and most dead ends get a second exit, so you rarely retrace your steps.
