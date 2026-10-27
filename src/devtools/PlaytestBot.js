@@ -156,6 +156,27 @@ export class PlaytestBot {
     }
 
     // Walk toward (tx,ty) by tapping the furthest point of the BFS path that is on screen
+    // What is standing between the explored area and the rest of the floor? (diagnostic for no-route reports)
+    noRouteContext(c, search) {
+        const { f, W, H, T } = c;
+        const names = Object.fromEntries(Object.entries(T).map(([k, v]) => [v, k]));
+        const counts = {};
+        for (const [i] of search.dist) {
+            const x = i % W, y = (i - x) / W;
+            for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+                const nx = x + dx, ny = y + dy;
+                if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+                const ni = ny * W + nx;
+                if (search.dist.has(ni)) continue;
+                const t = f.terrain[ni];
+                if (t === T.WALL) continue;
+                const k = names[t] + (f.trapsRevealed?.has(ni) ? '(revealed)' : '') + (f.visibility[ni] === 0 ? '(unexplored)' : '');
+                counts[k] = (counts[k] || 0) + 1;
+            }
+        }
+        return JSON.stringify({ reachableTiles: search.dist.size, boundary: counts, pos: [this.p.x, this.p.y], stairs: f.stairsDownPos, hp: this.p.hp });
+    }
+
     stuckContext() {
         try {
             const c = this.ctx(), { f, p, W } = c;
@@ -261,7 +282,11 @@ export class PlaytestBot {
             const pi = this.potionIndex();
             if (pi >= 0) { window.consumeBackpackItem(pi); this.report.potions++; this.pd.closeSheet?.(); return 'potion'; }
         }
-        if (p.rations > 0 && hostiles.length === 0 && hpPct < 0.6 && p.hp > 0) { this.click('btn-camp-main'); this.report.camps++; await sleep(20); return 'camp'; }
+        if (p.rations > 0 && hostiles.length === 0 && hpPct < 0.6 && p.hp > 0 && !(this.noCampUntil > p.turnCount)) {
+            this.click('btn-camp-main'); this.report.camps++; await sleep(20);
+            if (/Cannot camp/.test(this.pd.log(1)[0] || '')) this.noCampUntil = p.turnCount + 25; // a foe is in sight: carry on instead
+            return 'camp';
+        }
         if (hostiles.length === 0 && p.rations <= 1) {
             const fi = this.foodIndex();
             if (fi >= 0) { window.consumeBackpackItem(fi); return 'eat'; }
@@ -301,7 +326,7 @@ export class PlaytestBot {
         // interactive features (fountains, shrines, the merchant): reached via a neighbouring tile, then bumped
         for (let i = 0; i < f.terrain.length; i++) {
             const t = f.terrain[i];
-            if ((t === T.FOUNTAIN || t === T.SHRINE) && f.visibility[i] !== VIS.UNEXPLORED) targets.push({ x: i % W, y: (i - (i % W)) / W, why: 'feature' });
+            if ((t === T.FOUNTAIN || t === T.SHRINE || (f.trapsRevealed && f.trapsRevealed.has(i) && t >= T.TRAP_SPIKE && t <= T.TRAP_GAS)) && f.visibility[i] !== VIS.UNEXPLORED) targets.push({ x: i % W, y: (i - (i % W)) / W, why: 'feature' });
         }
         if (f.merchant && f.visibility[f.merchant.y * W + f.merchant.x] !== VIS.UNEXPLORED) targets.push({ x: f.merchant.x, y: f.merchant.y, why: 'feature' });
         const nbrs = (t) => [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => ({ x: t.x + dx, y: t.y + dy })).filter(n => search.dist.has(n.y * W + n.x));
@@ -355,7 +380,11 @@ export class PlaytestBot {
             const near = Math.max(Math.abs(goal.x - p.x), Math.abs(goal.y - p.y)) <= 1;
             if (near) {
                 this.tapWorld(goal.x, goal.y); await this.settle(); this.handleModals();
-                this.blacklist.add(`${goal.x},${goal.y},feature`);
+                this.bumps = this.bumps || {};
+                const bk = `${goal.x},${goal.y}`;
+                this.bumps[bk] = (this.bumps[bk] || 0) + 1;
+                const isTrapTile = f.terrain[goal.y * W + goal.x] >= T.TRAP_SPIKE && f.terrain[goal.y * W + goal.x] <= T.TRAP_GAS;
+                if (!isTrapTile || this.bumps[bk] >= 3) this.blacklist.add(`${goal.x},${goal.y},feature`); // a trap may need a few disarm attempts
                 this.bumpEvent('featureBump');
             } else {
                 const nb = nbrs(goal).sort((a, b) => search.dist.get(a.y * W + a.x) - search.dist.get(b.y * W + b.x))[0];
@@ -383,7 +412,7 @@ export class PlaytestBot {
         }
         if (this.report.searches > 60 && !this.report['softlock-flag-' + f.floor]) {
             this.report['softlock-flag-' + f.floor] = true;
-            this.anomaly('no-route', `floor ${f.floor}: no reachable goal and stairs unknown after 60 searches`);
+            this.anomaly('no-route', `floor ${f.floor}: no reachable goal and stairs unknown after 60 searches ${this.noRouteContext(c, search)}`);
             this.pd.teleportToStairs?.();
         }
         return 'search';
