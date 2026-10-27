@@ -4571,7 +4571,7 @@ function findSpawnTile(minD, maxD, requireHidden = true) {
 // grinding one floor never gets easy), with a little random spread
 function strayLevel(floor) {
     const heroFloor = Math.round(floorForLevel(player.level));
-    const base = Math.min(floor + 6, Math.max(floor, heroFloor));
+    const base = Math.min(floor <= 3 ? floor + 1 : floor + 6, Math.max(floor, heroFloor)); // early floors never spawn dread strays
     return Math.max(1, base + prng.nextInt(-1, 1));
 }
 
@@ -4579,7 +4579,7 @@ function spawnStray(x, y, alert = true) {
     const f = currentFloorData;
     const def = prng.choice(f.biome.monsters);
     const level = strayLevel(f.floorLevel);
-    const m = makeMonster(def, `stray_${f.floorLevel}_${minionCounter++}`, x, y, f.floorLevel, { level, affixes: rollAffixes(prng, level) });
+    const m = makeMonster(def, `stray_${f.floorLevel}_${minionCounter++}`, x, y, f.floorLevel, { level, affixes: f.floorLevel <= 2 ? [] : rollAffixes(prng, level) });
     m.isWanderer = true;
     m.alert = alert;
     m.unaware = !alert;
