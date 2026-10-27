@@ -3,7 +3,7 @@
 import { MAP_WIDTH, MAP_HEIGHT, TILES, VISIBILITY } from './Dungeon.js';
 import { stageForFloor, bossForFloor, layoutForFloor, activeModule, depthOffset, CORE_MODULE_ID } from '../data/Modules.js';
 import { PRNG } from '../core/RNG.js';
-import { roughenWalls, addWater } from './Terrain.js';
+import { roughenWalls, addWater, openRoutesFrom } from './Terrain.js';
 import { UNDEAD_SPRITES } from '../data/ClassPerks.js';
 import { planSpecials, furnishSpecials, buildSpecialMap, SPECIAL_ORDER } from './SpecialRooms.js';
 import { generateLootItem, MUSHROOM_TYPES } from '../data/Items.js';
@@ -74,6 +74,8 @@ export function makeBoss(def, x, y, floorLevel) {
 
 // How hard the generator tries to pack rooms in (more rooms = more usable floor, shorter corridors)
 const ROOM_DENSITY = 3.2;
+// No ordinary monster starts this close to the arrival stairs
+const SPAWN_SAFE_RADIUS = 8;
 
 export function generateFloor(baseSeed, moduleFloor) {
     // moduleFloor = level within the module (display, stairs, bosses); floorLevel = difficulty depth (a stronger hero starts deeper)
@@ -350,9 +352,10 @@ export function generateFloor(baseSeed, moduleFloor) {
     terrain[stairsUpPos.y * MAP_WIDTH + stairsUpPos.x] = TILES.STAIRS_UP;
 
     // Place Stairs Down (Furthest Room from spawn)
-    let exitRoom = rooms[rooms.length - 1];
+    let exitRoom = rooms.find(r => !r.isSecret && r !== spawnRoom) || rooms[rooms.length - 1];
     let maxDist = 0;
     for (const r of rooms) {
+        if (r.isSecret) continue; // the way down is never inside a secret room
         const d = Math.hypot(r.cx - spawnRoom.cx, r.cy - spawnRoom.cy);
         if (d > maxDist) {
             maxDist = d;
@@ -390,6 +393,9 @@ export function generateFloor(baseSeed, moduleFloor) {
         addWater(terrain, prng, { lakes: lay.lakes, rivers: lay.rivers }, dry, stairsUpPos, wetTargets);
     }
 
+    // The route from the arrival stairs to the exit never hides behind a secret door
+    openRoutesFrom(terrain, stairsUpPos, [stairsDownPos, ...rooms.filter(r => !r.isSecret && !r.isStub && r !== spawnRoom).map(r => ({ x: r.cx, y: r.cy }))]);
+
     // Special rooms: every floor has at least one (temple, vault, cache, lair, crypt, sanctum; the boss arena on boss floors)
     if (bossDef) exitRoom.isArena = true;
     const specials = planSpecials({ prng, terrain, rooms, floorLevel, exitRoom, bossDef });
@@ -405,6 +411,7 @@ export function generateFloor(baseSeed, moduleFloor) {
         // Populate monsters based on biome & difficulty scaling
         const monsterDef = prng.choice(biome.monsters);
         let monsterCount = room.isSecret ? 1 : prng.nextInt(1, 2);
+        if (floorLevel <= 2 && !room.isSecret && prng.chance(0.4)) monsterCount = 0; // first floors: some rooms stay quiet
         if (mod.monsterMult) {
             const scaled = monsterCount * mod.monsterMult;
             monsterCount = Math.floor(scaled) + (prng.chance(scaled % 1) ? 1 : 0);
@@ -414,7 +421,7 @@ export function generateFloor(baseSeed, moduleFloor) {
             const mx = prng.nextInt(room.x + 1, room.x + room.w - 2);
             const my = prng.nextInt(room.y + 1, room.y + room.h - 2);
 
-            if (terrain[my * MAP_WIDTH + mx] === TILES.FLOOR) {
+            if (terrain[my * MAP_WIDTH + mx] === TILES.FLOOR && Math.hypot(mx - stairsUpPos.x, my - stairsUpPos.y) >= SPAWN_SAFE_RADIUS) {
                 const mon = makeMonster(monsterDef, `m_${floorLevel}_${idx}_${m}`, mx, my, floorLevel, { level: rollMonsterLevel(prng, floorLevel), affixes: rollAffixes(prng, floorLevel) });
                 if (mod.monsterHpMult) { mon.hp = Math.round(mon.hp * mod.monsterHpMult); mon.maxHp = mon.hp; }
                 monsters.push(mon);
@@ -533,7 +540,7 @@ export function generateFloor(baseSeed, moduleFloor) {
     for (const sp of specials) {
         if (sp.type === 'vault' && sp.room.door) lockedDoors.push({ x: sp.room.door.x, y: sp.room.door.y, keyId: `key_${floorLevel}_${lockedDoors.length}`, keyName: KEY_NAMES[lockedDoors.length % KEY_NAMES.length], isVaultSpecial: true });
     }
-    const SOLID = new Set([TILES.WALL, TILES.PILLAR, TILES.PIT, TILES.RUBBLE, TILES.LOCKED_DOOR, TILES.WATER]);
+    const SOLID = new Set([TILES.WALL, TILES.PILLAR, TILES.PIT, TILES.RUBBLE, TILES.LOCKED_DOOR, TILES.WATER, TILES.SECRET_DOOR]); // keys are never hidden behind a secret door
     const flood = (start) => {
         const seen = new Uint8Array(MAP_WIDTH * MAP_HEIGHT);
         const q = [start.y * MAP_WIDTH + start.x];

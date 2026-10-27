@@ -40,6 +40,26 @@ export class PlaytestBot {
     note(msg) { this.report.notes.push(msg); if (this.opts.verbose) console.log('[bot]', msg); }
     anomaly(kind, detail) { this.report.anomalies.push({ kind, detail, floor: this.f?.floor, turn: this.p?.turnCount }); if (this.opts.verbose) console.warn('[bot anomaly]', kind, detail); }
 
+    bumpEvent(k, n = 1) { this.report.events = this.report.events || {}; this.report.events[k] = (this.report.events[k] || 0) + n; }
+
+    // Count notable game messages posted since the last look (keys, locks, chests, fountains, curses, perks...)
+    collectEvents() {
+        const total = this.pd.logCount();
+        const fresh = Math.min(total - (this.lastLogCount || 0), 60);
+        this.lastLogCount = total;
+        if (fresh <= 0) return;
+        const PATTERNS = {
+            keyFound: /Found the .*Key/, lockOpened: /key (turns|crumbles)|lock clicks open/i, chestLooted: /Looted:/, lucky: /Lucky!/, fountain: /Cool, clear water|Visions swim|sacred spring|spring is holy|Coins glint|stagnant|Black water|glows softly/,
+            curse: /is CURSED|cursed gem/i, identified: /work out that|scroll flares|Arcane Sight|lore (tells|reveals)|merchant studies/, trapSpotted: /TRAP SPOTTED/, trapHit: /Floor Spikes|trap/i, focus: /FOCUSED SHOT/, backstab: /BACKSTAB/,
+            charged: /Charged/, sanctified: /Holy ground/, bash: /Shield Bash/, shadow: /slip into shadow/, special: /✨ .* (Temple|Treasure Vault|Hidden Cache|Monster Lair|Cursed Crypt|Spring Sanctum)/, boss: /BOSS|has fallen|is SLAIN/,
+            wanderer: /wandering|ambush/i, starving: /STARVING|starv/i, levelUp: /LEVEL UP|reached Level/i, secret: /Secret Door spotted/, bagFull: /bag is full|Bag full/i
+        };
+        for (const line of this.pd.log(fresh)) {
+            if (BAD_TEXT.test(line)) this.anomaly('bad-text', 'log: ' + line.slice(0, 120));
+            for (const [k, re] of Object.entries(PATTERNS)) if (re.test(line)) this.bumpEvent(k);
+        }
+    }
+
     // ---- scanning for broken text ----
     scanText() {
         const ids = ['message-bar', 'status-strip', 'hud-statuses', 'hud-hp', 'hud-max-hp', 'hud-ac', 'hud-gold', 'hud-rations', 'hud-floor', 'hud-level'];
@@ -194,7 +214,24 @@ export class PlaytestBot {
             const btns = [...document.querySelectorAll('#levelup-choices button')];
             if (btns.length) { btns[0].click(); handled = true; } else { this.pd.autoLevelChoices?.(); lu.classList.remove('active'); handled = true; }
         }
-        for (const id of ['shop-modal', 'shrine-modal', 'victory-modal', 'sheet-modal', 'settings-modal', 'log-modal', 'status-modal', 'inspect-modal', 'gem-picker-modal', 'slot-picker-modal']) {
+        // Shrine: take the first offer we can afford (a real button press); shop: look at the Services tab, buy a potion, leave
+        const sh = $('shrine-modal');
+        if (sh && sh.classList.contains('active')) {
+            const offer = [...document.querySelectorAll('#shrine-list button')].find(b => !b.disabled);
+            if (BAD_TEXT.test($('shrine-list')?.innerText || '')) this.anomaly('bad-text', 'shrine: ' + $('shrine-list').innerText.slice(0, 100));
+            this.bumpEvent('shrineVisit');
+            if (offer) { offer.click(); this.bumpEvent('shrineOffer'); }
+            sh.classList.remove('active'); handled = true;
+        }
+        const shop = $('shop-modal');
+        if (shop && shop.classList.contains('active')) {
+            this.bumpEvent('shopVisit');
+            for (const tab of ['shop-tab-svc', 'shop-tab-sell', 'shop-tab-buy']) { $(tab)?.click(); if (BAD_TEXT.test($('shop-list')?.innerText || '')) this.anomaly('bad-text', `${tab}: ` + $('shop-list').innerText.slice(0, 120)); }
+            const buy = [...document.querySelectorAll('#shop-list button')].find(b => !b.disabled && /💰 \d+/.test(b.innerText) && /shopBuy/.test(b.getAttribute('onclick') || ''));
+            if (buy) { buy.click(); this.bumpEvent('shopBuy'); }
+            shop.classList.remove('active'); handled = true;
+        }
+        for (const id of ['victory-modal', 'sheet-modal', 'settings-modal', 'log-modal', 'status-modal', 'inspect-modal', 'gem-picker-modal', 'slot-picker-modal']) {
             const m = $(id);
             if (m && m.classList.contains('active') && id !== 'victory-modal') { m.classList.remove('active'); handled = true; }
         }
@@ -215,6 +252,7 @@ export class PlaytestBot {
         this.report.iterations++;
         this.handleModals();
         this.scanText();
+        this.collectEvents();
 
         // 1. survival
         const hostiles = this.hostiles(c);
@@ -260,8 +298,16 @@ export class PlaytestBot {
         for (const g of f.groundItems || []) if (!g.fresh && p.canStore(g.item)) targets.push({ x: g.x, y: g.y, why: 'item' });
         for (const m of f.mushrooms || []) targets.push({ x: m.x, y: m.y, why: 'shroom' });
         for (const l of f.lockedDoors || []) if (p.hasKey(l.keyId) && f.terrain[l.y * W + l.x] === T.LOCKED_DOOR) targets.push({ x: l.x, y: l.y, why: 'lock' });
-        const reachable = (t) => search.dist.has(t.y * W + t.x) && !this.blacklist.has(`${t.x},${t.y},${t.why}`);
-        let goal = targets.filter(reachable).sort((a, b) => search.dist.get(a.y * W + a.x) - search.dist.get(b.y * W + b.x))[0];
+        // interactive features (fountains, shrines, the merchant): reached via a neighbouring tile, then bumped
+        for (let i = 0; i < f.terrain.length; i++) {
+            const t = f.terrain[i];
+            if ((t === T.FOUNTAIN || t === T.SHRINE) && f.visibility[i] !== VIS.UNEXPLORED) targets.push({ x: i % W, y: (i - (i % W)) / W, why: 'feature' });
+        }
+        if (f.merchant && f.visibility[f.merchant.y * W + f.merchant.x] !== VIS.UNEXPLORED) targets.push({ x: f.merchant.x, y: f.merchant.y, why: 'feature' });
+        const nbrs = (t) => [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => ({ x: t.x + dx, y: t.y + dy })).filter(n => search.dist.has(n.y * W + n.x));
+        const distOf = (t) => (t.why === 'feature' ? Math.min(Infinity, ...nbrs(t).map(n => search.dist.get(n.y * W + n.x) + 1)) : (search.dist.has(t.y * W + t.x) ? search.dist.get(t.y * W + t.x) : Infinity));
+        const reachable = (t) => Number.isFinite(distOf(t)) && !this.blacklist.has(`${t.x},${t.y},${t.why}`);
+        let goal = targets.filter(reachable).sort((a, b) => distOf(a) - distOf(b))[0];
 
         const stairsKnown = f.visibility[f.stairsDownPos.y * W + f.stairsDownPos.x] !== VIS.UNEXPLORED;
         const bossAlive = f.monsters.some(m => m.isBoss && m.alive);
@@ -305,6 +351,19 @@ export class PlaytestBot {
             }
         }
 
+        if (goal && goal.why === 'feature') {
+            const near = Math.max(Math.abs(goal.x - p.x), Math.abs(goal.y - p.y)) <= 1;
+            if (near) {
+                this.tapWorld(goal.x, goal.y); await this.settle(); this.handleModals();
+                this.blacklist.add(`${goal.x},${goal.y},feature`);
+                this.bumpEvent('featureBump');
+            } else {
+                const nb = nbrs(goal).sort((a, b) => search.dist.get(a.y * W + a.x) - search.dist.get(b.y * W + b.x))[0];
+                const moved = nb ? await this.walkTo(c, search, nb) : false;
+                if (!moved) this.blacklist.add(`${goal.x},${goal.y},feature`);
+            }
+            return 'feature';
+        }
         if (goal) {
             const moved = await this.walkTo(c, search, goal);
             if (!moved) {

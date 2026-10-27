@@ -172,6 +172,7 @@ export function restartSameSeed() {
 }
 
 function loadFloor(floorNum, enterFromAbove = true) {
+    if (window.__traceFloors) (window.__floorTrace = window.__floorTrace || []).push({ floorNum, enterFromAbove, turn: player ? player.turnCount : 0, stack: String(new Error().stack).slice(0, 500) });
     selectedTargetId = null;
     resetPan();
     dungeonManager.currentFloor = floorNum;
@@ -381,10 +382,12 @@ function updateHUD() {
 
 const MESSAGE_CAP = 400; // history kept in memory (plain text only)
 const messageLog = []; // { text, cls, turn }
+let messageCounter = 0; // total messages ever posted (the log itself is capped)
 let msgExpanded = false;
 try { msgExpanded = localStorage.getItem('pixel_rpg_msg_expanded') === '1'; } catch (e) {}
 
 function postMessage(text, className = "") {
+    messageCounter++;
     messageLog.push({ text: text.replace(/<[^>]*>/g, ""), cls: className, turn: player ? player.turnCount : 0 });
     if (messageLog.length > MESSAGE_CAP) messageLog.shift();
     renderMessageBar(text, className);
@@ -5067,6 +5070,7 @@ function afterDebugChange(msg) {
 export const pixelDebug = {
     // Spawn a boss two tiles from the hero (any floor) for quick fight testing: id = bugbear|troll|chimaera|giant|dragon
     player() { return player; },
+    logCount() { return messageCounter; },
     monsters() { return currentFloorData.monsters; },
     placeTile(dx, dy, name) { const t = TILES[name]; if (t === undefined) return false; currentFloorData.terrain[(player.y + dy) * MAP_WIDTH + player.x + dx] = t; draw(); return true; },
     give(item) { const ok = player.addToBackpack(item); afterDebugChange(`Gave ${item.name}.`); return ok; },

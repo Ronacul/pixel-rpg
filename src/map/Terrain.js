@@ -133,3 +133,55 @@ export function addWater(terrain, prng, opts, protectPoints, spawn, targets) {
     for (let i = 0; i < (opts.rivers || 0); i++) river(terrain, prng, prng.chance(0.5), protect);
     ensureCrossings(terrain, spawn, targets);
 }
+
+// Everything the player needs must never depend on finding a secret door: the exit stairs and every ordinary room are
+// reachable through open (or closed, but not secret) doors. Any secret door on the cheapest route becomes an ordinary
+// closed door. Secret doors remain for the designated secret rooms and caches. One Dijkstra from the arrival stairs
+// serves all targets. Returns how many secret doors were opened up.
+export function openRoutesFrom(terrain, from, targets) {
+    const total = MAP_WIDTH * MAP_HEIGHT;
+    const cost = new Float64Array(total).fill(Infinity);
+    const prev = new Int32Array(total).fill(-1);
+    const start = idx(from.x, from.y);
+    cost[start] = 0;
+    const blocked = new Set([TILES.WALL, TILES.PILLAR, TILES.PIT, TILES.RUBBLE, TILES.WATER, TILES.LOCKED_DOOR]);
+    // binary min-heap of [cost, index]
+    const heap = [[0, start]];
+    const push = (e) => { heap.push(e); let i = heap.length - 1; while (i > 0) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
+    const pop = () => {
+        const top = heap[0], last = heap.pop();
+        if (heap.length) {
+            heap[0] = last;
+            let i = 0;
+            for (;;) {
+                const l = 2 * i + 1, r = l + 1; let m = i;
+                if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+                if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+                if (m === i) break;
+                [heap[m], heap[i]] = [heap[i], heap[m]]; i = m;
+            }
+        }
+        return top;
+    };
+    const goals = new Set(targets.map(t => idx(t.x, t.y)));
+    while (heap.length) {
+        const [c, cur] = pop();
+        if (c > cost[cur]) continue;
+        const x = cur % MAP_WIDTH, y = (cur - x) / MAP_WIDTH;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const nx = x + dx, ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= MAP_WIDTH || ny >= MAP_HEIGHT) continue;
+            const ni = idx(nx, ny), t = terrain[ni];
+            if (blocked.has(t) && !goals.has(ni)) continue;
+            const step = t === TILES.SECRET_DOOR ? 40 : 1;
+            if (cost[cur] + step < cost[ni]) { cost[ni] = cost[cur] + step; prev[ni] = cur; push([cost[ni], ni]); }
+        }
+    }
+    let opened = 0;
+    for (const g of goals) {
+        for (let i = g; i !== -1 && i !== start; i = prev[i]) {
+            if (terrain[i] === TILES.SECRET_DOOR) { terrain[i] = TILES.DOOR_CLOSED; opened++; }
+        }
+    }
+    return opened;
+}

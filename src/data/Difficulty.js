@@ -126,6 +126,7 @@ export function applyDifficulty(monster, def, level, affixIds = []) {
     monster.attackBonus = s.attackBonus;
     monster.bonusDmg = s.bonusDmg;
     monster.diceCount = 1;
+    if (level <= 2) monster.dice = Math.min(monster.dice, level <= 1 ? 4 : 6); // the first floors hit gently
     monster.affixes = [];
     for (const id of affixIds) {
         const a = MONSTER_AFFIXES[id];

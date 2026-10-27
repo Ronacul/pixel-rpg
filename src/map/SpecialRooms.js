@@ -109,7 +109,9 @@ export function planSpecials(ctx) {
         let room = null;
         if (t.stub) room = carveStub(ctx, typeId);
         else {
-            const pool = eligible();
+            let pool = eligible();
+            // hostile set pieces never sit near the arrival stairs
+            if (typeId === 'lair' || typeId === 'crypt') pool = pool.filter(r => Math.hypot(r.cx - rooms[0].cx, r.cy - rooms[0].cy) >= 12);
             if (!pool.length) return false;
             // prefer the larger rooms for the big set pieces
             const sorted = pool.map(r => ({ r, k: r.w * r.h + prng.next() * 20 })).sort((a, b) => b.k - a.k);

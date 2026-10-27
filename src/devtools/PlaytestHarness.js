@@ -49,8 +49,10 @@ export async function runClasses(classes, opts = {}) {
         const bot = new PlaytestBot({ maxIterations: 3500, ...botOpts });
         const r = await bot.run();
         r.createInfo = info;
+        r.heapMB = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1e6) : null;
         results.push(r);
         window.__results = results;
+        try { localStorage.setItem('__playtest_results', JSON.stringify(results)); } catch (e) { /* ignore */ }
     }
     window.__allDone = true;
     return results;
